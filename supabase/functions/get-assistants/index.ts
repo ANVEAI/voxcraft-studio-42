@@ -53,42 +53,30 @@ serve(async (req) => {
     const authHeader = req.headers.get('authorization');
     console.log('Auth header present:', !!authHeader);
     
-    let userId;
-    
-    if (!authHeader) {
-      console.log('No authorization header - proceeding with public access');
-      // For public access, we'll use a default user or allow limited access
-      userId = 'anonymous';
-    } else if (!authHeader.startsWith('Bearer ')) {
-      console.error('Invalid authorization header format');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('Invalid authorization header');
       throw new Error('No valid authorization header');
-    } else {
-      // Extract token from Bearer header
-      const token = authHeader.replace('Bearer ', '');
-      console.log('Token extracted, length:', token.length);
-      
-      // Parse Clerk token to get user ID  
-      userId = parseClerkToken(token);
-      if (!userId) {
-        console.error('Failed to parse user ID from token');
-        throw new Error('Invalid user token');
-      }
+    }
+
+    // Extract token from Bearer header
+    const token = authHeader.replace('Bearer ', '');
+    console.log('Token extracted, length:', token.length);
+    
+    // Parse Clerk token to get user ID
+    const userId = parseClerkToken(token);
+    if (!userId) {
+      console.error('Failed to parse user ID from token');
+      throw new Error('Invalid user token');
     }
 
     console.log('Fetching assistants for user:', userId);
 
     // Fetch assistants for the user
-    let query = supabase
+    const { data: assistants, error } = await supabase
       .from('assistants')
       .select('*')
+      .eq('user_id', userId)
       .order('created_at', { ascending: false });
-    
-    // Only filter by user if not anonymous
-    if (userId !== 'anonymous') {
-      query = query.eq('user_id', userId);
-    }
-    
-    const { data: assistants, error } = await query;
 
     if (error) {
       console.error('Database error:', error);

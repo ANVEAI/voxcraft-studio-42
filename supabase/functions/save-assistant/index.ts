@@ -54,25 +54,20 @@ serve(async (req) => {
     const authHeader = req.headers.get('authorization');
     console.log('Auth header present:', !!authHeader);
     
-    let userId;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('Invalid authorization header');
+      throw new Error('No valid authorization header');
+    }
+
+    // Extract token from Bearer header
+    const token = authHeader.replace('Bearer ', '');
+    console.log('Token extracted, length:', token.length);
     
-    if (!authHeader) {
-      console.log('No authorization header - proceeding with anonymous access');
-      userId = 'anonymous';
-    } else if (!authHeader.startsWith('Bearer ')) {
-      console.error('Invalid authorization header format');
-      throw new Error('Invalid authorization header format');
-    } else {
-      // Extract token from Bearer header
-      const token = authHeader.replace('Bearer ', '');
-      console.log('Token extracted, length:', token.length);
-      
-      // Parse Clerk token to get user ID
-      userId = parseClerkToken(token);
-      if (!userId) {
-        console.error('Failed to parse user ID from token, using anonymous');
-        userId = 'anonymous';
-      }
+    // Parse Clerk token to get user ID
+    const userId = parseClerkToken(token);
+    if (!userId) {
+      console.error('Failed to parse user ID from token');
+      throw new Error('Invalid user token');
     }
 
     const assistantData = await req.json();

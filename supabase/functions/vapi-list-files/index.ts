@@ -15,26 +15,38 @@ serve(async (req) => {
   }
 
   try {
-    // Get authorization header - make it optional for public access
+    // Get authorization header
     const authHeader = req.headers.get('Authorization');
-    let userId = 'anonymous';
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'No authorization header' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Extract the Clerk JWT token and get user ID (same method as vapi-analytics)
+    const jwt = authHeader.replace('Bearer ', '');
     
-    if (authHeader) {
-      // Extract the Clerk JWT token and get user ID
-      const jwt = authHeader.replace('Bearer ', '');
-      
-      try {
-        const base64Url = jwt.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const payload = JSON.parse(atob(base64));
-        userId = payload.sub || 'anonymous';
-        console.log('📝 Extracted user ID from JWT payload:', userId);
-      } catch (decodeError) {
-        console.error('Failed to decode JWT, using anonymous:', decodeError);
-        userId = 'anonymous';
-      }
-    } else {
-      console.log('📝 No auth header, using anonymous access');
+    let userId;
+    try {
+      const base64Url = jwt.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(base64));
+      userId = payload.sub;
+      console.log('📝 Extracted user ID from JWT payload:', userId);
+    } catch (decodeError) {
+      console.error('Failed to decode JWT:', decodeError);
+      return new Response(JSON.stringify({ error: 'Invalid authentication token' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'No user ID found in token' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
     console.log('📝 Fetching files for user:', userId);

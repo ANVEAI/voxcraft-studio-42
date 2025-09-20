@@ -136,71 +136,6 @@ serve(async (req) => {
       }
     }
     
-    // Define DOM manipulation function schemas
-    const domFunctions = [
-      {
-        name: "scroll_page",
-        description: "Scroll the page in a specified direction",
-        parameters: {
-          type: "object",
-          properties: {
-            direction: {
-              type: "string",
-              enum: ["up", "down", "top", "bottom"],
-              description: "Direction to scroll"
-            }
-          },
-          required: ["direction"]
-        }
-      },
-      {
-        name: "click_element",
-        description: "Click on an element with specific text content",
-        parameters: {
-          type: "object",
-          properties: {
-            text: {
-              type: "string",
-              description: "Text content of the element to click"
-            }
-          },
-          required: ["text"]
-        }
-      },
-      {
-        name: "fill_field",
-        description: "Fill an input field with specified value",
-        parameters: {
-          type: "object",
-          properties: {
-            value: {
-              type: "string",
-              description: "Value to fill in the field"
-            },
-            field_hint: {
-              type: "string",
-              description: "Hint about which field to fill (e.g., 'email', 'password', 'search')"
-            }
-          },
-          required: ["value"]
-        }
-      },
-      {
-        name: "toggle_element",
-        description: "Toggle elements like checkboxes, switches, or collapsible sections",
-        parameters: {
-          type: "object",
-          properties: {
-            target: {
-              type: "string",
-              description: "Description of element to toggle (e.g., 'dark mode toggle', 'menu')"
-            }
-          },
-          required: ["target"]
-        }
-      }
-    ];
-
     const payload = {
       name: assistantData.botName || 'Voice Assistant',
       model: {
@@ -209,16 +144,15 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: assistantData.systemPrompt || 'You are a helpful voice assistant with DOM manipulation capabilities. You can help users navigate websites by scrolling, clicking elements, filling forms, and toggling controls. Always announce what action you are performing.'
+            content: assistantData.systemPrompt || 'You are a helpful voice assistant.'
           }
-        ],
-        functions: domFunctions
+        ]
       },
       voice: {
         provider: 'vapi',
         voiceId: selectedVoice?.voiceId || 'Elliot'
       },
-      firstMessage: assistantData.welcomeMessage || 'Hello! I can help you navigate this website. You can ask me to scroll, click buttons, fill forms, or toggle controls.',
+      firstMessage: assistantData.welcomeMessage || 'Hello! How can I help you today?',
       // Explicitly disable Krisp noise cancellation to prevent WORKLET_NOT_SUPPORTED errors
       backgroundSpeechDenoisingPlan: {
         smartDenoisingPlan: {
