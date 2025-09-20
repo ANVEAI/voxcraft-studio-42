@@ -8,3 +8,12 @@ verify_jwt = false
 
 [functions.external-chatbot-voice]
 verify_jwt = false
+
+[functions.get-assistants]
+verify_jwt = false
+
+[functions.vapi-list-files]
+verify_jwt = false
+
+[functions.save-assistant]
+verify_jwt = false
