@@ -84,10 +84,24 @@ serve(async (req) => {
       if (typeof window.supabase === 'undefined') {
         // Load Supabase if not available
         const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/index.min.js';
+        // Use UMD build that exposes global `supabase`
+        script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/index.js';
         script.onload = () => {
           this.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
           this.setupRealtimeSubscription();
+        };
+        script.onerror = () => {
+          console.warn('Primary Supabase SDK failed to load, trying fallback CDN...');
+          const fallback = document.createElement('script');
+          fallback.src = 'https://unpkg.com/@supabase/supabase-js@2.57.4/dist/umd/index.js';
+          fallback.onload = () => {
+            this.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+            this.setupRealtimeSubscription();
+          };
+          fallback.onerror = () => {
+            console.error('Failed to load Supabase SDK');
+          };
+          document.head.appendChild(fallback);
         };
         document.head.appendChild(script);
       } else {
