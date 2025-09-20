@@ -368,6 +368,11 @@ serve(async (req) => {
 `;
 
   return new Response(bundleCode, {
-    headers: { ...corsHeaders, 'Content-Type': 'application/javascript' }
+    status: 200,
+    headers: { 
+      ...corsHeaders, 
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': 'public, max-age=300'
+    }
   });
 });

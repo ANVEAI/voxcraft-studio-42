@@ -207,7 +207,13 @@ serve(async (req) => {
 `;
 
     return new Response(jsContent, {
-      headers: { ...corsHeaders, 'Content-Type': 'application/javascript' },
+      status: 200,
+      headers: { 
+        ...corsHeaders, 
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'public, max-age=300',
+        'X-Content-Type-Options': 'nosniff'
+      },
     });
 
   } catch (error) {
