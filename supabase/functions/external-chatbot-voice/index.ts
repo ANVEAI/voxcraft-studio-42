@@ -31,6 +31,9 @@ serve(async (req) => {
     console.log('[External Chatbot Voice] VAPI Public Key available:', !!vapiPublicKey);
     console.log('[External Chatbot Voice] VAPI Public Key value:', vapiPublicKey || 'NOT_SET');
     
+    // Get the actual API key value to inject
+    const actualApiKey = url.searchParams.get('apiKey') || vapiPublicKey || 'MISSING_VAPI_KEY';
+    
     const jsContent = `// VAPI-Powered Voice Navigation Embed Script
 // Add this script to any website to enable VAPI-powered voice navigation
 (function() {
@@ -43,10 +46,11 @@ serve(async (req) => {
     position: '${url.searchParams.get('position') || 'bottom-right'}',
     theme: '${url.searchParams.get('theme') || 'light'}',
     assistant: '${url.searchParams.get('assistant') || uuid}',
-    apiKey: '${url.searchParams.get('apiKey') || vapiPublicKey || 'MISSING_VAPI_KEY'}'
+    apiKey: '${actualApiKey}'
   };
 
   console.log('[VAPI Config] Using API Key:', config.apiKey ? 'SET' : 'MISSING');
+  console.log('[VAPI Config] API Key length:', config.apiKey.length);
   console.log('[VAPI Config] Using Assistant ID:', config.assistant);
 
   class VAPIVoiceNavigator {
