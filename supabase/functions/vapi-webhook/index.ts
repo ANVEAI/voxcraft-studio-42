@@ -221,8 +221,10 @@ async function handleCallEnd(supabase: any, assistant: any, call: any) {
   } else {
     console.log('[VAPI Webhook] Call end recorded successfully');
     
-    // Update daily analytics in background
-    EdgeRuntime.waitUntil(updateDailyAnalytics(supabase, assistant.user_id));
+    // Update daily analytics asynchronously
+    updateDailyAnalytics(supabase, assistant.user_id).catch(error => {
+      console.error('[VAPI Webhook] Background analytics update failed:', error);
+    });
   }
 }
 
