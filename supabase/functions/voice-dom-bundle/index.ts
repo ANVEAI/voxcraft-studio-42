@@ -84,7 +84,7 @@ serve(async (req) => {
       if (typeof window.supabase === 'undefined') {
         // Load Supabase if not available
         const script = document.createElement('script');
-        // Use UMD build that exposes global `supabase`
+        // Use UMD build that exposes global supabase
         script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/index.js';
         script.onload = () => {
           this.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
