@@ -9,6 +9,9 @@ verify_jwt = false
 [functions.external-chatbot-voice]
 verify_jwt = false
 
+[functions.voice-assistant-embed]
+verify_jwt = false
+
 [functions.get-assistants]
 verify_jwt = false
 
