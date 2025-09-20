@@ -116,7 +116,14 @@ serve(async (req) => {
       script.onload = () => {
         console.log('DOM bundle loaded successfully');
         if (typeof window.initVoiceNavigator === 'function') {
-          window.initVoiceNavigator(config);
+          // Pass the full config including assistant ID for realtime
+          const navigatorConfig = {
+            ...config,
+            supabaseUrl: '${supabaseUrl}',
+            supabaseKey: '${supabaseAnonKey}',
+            userId: config.uuid || config.assistant || 'anonymous'
+          };
+          window.initVoiceNavigator(navigatorConfig);
         }
       };
 

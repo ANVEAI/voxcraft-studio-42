@@ -20,13 +20,14 @@ serve(async (req) => {
   class VoiceNavigator {
     constructor(config) {
       this.config = config;
-      this.userId = config.uuid || config.userId;
+      this.userId = config.userId || config.uuid || config.assistant || 'anonymous';
       this.supabase = null;
       this.channel = null;
       this.currentPageElements = [];
       this.statusEl = null;
       
       console.log('[VoiceNavigator] Initializing with config:', config);
+      console.log('[VoiceNavigator] Using userId:', this.userId);
       this.init();
     }
 
@@ -75,9 +76,9 @@ serve(async (req) => {
     }
 
     initSupabase() {
-      // Initialize Supabase client for Realtime
-      const supabaseUrl = 'https://mdkcdjltvfpthqudhhmx.supabase.co';
-      const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg';
+      // Use config provided supabase credentials if available
+      const supabaseUrl = this.config.supabaseUrl || 'https://mdkcdjltvfpthqudhhmx.supabase.co';
+      const supabaseKey = this.config.supabaseKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg';
       
       if (typeof window.supabase === 'undefined') {
         // Load Supabase if not available
@@ -90,6 +91,7 @@ serve(async (req) => {
         document.head.appendChild(script);
       } else {
         this.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+        this.setupRealtimeSubscription();
       }
     }
 
