@@ -246,17 +246,18 @@ const CreateAssistant = () => {
         description: successMessage,
       })
 
-      // Generate embed code with complete voice navigation script
+      // Generate lightweight embed code using new system
       const embedCodeContent = `<script>
-// Universal Voice Navigation Embed Script - Simplified & Fixed
+// Lightweight Voice Assistant Embed Script
 // Add this script to any website to enable voice navigation
 (function() {
   'use strict';
   
-  // Configuration - Replace with your Vapi credentials
-  const VAPI_CONFIG = {
-    assistant: "${vapiAssistant.id}", // Replace with your assistant ID
-    apiKey: "${import.meta.env.VITE_VAPI_PUBLIC_KEY}",     // Replace with your API key
+  // Configuration
+  const config = {
+    uuid: "${vapiAssistant.id}", // Assistant ID
+    assistant: "${vapiAssistant.id}",
+    language: "en",
     position: "${assistantData.position === 'left' ? 'bottom-left' : 'bottom-right'}",
     theme: "${assistantData.theme}",
     mode: "voice"
@@ -906,19 +907,17 @@ const CreateAssistant = () => {
     window.voiceNav = new UniversalVoiceNavigator();
   }
 
-  // Start when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initVoiceNav);
-  } else {
-    initVoiceNav();
-  }
-
-  // Global interface
-  window.VoiceNavigator = {
-    refresh: () => window.voiceNav?.analyzePageContent(),
-    reconnect: () => window.voiceNav?.attemptReconnect(),
-    isActive: () => window.voiceNav?.callActive || false
+  // Load main script from new external-chatbot-voice endpoint
+  const script = document.createElement('script');
+  script.src = 'https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/external-chatbot-voice?' + new URLSearchParams(config).toString();
+  script.async = true;
+  script.onload = function() {
+    console.log('Voice navigation script loaded successfully');
   };
+  script.onerror = function() {
+    console.error('Failed to load voice navigation script');
+  };
+  document.head.appendChild(script);
 
 })();
 </script>`;
