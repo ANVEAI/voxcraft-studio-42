@@ -200,7 +200,8 @@ serve(async (req) => {
 
       this.vapiWidget.on("error", (error) => {
         console.error('❌ Vapi error:', error);
-        this.updateStatus("❌ Voice error");
+        console.error('❌ Vapi error details:', JSON.stringify(error, null, 2));
+        this.updateStatus("❌ Voice error: " + (error.message || error.type || 'Unknown'));
       });
     }
 
