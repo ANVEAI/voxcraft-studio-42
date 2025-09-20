@@ -9,7 +9,7 @@ const corsHeaders = {
 
 interface VapiWebhookPayload {
   type: string;
-  call: {
+  call?: {
     id: string;
     orgId: string;
     createdAt: string;
@@ -28,6 +28,23 @@ interface VapiWebhookPayload {
     assistant?: {
       id: string;
     };
+  };
+  message?: {
+    type: string;
+    functionCall?: {
+      name: string;
+      parameters: any;
+    };
+    toolCalls?: Array<{
+      function: {
+        name: string;
+        arguments: string | any;
+      };
+    }>;
+  };
+  assistant?: {
+    id: string;
+    customer_id?: string;
   };
 }
 
@@ -55,8 +72,22 @@ serve(async (req) => {
     // Parse webhook payload
     const payload: VapiWebhookPayload = await req.json();
     console.log('[VAPI Webhook] Payload type:', payload.type);
-    console.log('[VAPI Webhook] Call ID:', payload.call?.id);
+    console.log('[VAPI Webhook] Full payload:', JSON.stringify(payload, null, 2));
 
+    // Handle function calls first
+    if (payload.message) {
+      const assistantId = payload.assistant?.id || payload.call?.assistant?.id;
+      if (assistantId) {
+        const result = await handleFunctionCall(supabase, payload, assistantId);
+        if (result) {
+          return new Response(JSON.stringify(result), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+      }
+    }
+
+    // Handle regular call events
     if (!payload.call) {
       return new Response(JSON.stringify({ error: 'No call data in payload' }), {
         status: 400,
@@ -217,6 +248,112 @@ async function handleCallUpdate(supabase: any, assistant: any, call: any) {
     console.error('[VAPI Webhook] Error updating call:', error);
   } else {
     console.log('[VAPI Webhook] Call update recorded successfully');
+  }
+}
+
+async function handleFunctionCall(supabase: any, payload: VapiWebhookPayload, assistantId: string) {
+  console.log('[VAPI Webhook] Processing function call for assistant:', assistantId);
+
+  // Extract function call from VAPI payload
+  let functionCall = null;
+  if (payload.message?.functionCall) {
+    functionCall = payload.message.functionCall;
+  } else if (payload.message?.toolCalls?.length > 0) {
+    const toolCall = payload.message.toolCalls[0];
+    functionCall = {
+      name: toolCall.function.name,
+      parameters: typeof toolCall.function.arguments === 'string' 
+        ? JSON.parse(toolCall.function.arguments)
+        : toolCall.function.arguments
+    };
+  }
+
+  if (!functionCall) {
+    console.log('[VAPI Webhook] No function call found in message');
+    return null;
+  }
+
+  console.log('[VAPI Webhook] Function call:', functionCall.name, functionCall.parameters);
+
+  // Find the user who owns this assistant
+  const { data: assistant, error: assistantError } = await supabase
+    .from('assistants')
+    .select('id, user_id')
+    .eq('vapi_assistant_id', assistantId)
+    .single();
+
+  if (assistantError || !assistant) {
+    console.log('[VAPI Webhook] Assistant not found for function call:', assistantId);
+    return { error: 'Assistant not found' };
+  }
+
+  // Map function to command
+  const command = mapFunctionToCommand(functionCall, assistant.user_id);
+  
+  if (!command) {
+    console.log('[VAPI Webhook] Unknown function:', functionCall.name);
+    return { error: `Unknown function: ${functionCall.name}` };
+  }
+
+  console.log('[VAPI Webhook] Broadcasting command:', command);
+
+  // Broadcast to user-specific channel via Supabase Realtime
+  try {
+    const channel = supabase.channel(`voice-commands-${assistant.user_id}`);
+    await channel.send({
+      type: 'broadcast',
+      event: 'voice_command',
+      payload: command
+    });
+
+    console.log('[VAPI Webhook] Command broadcasted successfully');
+    
+    return { 
+      result: `Executed ${command.action} command successfully`,
+      command: command
+    };
+  } catch (error) {
+    console.error('[VAPI Webhook] Error broadcasting command:', error);
+    return { error: 'Failed to broadcast command' };
+  }
+}
+
+function mapFunctionToCommand(functionCall: any, userId: string) {
+  const { name, parameters } = functionCall;
+
+  const baseCommand = {
+    userId,
+    timestamp: new Date().toISOString()
+  };
+
+  switch (name) {
+    case 'scroll_page':
+      return {
+        ...baseCommand,
+        action: 'scroll',
+        direction: parameters.direction
+      };
+    case 'click_element':
+      return {
+        ...baseCommand,
+        action: 'click',
+        targetText: parameters.target_text
+      };
+    case 'fill_field':
+      return {
+        ...baseCommand,
+        action: 'fill',
+        value: parameters.value,
+        fieldHint: parameters.field_hint || 'text'
+      };
+    case 'toggle_element':
+      return {
+        ...baseCommand,
+        action: 'toggle',
+        target: parameters.target
+      };
+    default:
+      return null;
   }
 }
 

@@ -1,1 +1,10 @@
 project_id = "mdkcdjltvfpthqudhhmx"
+
+[functions.vapi-webhook]
+verify_jwt = false
+
+[functions.voice-dom-bundle]
+verify_jwt = false
+
+[functions.external-chatbot-voice]
+verify_jwt = false
