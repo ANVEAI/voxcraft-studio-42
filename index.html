@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>voxcraft-studio</title>
+    <meta name="description" content="Lovable Generated Project" />
+    <meta name="author" content="Lovable" />
+
+    <meta property="og:title" content="voxcraft-studio" />
+    <meta property="og:description" content="Lovable Generated Project" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@lovable_dev" />
+    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Voice Navigation Script -->
+    <script>
+      // Wait for page to load completely
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          if (window.voiceNav) {
+            console.log('Voice Navigator already exists');
+            return;
+          }
+
+          // Universal Voice Navigation Embed Script
+          (function() {
+            'use strict';
+            
+            // Configuration
+            const VAPI_CONFIG = {
+              assistant: "NEW_ASSISTANT_ID_PLACEHOLDER",
+              apiKey: "NEW_PUBLIC_KEY_PLACEHOLDER",
+              position: "bottom-right",
+              theme: "light",
+              mode: "voice"
+            };
+
+            class UniversalVoiceNavigator {
+              constructor() {
+                this.vapiWidget = null;
+                this.isInitialized = false;
+                this.currentPageElements = [];
+                this.statusEl = null;
+                this.navigationInProgress = false;
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 3;
+                this.callActive = false;
+                this.assistantSpeaking = false;
+                this.lastProcessedTranscript = '';
+                this.sessionId = 'voice_' + Date.now();
+                this.init();
+              }
+
+              init() {
+                console.log('🎤 Initializing Universal Voice Navigator...');
+                this.createStatusIndicator();
+                this.updateStatus("Loading voice navigation...");
+                this.loadVapiSDK();
+                this.analyzePageContent();
+                this.setupNavigationHandling();
+                setTimeout(() => this.checkForSessionRestore(), 1500);
+              }
+
+              createStatusIndicator() {
+                const statusEl = document.createElement('div');
+                statusEl.id = 'voice-nav-status';
+                statusEl.style.cssText = `
+                  position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.9); color: white;
+                  padding: 12px 16px; border-radius: 8px; font-size: 14px; z-index: 10000;
+                  max-width: 300px; backdrop-filter: blur(10px); cursor: pointer;
+                `;
+                statusEl.innerHTML = `
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span id="voice-status-text">Initializing...</span>
+                    <span style="margin-left: 10px; cursor: pointer; opacity: 0.7;" onclick="this.parentElement.parentElement.style.display='none'">✕</span>
+                  </div>
+                `;
+                document.body.appendChild(statusEl);
+                this.statusEl = document.getElementById('voice-status-text');
+              }
+
+              loadVapiSDK() {
+                if (window.vapiSDK) {
+                  this.initializeVapi();
+                  return;
+                }
+                const script = document.createElement('script');
+                script.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
+                script.async = true;
+                script.onload = () => this.initializeVapi();
+                script.onerror = () => this.updateStatus("❌ Voice SDK failed to load");
+                document.head.appendChild(script);
+              }
+
+              initializeVapi() {
+                try {
+                  if (this.vapiWidget) {
+                    this.vapiWidget.destroy();
+                    this.vapiWidget = null;
+                  }
+                  this.vapiWidget = window.vapiSDK.run({
+                    apiKey: VAPI_CONFIG.apiKey,
+                    assistant: VAPI_CONFIG.assistant,
+                    config: { position: VAPI_CONFIG.position, theme: VAPI_CONFIG.theme, mode: VAPI_CONFIG.mode }
+                  });
+                  this.setupVapiEventListeners();
+                  this.isInitialized = true;
+                  this.updateStatus("🎤 Click the voice button to start!");
+                } catch (error) {
+                  console.error('Vapi initialization error:', error);
+                  this.updateStatus("❌ Voice setup failed");
+                }
+              }
+
+              setupVapiEventListeners() {
+                if (!this.vapiWidget) return;
+                
+                this.vapiWidget.on("call-start", () => {
+                  console.log('📞 Call started');
+                  this.callActive = true;
+                  this.assistantSpeaking = false;
+                  this.updateStatus("🎤 Voice active - say your command!");
+                  this.reconnectAttempts = 0;
+                });
+
+                this.vapiWidget.on("call-end", () => {
+                  console.log('📞 Call ended');
+                  this.callActive = false;
+                  this.assistantSpeaking = false;
+                  this.updateStatus("🔄 Voice ended");
+                });
+
+                this.vapiWidget.on("speech-start", () => {
+                  this.assistantSpeaking = true;
+                  this.updateStatus("🤖 Assistant responding...");
+                });
+
+                this.vapiWidget.on("speech-end", () => {
+                  this.assistantSpeaking = false;
+                  this.updateStatus("🎤 Ready for your command");
+                });
+
+                this.vapiWidget.on("message", (message) => {
+                  if (message.type === "transcript" && message.transcriptType === "final") {
+                    this.handleTranscript(message);
+                  }
+                });
+
+                this.vapiWidget.on("error", (error) => {
+                  console.error('❌ Vapi error:', error);
+                  this.updateStatus("❌ Voice error");
+                  this.callActive = false;
+                });
+              }
+
+              handleTranscript(message) {
+                const transcript = message.transcript?.trim();
+                if (!transcript || transcript.length < 3) return;
+                if (transcript === this.lastProcessedTranscript) return;
+                
+                console.log('📝 Processing transcript:', transcript);
+                this.lastProcessedTranscript = transcript;
+                
+                if (!this.callActive || this.assistantSpeaking) return;
+
+                const lowerTranscript = transcript.toLowerCase();
+                const botIndicators = ['i can help', 'let me help', 'i will navigate', 'taking you to', 'going to'];
+                
+                if (botIndicators.some(indicator => lowerTranscript.includes(indicator))) {
+                  this.updateStatus(`🤖 Ignored: "${transcript}"`);
+                  return;
+                }
+
+                this.updateStatus(`👤 Processing: "${transcript}"`);
+                setTimeout(() => this.processCommand(lowerTranscript, transcript), 500);
+              }
+
+              processCommand(lowerTranscript, originalTranscript) {
+                console.log('⚡ Processing command:', lowerTranscript);
+
+                const commands = {
+                  'home': () => this.navigateTo(['home', 'homepage']),
+                  'about': () => this.navigateTo(['about', 'about us']),
+                  'contact': () => this.navigateTo(['contact', 'contact us']),
+                  'services': () => this.navigateTo(['services']),
+                  'login': () => this.navigateTo(['login', 'sign in']),
+                  'scroll down': () => this.scrollPage('down'),
+                  'scroll up': () => this.scrollPage('up'),
+                  'top': () => this.scrollPage('top'),
+                  'bottom': () => this.scrollPage('bottom'),
+                  'help': () => this.showHelp(),
+                  'refresh': () => this.refreshPage()
+                };
+
+                if (commands[lowerTranscript]) {
+                  commands[lowerTranscript]();
+                  this.updateStatus(`✅ Executed: ${originalTranscript}`);
+                  return;
+                }
+
+                for (const [command, action] of Object.entries(commands)) {
+                  if (lowerTranscript.includes(command)) {
+                    action();
+                    this.updateStatus(`✅ Executed: ${originalTranscript}`);
+                    return;
+                  }
+                }
+
+                const element = this.findElementByVoice(lowerTranscript);
+                if (element) {
+                  this.clickElement(element);
+                  this.updateStatus(`✅ Clicked: ${this.getElementText(element)}`);
+                  return;
+                }
+
+                this.updateStatus(`❓ Not recognized: "${originalTranscript}"`);
+              }
+
+              navigateTo(searchTerms) {
+                let bestElement = null;
+                let bestScore = 0;
+                
+                this.currentPageElements.forEach(item => {
+                  const itemText = item.text.toLowerCase();
+                  const itemHref = (item.href || '').toLowerCase();
+                  
+                  searchTerms.forEach(term => {
+                    const termLower = term.toLowerCase();
+                    if (itemText.includes(termLower) || itemHref.includes(termLower)) {
+                      const score = termLower.length + (itemText === termLower ? 10 : 0);
+                      if (score > bestScore) {
+                        bestScore = score;
+                        bestElement = item.element;
+                      }
+                    }
+                  });
+                });
+
+                if (bestElement) {
+                  this.clickElement(bestElement);
+                  return true;
+                } else {
+                  this.updateStatus(`❌ Could not find: ${searchTerms[0]}`);
+                  return false;
+                }
+              }
+
+              scrollPage(direction) {
+                const scrollAmount = window.innerHeight * 0.8;
+                switch(direction) {
+                  case 'down': window.scrollBy({ top: scrollAmount, behavior: 'smooth' }); break;
+                  case 'up': window.scrollBy({ top: -scrollAmount, behavior: 'smooth' }); break;
+                  case 'top': window.scrollTo({ top: 0, behavior: 'smooth' }); break;
+                  case 'bottom': window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); break;
+                }
+                this.updateStatus(`📜 Scrolled ${direction}`);
+              }
+
+              findElementByVoice(transcript) {
+                const words = transcript.split(' ').filter(word => word.length > 2);
+                let bestElement = null;
+                let bestScore = 0;
+                
+                this.currentPageElements.forEach(item => {
+                  const searchText = (item.text + ' ' + item.href).toLowerCase();
+                  let score = 0;
+                  words.forEach(word => {
+                    if (searchText.includes(word)) {
+                      score += word.length;
+                      if (item.text.toLowerCase().split(' ').includes(word)) score += 5;
+                    }
+                  });
+                  if (score > bestScore && score > 4) {
+                    bestScore = score;
+                    bestElement = item.element;
+                  }
+                });
+                return bestElement;
+              }
+
+              clickElement(element) {
+                try {
+                  if (element.href && !element.href.startsWith('#')) {
+                    this.navigationInProgress = true;
+                  }
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  setTimeout(() => {
+                    element.focus();
+                    element.click();
+                  }, 300);
+                } catch (error) {
+                  console.error('❌ Click failed:', error);
+                  this.updateStatus('❌ Click failed');
+                }
+              }
+
+              analyzePageContent() {
+                this.currentPageElements = [];
+                const selectors = [
+                  'a[href]:not([href^="#"]):not([href^="javascript:"])',
+                  'button:not([disabled])',
+                  '[role="button"]:not([disabled])'
+                ];
+                
+                selectors.forEach(selector => {
+                  try {
+                    document.querySelectorAll(selector).forEach(el => {
+                      if (this.isVisible(el)) {
+                        const text = this.getElementText(el);
+                        if (text && text.length > 0) {
+                          this.currentPageElements.push({
+                            element: el,
+                            text: text,
+                            href: el.href || ''
+                          });
+                        }
+                      }
+                    });
+                  } catch (e) { console.warn('Selector error:', e); }
+                });
+                console.log(`🔍 Found ${this.currentPageElements.length} interactive elements`);
+              }
+
+              isVisible(element) {
+                try {
+                  const rect = element.getBoundingClientRect();
+                  const style = window.getComputedStyle(element);
+                  return rect.width > 0 && rect.height > 0 && 
+                         style.display !== 'none' && style.visibility !== 'hidden';
+                } catch (e) { return false; }
+              }
+
+              getElementText(element) {
+                try {
+                  return element.getAttribute('aria-label') || element.textContent?.trim() ||
+                         element.value || element.alt || element.title || element.placeholder || '';
+                } catch (e) { return ''; }
+              }
+
+              refreshPage() {
+                this.updateStatus('🔄 Refreshing page...');
+                window.location.reload();
+              }
+
+              showHelp() {
+                this.updateStatus('ℹ️ Try: home, about, contact, scroll up/down, top, bottom');
+              }
+
+              checkForSessionRestore() {
+                // Session restoration logic can be added here
+              }
+
+              setupNavigationHandling() {
+                if (window.MutationObserver) {
+                  const observer = new MutationObserver(() => {
+                    clearTimeout(this.analyzeTimeout);
+                    this.analyzeTimeout = setTimeout(() => this.analyzePageContent(), 2000);
+                  });
+                  observer.observe(document.body, { childList: true, subtree: true });
+                }
+              }
+
+              updateStatus(message) {
+                if (this.statusEl) this.statusEl.textContent = message;
+                console.log('🎤 Status:', message);
+                if (message.startsWith('✅')) {
+                  setTimeout(() => {
+                    if (this.statusEl?.textContent === message) {
+                      this.updateStatus('🎤 Ready for commands');
+                    }
+                  }, 3000);
+                }
+              }
+            }
+
+            // Initialize
+            window.voiceNav = new UniversalVoiceNavigator();
+            window.VoiceNavigator = {
+              refresh: () => window.voiceNav?.analyzePageContent(),
+              reconnect: () => window.voiceNav?.initializeVapi(),
+              isActive: () => window.voiceNav?.callActive || false
+            };
+
+          })();
+        }, 2000); // Wait 2 seconds after page load
+      });
+    </script>
+  </body>
+</html>
