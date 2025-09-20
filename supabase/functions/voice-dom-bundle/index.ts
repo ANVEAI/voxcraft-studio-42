@@ -82,24 +82,34 @@ serve(async (req) => {
       const supabaseKey = this.config.supabaseKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg';
       
       if (typeof window.supabase === 'undefined') {
-        // Load Supabase if not available
+        // Load Supabase if not available - using correct UMD path
         const script = document.createElement('script');
-        // Use UMD build that exposes global supabase
-        script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/index.js';
+        script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+        script.async = true;
+        script.defer = true;
         script.onload = () => {
-          this.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
-          this.setupRealtimeSubscription();
-        };
-        script.onerror = () => {
-          console.warn('Primary Supabase SDK failed to load, trying fallback CDN...');
-          const fallback = document.createElement('script');
-          fallback.src = 'https://unpkg.com/@supabase/supabase-js@2.57.4/dist/umd/index.js';
-          fallback.onload = () => {
+          if (window.supabase && window.supabase.createClient) {
             this.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
             this.setupRealtimeSubscription();
+          } else {
+            console.error('Supabase client not found after loading');
+          }
+        };
+        script.onerror = () => {
+          console.warn('Primary Supabase SDK failed to load, trying unpkg...');
+          const fallback = document.createElement('script');
+          fallback.src = 'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+          fallback.async = true;
+          fallback.onload = () => {
+            if (window.supabase && window.supabase.createClient) {
+              this.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+              this.setupRealtimeSubscription();
+            } else {
+              console.error('Supabase client not found after fallback loading');
+            }
           };
           fallback.onerror = () => {
-            console.error('Failed to load Supabase SDK');
+            console.error('Failed to load Supabase SDK from both CDNs');
           };
           document.head.appendChild(fallback);
         };

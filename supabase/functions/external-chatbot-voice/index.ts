@@ -99,18 +99,19 @@ serve(async (req) => {
       }
 
       const script = document.createElement('script');
-      // Use UMD build to expose global vapiSDK
-      script.src = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/dist/umd/index.umd.js";
+      // Official VAPI CDN from their documentation
+      script.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
       script.async = true;
+      script.defer = true;
 
       script.onload = () => {
         this.initializeVapi();
       };
 
       script.onerror = () => {
-        console.warn('Primary VAPI SDK failed to load, trying fallback CDN...');
+        console.warn('Primary VAPI SDK failed to load, trying npm CDN...');
         const fallback = document.createElement('script');
-        fallback.src = "https://unpkg.com/@vapi-ai/web@2.3.8/dist/umd/index.umd.js";
+        fallback.src = "https://unpkg.com/@vapi-ai/web@latest/dist/index.umd.js";
         fallback.async = true;
         fallback.onload = () => this.initializeVapi();
         fallback.onerror = () => this.updateStatus("❌ Voice SDK failed to load");
