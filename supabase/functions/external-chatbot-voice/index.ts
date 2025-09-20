@@ -99,7 +99,7 @@ serve(async (req) => {
       }
 
       const script = document.createElement('script');
-      // Use UMD build to expose global `vapiSDK`
+      // Use UMD build to expose global vapiSDK
       script.src = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/dist/umd/index.umd.js";
       script.async = true;
 
