@@ -285,10 +285,10 @@ serve(async (req) => {
                       element.style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
                       setTimeout(() => {
                         element.style.backgroundColor = originalBg;
-                        sendFeedbackToBot(\`Successfully navigated to section "\${sectionName}". Found element: \${element.tagName.toLowerCase()} with text: "\${element.textContent?.substring(0, 100)}..."\`);
+                        sendFeedbackToBot('Successfully navigated to section "' + sectionName + '". Found element: ' + element.tagName.toLowerCase() + ' with text: "' + (element.textContent?.substring(0, 100) || '') + '..."');
                       }, 1000);
                     } else {
-                      sendFeedbackToBot(\`Could not find section "\${sectionName}". Available sections might include headers or elements with specific IDs.\`);
+                      sendFeedbackToBot('Could not find section "' + sectionName + '". Available sections might include headers or elements with specific IDs.');
                     }
                   }
                   break;
@@ -305,10 +305,10 @@ serve(async (req) => {
                   
                   const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
                     .slice(0, 10)
-                    .map(h => \`\${h.tagName}: \${h.textContent?.substring(0, 50)}...\`)
+                    .map(h => h.tagName + ': ' + (h.textContent?.substring(0, 50) || '') + '...')
                     .join(', ');
                   
-                  sendFeedbackToBot(\`Page Info - Title: "\${pageInfo.title}", URL: \${pageInfo.url}, Scroll: \${pageInfo.scrollPercent}% (\${pageInfo.scrollPosition}px of \${pageInfo.pageHeight}px). Main headings: \${headings}\`);
+                  sendFeedbackToBot('Page Info - Title: "' + pageInfo.title + '", URL: ' + pageInfo.url + ', Scroll: ' + pageInfo.scrollPercent + '% (' + pageInfo.scrollPosition + 'px of ' + pageInfo.pageHeight + 'px). Main headings: ' + headings);
                   break;
                   
                 case 'open_website':
@@ -318,17 +318,17 @@ serve(async (req) => {
                     let url = query;
                     if (!url.startsWith('http://') && !url.startsWith('https://')) {
                       if (url.includes(' ') || (!url.includes('.') && url.length > 0)) {
-                        url = \`https://www.google.com/search?q=\${encodeURIComponent(url)}\`;
+                        url = 'https://www.google.com/search?q=' + encodeURIComponent(url);
                       } else {
-                        url = \`https://\${url}\`;
+                        url = 'https://' + url;
                       }
                     }
                     
                     const newWindow = window.open(url, '_blank');
                     if (newWindow) {
-                      sendFeedbackToBot(\`Successfully opened new tab with URL: \${url}\`);
+                      sendFeedbackToBot('Successfully opened new tab with URL: ' + url);
                     } else {
-                      sendFeedbackToBot(\`Attempted to open \${url} but popup might be blocked. Please check browser settings.\`);
+                      sendFeedbackToBot('Attempted to open ' + url + ' but popup might be blocked. Please check browser settings.');
                     }
                   }
                   break;
@@ -354,7 +354,7 @@ serve(async (req) => {
                           setTimeout(() => {
                             element.style.transform = 'scale(1)';
                             element.click();
-                            sendFeedbackToBot(\`Successfully clicked element: "\${text.substring(0, 50)}..." (\${element.tagName.toLowerCase()})\`);
+                            sendFeedbackToBot('Successfully clicked element: "' + text.substring(0, 50) + '..." (' + element.tagName.toLowerCase() + ')');
                           }, 100);
                           
                           console.log('[VoiceAI] Clicked element:', elementText);
@@ -367,7 +367,7 @@ serve(async (req) => {
                     
                     if (!found) {
                       const availableElements = Array.from(document.querySelectorAll('button, a')).slice(0, 5).map(el => el.textContent?.substring(0, 30)).join(', ');
-                      sendFeedbackToBot(\`Could not find clickable element containing "\${elementText}". Available clickable elements: \${availableElements}\`);
+                      sendFeedbackToBot('Could not find clickable element containing "' + elementText + '". Available clickable elements: ' + availableElements);
                     }
                   }
                   break;
@@ -380,15 +380,15 @@ serve(async (req) => {
                     .slice(0, 20)
                     .join(' ');
                   
-                  sendFeedbackToBot(\`Page content preview (first 500 chars): \${visibleText.substring(0, 500)}...\`);
+                  sendFeedbackToBot('Page content preview (first 500 chars): ' + visibleText.substring(0, 500) + '...');
                   break;
                   
                 default:
-                  sendFeedbackToBot(\`Unknown navigation command: \${functionCall.name}\`);
+                  sendFeedbackToBot('Unknown navigation command: ' + functionCall.name);
               }
             } catch (error) {
               console.error('[VoiceAI] Error executing function:', error);
-              sendFeedbackToBot(\`Error executing \${functionCall.name}: \${error.message}\`);
+              sendFeedbackToBot('Error executing ' + functionCall.name + ': ' + error.message);
             }
           }
         }
@@ -455,7 +455,7 @@ serve(async (req) => {
       // Check for exact command matches first
       if (commands[lowerTranscript]) {
         commands[lowerTranscript]();
-        sendFeedbackToBot(\`✅ Executed: \${originalTranscript}\`);
+        sendFeedbackToBot('✅ Executed: ' + originalTranscript);
         return;
       }
 
@@ -463,7 +463,7 @@ serve(async (req) => {
       for (const [command, action] of Object.entries(commands)) {
         if (lowerTranscript.includes(command)) {
           action();
-          sendFeedbackToBot(\`✅ Executed: \${originalTranscript}\`);
+          sendFeedbackToBot('✅ Executed: ' + originalTranscript);
           return;
         }
       }
@@ -476,7 +476,7 @@ serve(async (req) => {
       }
 
       // Command not recognized
-      sendFeedbackToBot(\`❓ Not recognized: "\${originalTranscript}"\`);
+      sendFeedbackToBot('❓ Not recognized: "' + originalTranscript + '"');
       console.log('[VoiceAI] ❓ Command not recognized:', lowerTranscript);
     }
     
@@ -515,7 +515,7 @@ serve(async (req) => {
         }
       });
       
-      console.log(\`[VoiceAI] 🔍 Found \${elements.length} interactive elements\`);
+      console.log('[VoiceAI] 🔍 Found ' + elements.length + ' interactive elements');
       return elements;
     }
     
@@ -644,7 +644,7 @@ serve(async (req) => {
           
           if (sendFeedbackToBot) {
             const elementText = getElementText(element);
-            sendFeedbackToBot(\`✅ Clicked: \${elementText}\`);
+            sendFeedbackToBot('✅ Clicked: ' + elementText);
           }
         }, 300);
         
@@ -667,7 +667,7 @@ serve(async (req) => {
         'login, register, blog, products'
       ].join(' | ');
       
-      return \`ℹ️ Try: \${commands}\`;
+      return 'ℹ️ Try: ' + commands;
     }
 
     function analyzeCurrentPage() {
@@ -678,7 +678,7 @@ serve(async (req) => {
         .map(item => item.text)
         .join(', ');
       
-      return \`📊 \${count} elements: \${sample}\`;
+      return '📊 ' + count + ' elements: ' + sample;
     }
     
     console.log('[VoiceAI] Voice Assistant initialized successfully');
