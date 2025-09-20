@@ -20,226 +20,191 @@ serve(async (req) => {
   }
 
   try {
-    const url = new URL(req.url);
-    const uuid = url.searchParams.get('uuid') || url.searchParams.get('data-chatbot-uuid');
-
-    if (!uuid) {
-      return new Response('Missing UUID parameter', { status: 400 });
-    }
-
-    console.log('[External Chatbot Voice] Generating embed for UUID:', uuid);
+    console.log('[External Chatbot Voice] Request received');
     console.log('[External Chatbot Voice] VAPI Public Key available:', !!vapiPublicKey);
     console.log('[External Chatbot Voice] VAPI Public Key value:', vapiPublicKey || 'NOT_SET');
     
-    // Get the actual API key value to inject
-    const actualApiKey = url.searchParams.get('apiKey') || vapiPublicKey || 'MISSING_VAPI_KEY';
+    if (!vapiPublicKey) {
+      console.error('[External Chatbot Voice] VAPI_PUBLIC_KEY not found in environment');
+      return new Response('VAPI API key not configured', { status: 500 });
+    }
     
-    const jsContent = `// VAPI-Powered Voice Navigation Embed Script
-// Add this script to any website to enable VAPI-powered voice navigation
+    // Generate lightweight embed script that auto-detects its own attributes
+    const jsContent = `// Lightweight Voice Assistant Embed Script
+// Auto-detects configuration from script tag attributes
 (function() {
   'use strict';
   
-  // Configuration from URL parameters
-  const config = {
-    uuid: '${uuid}',
-    language: '${url.searchParams.get('language') || 'en'}',
-    position: '${url.searchParams.get('position') || 'bottom-right'}',
-    theme: '${url.searchParams.get('theme') || 'light'}',
-    assistant: '${url.searchParams.get('assistant') || uuid}',
-    apiKey: '${actualApiKey}'
-  };
+  console.log('🎤 Voice Assistant Embed Loading...');
 
-  console.log('[VAPI Config] Using API Key:', config.apiKey ? 'SET' : 'MISSING');
-  console.log('[VAPI Config] API Key length:', config.apiKey.length);
-  console.log('[VAPI Config] Using Assistant ID:', config.assistant);
-
-  class VAPIVoiceNavigator {
-    constructor() {
-      this.vapiWidget = null;
-      this.isInitialized = false;
-      this.statusEl = null;
-      this.userId = config.uuid;
-      
-      this.init();
-    }
-
-    init() {
-      console.log('🎤 Initializing VAPI Voice Navigator...');
-      this.createStatusIndicator();
-      this.updateStatus("Loading voice navigation...");
-      this.loadVapiSDK();
-      this.loadDOMBundle();
-    }
-
-    createStatusIndicator() {
-      const statusEl = document.createElement('div');
-      statusEl.id = 'voice-nav-status';
-      statusEl.style.cssText = \`
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: rgba(0, 0, 0, 0.9);
-        color: white;
-        padding: 12px 16px;
-        border-radius: 8px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        font-size: 14px;
-        z-index: 10000;
-        max-width: 300px;
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        transition: all 0.3s ease;
-        cursor: pointer;
-      \`;
-      
-      statusEl.innerHTML = \`
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span id="voice-status-text">Initializing...</span>
-          <span style="margin-left: 10px; cursor: pointer; opacity: 0.7;" onclick="this.parentElement.parentElement.style.display='none'">✕</span>
-        </div>
-      \`;
-      
-      document.body.appendChild(statusEl);
-      this.statusEl = document.getElementById('voice-status-text');
-    }
-
-    loadVapiSDK() {
-      if (window.vapiSDK) {
-        this.initializeVapi();
-        return;
+  // Auto-detect configuration from current script tag
+  function getConfiguration() {
+    const scripts = document.getElementsByTagName('script');
+    let config = {};
+    
+    // Find our script tag by checking src for external-chatbot-voice
+    for (let i = 0; i < scripts.length; i++) {
+      const script = scripts[i];
+      if (script.src && script.src.includes('external-chatbot-voice')) {
+        config = {
+          chatbotUuid: script.getAttribute('data-chatbot-uuid') || script.dataset.chatbotUuid,
+          language: script.getAttribute('data-language') || script.dataset.language || 'en',
+          position: script.getAttribute('data-position') || script.dataset.position || 'bottom-right',
+          theme: script.getAttribute('data-theme') || script.dataset.theme || 'light'
+        };
+        console.log('🔍 Auto-detected config from script tag:', config);
+        break;
       }
-
-      const script = document.createElement('script');
-      // Official VAPI CDN from their documentation
-      script.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
-      script.async = true;
-      script.defer = true;
-
-      script.onload = () => {
-        this.initializeVapi();
-      };
-
-      script.onerror = () => {
-        console.warn('Primary VAPI SDK failed to load, trying npm CDN...');
-        const fallback = document.createElement('script');
-        fallback.src = "https://unpkg.com/@vapi-ai/web@latest/dist/index.umd.js";
-        fallback.async = true;
-        fallback.onload = () => this.initializeVapi();
-        fallback.onerror = () => this.updateStatus("❌ Voice SDK failed to load");
-        document.head.appendChild(fallback);
-      };
-
-      document.head.appendChild(script);
     }
-
-    loadDOMBundle() {
-      const script = document.createElement('script');
-      script.src = 'https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-dom-bundle';
-      script.async = true;
-
-      script.onload = () => {
-        console.log('DOM bundle loaded successfully');
-        if (typeof window.initVoiceNavigator === 'function') {
-          // Pass the full config including assistant ID for realtime
-          const navigatorConfig = {
-            ...config,
-            supabaseUrl: '${supabaseUrl}',
-            supabaseKey: '${supabaseAnonKey}',
-            userId: config.uuid || config.assistant || 'anonymous'
-          };
-          window.initVoiceNavigator(navigatorConfig);
-        }
-      };
-
-      script.onerror = () => {
-        console.error('Failed to load DOM manipulation bundle');
-      };
-
-      document.head.appendChild(script);
+    
+    if (!config.chatbotUuid) {
+      console.error('❌ Missing data-chatbot-uuid attribute on script tag');
+      return null;
     }
+    
+    return config;
+  }
 
-    initializeVapi() {
-      try {
-        console.log('[VAPI] Initializing with config:', {
-          apiKey: config.apiKey ? 'SET' : 'MISSING',
-          assistant: config.assistant,
+  // Load the main voice assistant functionality from backend
+  function loadVoiceAssistant(config) {
+    console.log('📡 Loading voice assistant from backend...');
+    
+    // Create status indicator
+    const statusEl = document.createElement('div');
+    statusEl.id = 'voice-assistant-status';
+    statusEl.style.cssText = \`
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      z-index: 10000;
+      max-width: 300px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      transition: all 0.3s ease;
+    \`;
+    statusEl.innerHTML = \`
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span id="voice-status-text">Loading voice assistant...</span>
+        <span style="margin-left: 10px; cursor: pointer; opacity: 0.7;" onclick="this.parentElement.parentElement.style.display='none'">✕</span>
+      </div>
+    \`;
+    document.body.appendChild(statusEl);
+
+    // Load VAPI SDK
+    const vapiScript = document.createElement('script');
+    vapiScript.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
+    vapiScript.async = true;
+    
+    vapiScript.onload = () => {
+      console.log('✅ VAPI SDK loaded');
+      initializeVoiceWidget(config);
+    };
+    
+    vapiScript.onerror = () => {
+      console.error('❌ Failed to load VAPI SDK');
+      document.getElementById('voice-status-text').textContent = '❌ Voice SDK failed to load';
+    };
+    
+    document.head.appendChild(vapiScript);
+
+    // Load DOM manipulation bundle
+    const domScript = document.createElement('script');
+    domScript.src = 'https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-dom-bundle';
+    domScript.async = true;
+    
+    domScript.onload = () => {
+      console.log('✅ DOM bundle loaded');
+      if (typeof window.initVoiceNavigator === 'function') {
+        const navigatorConfig = {
+          ...config,
+          supabaseUrl: '${supabaseUrl}',
+          supabaseKey: '${supabaseAnonKey}',
+          userId: config.chatbotUuid
+        };
+        window.initVoiceNavigator(navigatorConfig);
+      }
+    };
+    
+    domScript.onerror = () => {
+      console.error('❌ Failed to load DOM bundle');
+    };
+    
+    document.head.appendChild(domScript);
+  }
+
+  // Initialize VAPI widget with backend-provided API key
+  function initializeVoiceWidget(config) {
+    try {
+      console.log('🎤 Initializing VAPI widget...');
+      
+      const vapiWidget = window.vapiSDK.run({
+        apiKey: '${vapiPublicKey}', // API key securely injected from backend
+        assistant: config.chatbotUuid,
+        config: {
           position: config.position,
-          theme: config.theme
-        });
-
-        this.vapiWidget = window.vapiSDK.run({
-          apiKey: config.apiKey,
-          assistant: config.assistant,
-          config: {
-            position: config.position,
-            theme: config.theme,
-            mode: "voice"
-          }
-        });
-
-        this.setupVapiEventListeners();
-        this.isInitialized = true;
-        this.updateStatus("🎤 Click the voice button to start!");
-        
-      } catch (error) {
-        console.error('Vapi initialization error:', error);
-        this.updateStatus("❌ Voice setup failed");
-      }
-    }
-
-    setupVapiEventListeners() {
-      this.vapiWidget.on("call-start", () => {
-        console.log('📞 Call started');
-        this.updateStatus("🎤 Voice active - say your command!");
-      });
-
-      this.vapiWidget.on("call-end", () => {
-        console.log('📞 Call ended');
-        this.updateStatus("🔄 Voice ended");
-      });
-
-      this.vapiWidget.on("speech-start", () => {
-        console.log('🤖 Assistant started speaking');
-        this.updateStatus("🤖 Assistant responding...");
-      });
-
-      this.vapiWidget.on("speech-end", () => {
-        console.log('🤖 Assistant finished speaking');
-        this.updateStatus("🎤 Ready for your command");
-      });
-
-      this.vapiWidget.on("error", (error) => {
-        console.error('❌ Vapi error:', error);
-        console.error('❌ Vapi error details:', JSON.stringify(error, null, 2));
-        
-        // Try to extract more detailed error info
-        if (error.error && error.error.json) {
-          error.error.json().then(details => {
-            console.error('❌ VAPI API Error Details:', details);
-          }).catch(() => {
-            console.error('❌ Could not parse VAPI error response');
-          });
+          theme: config.theme,
+          mode: "voice"
         }
-        
-        this.updateStatus("❌ Voice error: " + (error.message || error.type || 'Unknown'));
       });
-    }
 
-    updateStatus(message) {
-      if (this.statusEl) {
-        this.statusEl.textContent = message;
-      }
+      // Set up event listeners
+      vapiWidget.on("call-start", () => {
+        console.log('📞 Voice call started');
+        document.getElementById('voice-status-text').textContent = '🎤 Voice active - say your command!';
+      });
+
+      vapiWidget.on("call-end", () => {
+        console.log('📞 Voice call ended');
+        document.getElementById('voice-status-text').textContent = '🔄 Voice ended';
+      });
+
+      vapiWidget.on("speech-start", () => {
+        document.getElementById('voice-status-text').textContent = '🤖 Assistant responding...';
+      });
+
+      vapiWidget.on("speech-end", () => {
+        document.getElementById('voice-status-text').textContent = '🎤 Ready for your command';
+      });
+
+      vapiWidget.on("error", (error) => {
+        console.error('❌ VAPI error:', error);
+        document.getElementById('voice-status-text').textContent = '❌ Voice error';
+      });
+
+      // Store globally for debugging
+      window.vapiWidget = vapiWidget;
+      
+      document.getElementById('voice-status-text').textContent = '🎤 Click the voice button to start!';
+      console.log('✅ Voice assistant ready!');
+      
+    } catch (error) {
+      console.error('❌ VAPI initialization failed:', error);
+      document.getElementById('voice-status-text').textContent = '❌ Voice setup failed';
     }
   }
 
-  // Initialize when DOM is ready
+  // Auto-initialize when DOM is ready
+  function initialize() {
+    const config = getConfiguration();
+    if (config) {
+      loadVoiceAssistant(config);
+    } else {
+      console.error('❌ Could not detect configuration from script tag');
+    }
+  }
+
+  // Wait for DOM to be ready
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      new VAPIVoiceNavigator();
-    });
+    document.addEventListener('DOMContentLoaded', initialize);
   } else {
-    new VAPIVoiceNavigator();
+    initialize();
   }
 
 })();
