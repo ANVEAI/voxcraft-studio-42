@@ -10,6 +10,9 @@ const corsHeaders = {
 const supabaseUrl = 'https://mdkcdjltvfpthqudhhmx.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg';
 
+// Get VAPI public key from environment
+const vapiPublicKey = Deno.env.get('VAPI_PUBLIC_KEY') || Deno.env.get('VITE_VAPI_PUBLIC_KEY');
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -37,8 +40,8 @@ serve(async (req) => {
     language: '${url.searchParams.get('language') || 'en'}',
     position: '${url.searchParams.get('position') || 'bottom-right'}',
     theme: '${url.searchParams.get('theme') || 'light'}',
-    assistant: '${url.searchParams.get('assistant') || 'NEW_ASSISTANT_ID_PLACEHOLDER'}',
-    apiKey: '${url.searchParams.get('apiKey') || 'NEW_PUBLIC_KEY_PLACEHOLDER'}'
+    assistant: '${url.searchParams.get('assistant') || uuid}',
+    apiKey: '${url.searchParams.get('apiKey') || vapiPublicKey || 'MISSING_VAPI_KEY'}'
   };
 
   class VAPIVoiceNavigator {
