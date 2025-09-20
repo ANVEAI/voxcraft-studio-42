@@ -32,10 +32,10 @@ serve(async (req) => {
     }
 
     init() {
+      console.log('[VoiceNavigator] Initializing navigator...');
       this.createStatusIndicator();
       this.initSupabase();
       this.analyzePageContent();
-      this.setupRealtimeSubscription();
       
       // Re-analyze page content when DOM changes
       const observer = new MutationObserver(() => {
