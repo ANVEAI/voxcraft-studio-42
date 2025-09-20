@@ -157,6 +157,13 @@ serve(async (req) => {
 
     initializeVapi() {
       try {
+        console.log('[VAPI] Initializing with config:', {
+          apiKey: config.apiKey ? 'SET' : 'MISSING',
+          assistant: config.assistant,
+          position: config.position,
+          theme: config.theme
+        });
+
         this.vapiWidget = window.vapiSDK.run({
           apiKey: config.apiKey,
           assistant: config.assistant,
@@ -201,6 +208,16 @@ serve(async (req) => {
       this.vapiWidget.on("error", (error) => {
         console.error('❌ Vapi error:', error);
         console.error('❌ Vapi error details:', JSON.stringify(error, null, 2));
+        
+        // Try to extract more detailed error info
+        if (error.error && error.error.json) {
+          error.error.json().then(details => {
+            console.error('❌ VAPI API Error Details:', details);
+          }).catch(() => {
+            console.error('❌ Could not parse VAPI error response');
+          });
+        }
+        
         this.updateStatus("❌ Voice error: " + (error.message || error.type || 'Unknown'));
       });
     }
