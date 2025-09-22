@@ -20,6 +20,13 @@ interface VapiFunctionCallPayload {
       };
     }>;
   };
+  call?: {
+    id: string;
+    assistantId: string;
+  };
+  assistant?: {
+    id: string;
+  };
 }
 
 serve(async (req) => {
@@ -61,6 +68,9 @@ serve(async (req) => {
     const parameters = toolCall.function?.arguments || {};
     const callId = toolCall.id;
 
+    // Extract assistant ID from VAPI payload
+    const assistantId = payload.call?.assistantId || payload.assistant?.id;
+
     if (!functionName || !callId) {
       console.error('[VAPI Function Call] Missing required data:', { functionName, callId });
       return new Response(JSON.stringify({ error: 'Missing required function call data' }), {
@@ -69,9 +79,15 @@ serve(async (req) => {
       });
     }
 
-    // For now, we'll broadcast to all assistants since VAPI doesn't provide assistant ID in the payload
-    // In production, you might want to include assistant ID in the webhook URL or headers
-    console.log('[VAPI Function Call] Processing function:', functionName, 'with params:', parameters);
+    if (!assistantId) {
+      console.error('[VAPI Function Call] Assistant ID not found in payload');
+      return new Response(JSON.stringify({ error: 'Assistant ID not found' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log('[VAPI Function Call] Processing function:', functionName, 'for assistant:', assistantId, 'with params:', parameters);
 
     // Send function call to client via Supabase Realtime
     const functionCallMessage = {
@@ -79,11 +95,13 @@ serve(async (req) => {
       functionName,
       parameters,
       callId,
+      assistantId,
       timestamp: new Date().toISOString()
     };
 
-    // Broadcast to a general channel for now - in production you'd want to map this to specific assistants
-    const channel = supabase.channel('vapi_function_calls');
+    // Broadcast to specific assistant channel using bot_${assistantId} format
+    const channelName = `bot_${assistantId}`;
+    const channel = supabase.channel(channelName);
     
     // Send the function call to the embedding script
     await channel.send({
@@ -92,7 +110,7 @@ serve(async (req) => {
       payload: functionCallMessage
     });
 
-    console.log('[VAPI Function Call] Function call broadcasted:', functionName);
+    console.log('[VAPI Function Call] Function call broadcasted to channel:', channelName, 'function:', functionName);
 
     // Return success response to VAPI
     return new Response(JSON.stringify({ 
