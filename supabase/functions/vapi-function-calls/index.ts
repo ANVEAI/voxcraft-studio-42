@@ -54,6 +54,10 @@ serve(async (req) => {
     const payload: VapiFunctionCallPayload = await req.json();
     console.log('[VAPI Function Call] Payload:', JSON.stringify(payload, null, 2));
 
+    // Debug payload structure
+    console.log('[VAPI Function Call] Call object:', JSON.stringify(payload.call, null, 2));
+    console.log('[VAPI Function Call] Assistant object:', JSON.stringify(payload.assistant, null, 2));
+
     // Extract function call details from VAPI payload
     const toolCall = payload.message?.toolCalls?.[0];
     if (!toolCall) {
@@ -68,8 +72,22 @@ serve(async (req) => {
     const parameters = toolCall.function?.arguments || {};
     const callId = toolCall.id;
 
-    // Extract assistant ID from VAPI payload
-    const assistantId = payload.call?.assistantId || payload.assistant?.id;
+    // Extract assistant ID from VAPI payload with multiple strategies
+    let assistantId = payload.call?.assistantId || payload.assistant?.id;
+    
+    // Try alternative extraction paths
+    if (!assistantId && payload.call?.id) {
+      assistantId = payload.call.id;
+      console.log('[VAPI Function Call] Using call.id as assistant ID:', assistantId);
+    }
+    
+    // Try extracting from artifact or message context
+    if (!assistantId && payload.message?.artifact?.assistant_id) {
+      assistantId = payload.message.artifact.assistant_id;
+      console.log('[VAPI Function Call] Using artifact assistant_id:', assistantId);
+    }
+    
+    console.log('[VAPI Function Call] Final assistant ID:', assistantId);
 
     if (!functionName || !callId) {
       console.error('[VAPI Function Call] Missing required data:', { functionName, callId });
