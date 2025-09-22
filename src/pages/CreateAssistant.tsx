@@ -208,59 +208,32 @@ const CreateAssistant = () => {
         }
 
         // Use edge function to save assistant with proper authentication
-        const payload = {
-          user_id: user.id,
-          vapi_assistant_id: vapiAssistant.id,
-          name: assistantData.botName,
-          welcome_message: assistantData.welcomeMessage,
-          system_prompt: assistantData.systemPrompt,
-          language: assistantData.language,
-          voice_id: assistantData.voice,
-          position: assistantData.position,
-          theme: assistantData.theme,
-          status: 'active'
-        };
-
-        let saveResponse: any = null;
-        let saveError: any = null;
-
-        // Primary: Supabase invoke
-        const invokeResult = await supabase.functions.invoke('save-assistant', {
-          body: payload,
+        const { data: saveResponse, error: saveError } = await supabase.functions.invoke('save-assistant', {
+          body: {
+            user_id: user.id,
+            vapi_assistant_id: vapiAssistant.id,
+            name: assistantData.botName,
+            welcome_message: assistantData.welcomeMessage,
+            system_prompt: assistantData.systemPrompt,
+            language: assistantData.language,
+            voice_id: assistantData.voice,
+            position: assistantData.position,
+            theme: assistantData.theme,
+            status: 'active'
+          },
           headers: {
             Authorization: `Bearer ${token}`
           }
         });
 
-        saveResponse = invokeResult.data;
-        saveError = invokeResult.error;
-
-        // Fallback: Direct fetch if invoke failed or success flag missing
-        if (saveError || !saveResponse?.success) {
-          console.warn('save-assistant via supabase.invoke failed, trying direct fetch...', saveError || saveResponse);
-          const directRes = await fetch('https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/save-assistant', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify(payload)
-          });
-          const directJson = await directRes.json();
-          if (!directRes.ok || !directJson.success) {
-            throw new Error(directJson?.error || `Failed to save assistant (status ${directRes.status})`);
-          }
-          saveResponse = directJson;
+        if (saveError) {
+          console.error('Assistant save error:', saveError);
+          throw new Error(saveError.message || 'Failed to save assistant');
         }
 
-        console.log('✅ Assistant saved to database:', saveResponse.assistant);
+        console.log('Assistant saved to database:', saveResponse.assistant);
       } catch (dbError) {
-        console.error('❌ Database operation failed:', dbError);
-        toast({
-          title: "Warning",
-          description: "Assistant created in VAPI but failed to save to database. Please contact support.",
-          variant: "destructive",
-        })
+        console.error('Database operation failed:', dbError);
         // Don't throw - VAPI assistant creation was successful
       }
 
@@ -289,11 +262,6 @@ const CreateAssistant = () => {
 
       // Don't navigate immediately, show the embed code first
       setCurrentStep(4)
-      
-      // Force refresh of assistants list by redirecting to dashboard after a short delay
-      setTimeout(() => {
-        navigate('/dashboard')
-      }, 3000)
       
     } catch (error) {
       console.error('Error creating assistant:', error)

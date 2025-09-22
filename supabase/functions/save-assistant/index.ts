@@ -5,7 +5,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL') || 'https://mdkcdjltvfpthqudhhmx.supabase.co';
@@ -72,8 +71,7 @@ serve(async (req) => {
     }
 
     const assistantData = await req.json();
-    console.log('🔍 DEBUG - Saving assistant:', assistantData.name, 'for user:', userId);
-    console.log('🔍 DEBUG - Assistant data received:', JSON.stringify(assistantData, null, 2));
+    console.log('Saving assistant:', assistantData.name, 'for user:', userId);
 
     // Insert the assistant data into Supabase with the parsed user ID
     const { data: assistantRecord, error: dbError } = await supabase
@@ -98,7 +96,7 @@ serve(async (req) => {
       throw new Error(`Failed to save assistant: ${dbError.message}`);
     }
 
-    console.log('✅ Assistant saved successfully:', assistantRecord);
+    console.log('Assistant saved successfully:', assistantRecord);
 
     return new Response(
       JSON.stringify({

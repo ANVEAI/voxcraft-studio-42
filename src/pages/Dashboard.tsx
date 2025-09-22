@@ -25,39 +25,6 @@ const Dashboard = () => {
     }
   }, [isLoaded, isSignedIn, navigate, user])
 
-  // Add function to manually refresh assistants (can be called after creation)
-  const refreshAssistants = () => {
-    fetchAssistants()
-  }
-
-  const syncAssistants = async () => {
-    if (!getToken) return;
-    try {
-      const token = await getToken();
-      const { data, error } = await supabase.functions.invoke('sync-vapi-assistants', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (error) throw error;
-      toast({ title: 'Synced', description: `Imported ${data?.imported || 0} assistants from VAPI.` });
-      await fetchAssistants();
-    } catch (e: any) {
-      console.error('❌ Sync error:', e);
-      toast({ title: 'Sync failed', description: e?.message || 'Could not sync from VAPI.', variant: 'destructive' });
-    }
-  }
-
-  // Listen for focus events to refresh data when user comes back to the tab
-  useEffect(() => {
-    const handleFocus = () => {
-      if (isSignedIn && user) {
-        refreshAssistants()
-      }
-    }
-    
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [isSignedIn, user])
-
   const fetchAssistants = async () => {
     if (!user?.id || !getToken) return;
     
@@ -70,17 +37,7 @@ const Dashboard = () => {
         throw new Error('No authentication token available')
       }
 
-      console.log('🔍 DEBUG - Current Clerk User ID:', user.id)
       console.log('🔑 Using token for get-assistants:', token.substring(0, 50) + '...')
-
-      // Parse token to see what user ID is being sent to server
-      try {
-        const tokenPayload = JSON.parse(atob(token.split('.')[1]))
-        console.log('🔍 DEBUG - Token payload user ID (sub):', tokenPayload.sub)
-        console.log('🔍 DEBUG - User ID match:', user.id === tokenPayload.sub ? 'YES' : 'NO')
-      } catch (e) {
-        console.log('🔍 DEBUG - Could not parse token payload:', e)
-      }
 
       // Use the get-assistants edge function with proper authentication
       const { data, error } = await supabase.functions.invoke('get-assistants', {
@@ -90,7 +47,7 @@ const Dashboard = () => {
       })
 
       if (error) {
-        console.error('❌ Error fetching assistants:', error)
+        console.error('Error fetching assistants:', error)
         toast({
           title: "Error",
           description: "Failed to load your assistants.",
@@ -98,14 +55,13 @@ const Dashboard = () => {
         })
       } else if (data?.success) {
         setAssistants(data.assistants || [])
-        console.log('✅ Fetched assistants:', data.assistants)
-        console.log('✅ Number of assistants found:', data.assistants?.length || 0)
+        console.log('Fetched assistants:', data.assistants)
       } else {
-        console.error('❌ Unexpected response:', data)
+        console.error('Unexpected response:', data)
         setAssistants([])
       }
     } catch (error) {
-      console.error('❌ Error:', error)
+      console.error('Error:', error)
       toast({
         title: "Error",
         description: "An unexpected error occurred.",
@@ -205,20 +161,6 @@ const Dashboard = () => {
               <CardContent>
                 <div className="text-2xl font-bold">New</div>
                 <p className="text-xs text-muted-foreground">Build a voice assistant</p>
-              </CardContent>
-            </Card>
-
-            <Card 
-              className="hover:shadow-md transition-shadow cursor-pointer"
-              onClick={syncAssistants}
-            >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Sync from VAPI</CardTitle>
-                <Mic className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">Sync</div>
-                <p className="text-xs text-muted-foreground">Import assistants not in DB</p>
               </CardContent>
             </Card>
 

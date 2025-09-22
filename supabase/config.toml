@@ -11,6 +11,3 @@ verify_jwt = false
 
 [functions.voice-assistant-embed-js]
 verify_jwt = false
-
-[functions.sync-vapi-assistants]
-verify_jwt = true
