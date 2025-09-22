@@ -55,14 +55,29 @@ serve(async (req) => {
       req.headers.get('x-vapi-assistant-id') ||
       req.headers.get('x-assistant-id') ||
       req.headers.get('x-assistant');
+    
+    // Enhanced assistant ID extraction for VAPI webhook payload structure
     const assistantFromBody =
-      payload?.assistantId ||
-      payload?.assistant?.id ||
-      payload?.assistant ||
+      payload?.assistant?.id ||                    // Direct from assistant object
+      payload?.call?.assistantId ||               // From call object
+      payload?.assistantId ||                     // Direct assistantId field
+      payload?.assistant ||                       // If assistant is just a string
       payload?.botId ||
       payload?.bot?.id ||
       payload?.message?.assistantId;
+
     const assistantId = assistantFromQuery || assistantFromHeader || assistantFromBody || null;
+    
+    // Enhanced logging to debug assistant ID extraction
+    console.log('[VAPI Function Call] Assistant ID extraction:', {
+      assistantFromQuery,
+      assistantFromHeader,
+      assistantFromBody,
+      finalAssistantId: assistantId,
+      payloadKeys: Object.keys(payload || {}),
+      assistantObject: payload?.assistant,
+      callObject: payload?.call
+    });
 
     const toolCall = payload?.message?.toolCalls?.[0] ?? null;
     if (!toolCall) {
