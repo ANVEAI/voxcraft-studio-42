@@ -58,10 +58,12 @@ serve(async (req) => {
     
     // Enhanced assistant ID extraction for VAPI webhook payload structure
     const assistantFromBody =
-      payload?.assistant?.id ||                    // Direct from assistant object
-      payload?.call?.assistantId ||               // From call object
-      payload?.assistantId ||                     // Direct assistantId field
-      payload?.assistant ||                       // If assistant is just a string
+      payload?.message?.artifact?.call?.assistantId ||     // VAPI: From nested call object
+      payload?.message?.artifact?.assistant?.id ||         // VAPI: From nested assistant object
+      payload?.assistant?.id ||                            // Direct from assistant object
+      payload?.call?.assistantId ||                       // From call object
+      payload?.assistantId ||                             // Direct assistantId field
+      payload?.assistant ||                               // If assistant is just a string
       payload?.botId ||
       payload?.bot?.id ||
       payload?.message?.assistantId;
