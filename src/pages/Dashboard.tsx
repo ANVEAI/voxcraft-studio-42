@@ -32,7 +32,7 @@ const Dashboard = () => {
       setLoading(true)
       
       // Get Clerk JWT token for authentication
-      const token = await getToken({ template: 'integration_supabase' })
+      const token = await getToken()
       if (!token) {
         throw new Error('No authentication token available')
       }
@@ -77,7 +77,7 @@ const Dashboard = () => {
     
     try {
       // Get Clerk JWT token for authentication
-      const token = await getToken({ template: 'integration_supabase' })
+      const token = await getToken()
       if (!token) {
         throw new Error('No authentication token available')
       }
