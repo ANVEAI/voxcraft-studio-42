@@ -10,34 +10,8 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get('SUPABASE_URL') || 'https://mdkcdjltvfpthqudhhmx.supabase.co';
 const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg';
 
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Mzk0NTc1MCwiZXhwIjoyMDY5NTIxNzUwfQ.TkAnuZIKeHJ5vZBXtNtU0A3CS1nhFNm7gCz00ch0Lfw';
-
-// Initialize Supabase client with service role key to bypass RLS
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-// Verify Clerk JWT token by parsing it (simpler approach)
-function parseClerkToken(token: string) {
-  try {
-    // Basic JWT parsing - just get the payload for user info
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      throw new Error('Invalid JWT format');
-    }
-    
-    const payload = JSON.parse(atob(parts[1]));
-    console.log('Parsed token payload in save-assistant:', payload);
-    
-    // Clerk JWTs have 'sub' field with user ID
-    if (!payload.sub) {
-      throw new Error('No user ID in token');
-    }
-    
-    return payload.sub;
-  } catch (error) {
-    console.error('Error parsing Clerk token:', error);
-    return null;
-  }
-}
+// Initialize Supabase client with anon key to use RLS policies
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 serve(async (req) => {
   console.log('=== SAVE ASSISTANT FUNCTION CALLED ===');
@@ -50,34 +24,24 @@ serve(async (req) => {
   }
 
   try {
-    // Get authorization header for user authentication
-    const authHeader = req.headers.get('authorization');
-    console.log('Auth header present:', !!authHeader);
+    // Get the authenticated user from Supabase's JWT verification
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('Invalid authorization header');
-      throw new Error('No valid authorization header');
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      throw new Error('Authentication required');
     }
 
-    // Extract token from Bearer header
-    const token = authHeader.replace('Bearer ', '');
-    console.log('Token extracted, length:', token.length);
-    
-    // Parse Clerk token to get user ID
-    const userId = parseClerkToken(token);
-    if (!userId) {
-      console.error('Failed to parse user ID from token');
-      throw new Error('Invalid user token');
-    }
+    console.log('Authenticated user:', user.id);
 
     const assistantData = await req.json();
-    console.log('Saving assistant:', assistantData.name, 'for user:', userId);
+    console.log('Saving assistant:', assistantData.name, 'for user:', user.id);
 
-    // Insert the assistant data into Supabase with the parsed user ID
+    // Insert the assistant data into Supabase with the authenticated user ID
     const { data: assistantRecord, error: dbError } = await supabase
       .from('assistants')
       .insert({
-        user_id: userId,  // Use the parsed user ID from Clerk token
+        user_id: user.id,  // Use the authenticated user ID from Supabase
         vapi_assistant_id: assistantData.vapi_assistant_id,
         name: assistantData.name,
         welcome_message: assistantData.welcome_message,

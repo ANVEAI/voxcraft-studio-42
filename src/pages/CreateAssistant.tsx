@@ -210,7 +210,6 @@ const CreateAssistant = () => {
         // Use edge function to save assistant with proper authentication
         const { data: saveResponse, error: saveError } = await supabase.functions.invoke('save-assistant', {
           body: {
-            user_id: user.id,
             vapi_assistant_id: vapiAssistant.id,
             name: assistantData.botName,
             welcome_message: assistantData.welcomeMessage,
@@ -228,13 +227,22 @@ const CreateAssistant = () => {
 
         if (saveError) {
           console.error('Assistant save error:', saveError);
-          throw new Error(saveError.message || 'Failed to save assistant');
+          toast({
+            title: "Warning",
+            description: "Assistant created in VAPI but failed to save to database. You can retry from the dashboard.",
+            variant: "destructive",
+          });
+          // Continue with success flow since VAPI assistant was created
+        } else {
+          console.log('Assistant saved to database:', saveResponse.assistant);
         }
-
-        console.log('Assistant saved to database:', saveResponse.assistant);
       } catch (dbError) {
         console.error('Database operation failed:', dbError);
-        // Don't throw - VAPI assistant creation was successful
+        toast({
+          title: "Warning", 
+          description: "Assistant created in VAPI but database save failed. You can manage it from the dashboard.",
+          variant: "destructive",
+        });
       }
 
       const successMessage = assistantData.uploadedFiles.length > 0 
