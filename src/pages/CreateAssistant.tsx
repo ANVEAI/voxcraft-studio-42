@@ -231,9 +231,14 @@ const CreateAssistant = () => {
           throw new Error(saveError.message || 'Failed to save assistant');
         }
 
-        console.log('Assistant saved to database:', saveResponse.assistant);
+        console.log('✅ Assistant saved to database:', saveResponse.assistant);
       } catch (dbError) {
-        console.error('Database operation failed:', dbError);
+        console.error('❌ Database operation failed:', dbError);
+        toast({
+          title: "Warning",
+          description: "Assistant created in VAPI but failed to save to database. Please contact support.",
+          variant: "destructive",
+        })
         // Don't throw - VAPI assistant creation was successful
       }
 
@@ -262,6 +267,11 @@ const CreateAssistant = () => {
 
       // Don't navigate immediately, show the embed code first
       setCurrentStep(4)
+      
+      // Force refresh of assistants list by redirecting to dashboard after a short delay
+      setTimeout(() => {
+        navigate('/dashboard')
+      }, 3000)
       
     } catch (error) {
       console.error('Error creating assistant:', error)

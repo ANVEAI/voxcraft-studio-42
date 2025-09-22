@@ -71,7 +71,8 @@ serve(async (req) => {
     }
 
     const assistantData = await req.json();
-    console.log('Saving assistant:', assistantData.name, 'for user:', userId);
+    console.log('🔍 DEBUG - Saving assistant:', assistantData.name, 'for user:', userId);
+    console.log('🔍 DEBUG - Assistant data received:', JSON.stringify(assistantData, null, 2));
 
     // Insert the assistant data into Supabase with the parsed user ID
     const { data: assistantRecord, error: dbError } = await supabase
@@ -96,7 +97,7 @@ serve(async (req) => {
       throw new Error(`Failed to save assistant: ${dbError.message}`);
     }
 
-    console.log('Assistant saved successfully:', assistantRecord);
+    console.log('✅ Assistant saved successfully:', assistantRecord);
 
     return new Response(
       JSON.stringify({

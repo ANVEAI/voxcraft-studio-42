@@ -25,6 +25,23 @@ const Dashboard = () => {
     }
   }, [isLoaded, isSignedIn, navigate, user])
 
+  // Add function to manually refresh assistants (can be called after creation)
+  const refreshAssistants = () => {
+    fetchAssistants()
+  }
+
+  // Listen for focus events to refresh data when user comes back to the tab
+  useEffect(() => {
+    const handleFocus = () => {
+      if (isSignedIn && user) {
+        refreshAssistants()
+      }
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [isSignedIn, user])
+
   const fetchAssistants = async () => {
     if (!user?.id || !getToken) return;
     
@@ -37,7 +54,17 @@ const Dashboard = () => {
         throw new Error('No authentication token available')
       }
 
+      console.log('🔍 DEBUG - Current Clerk User ID:', user.id)
       console.log('🔑 Using token for get-assistants:', token.substring(0, 50) + '...')
+
+      // Parse token to see what user ID is being sent to server
+      try {
+        const tokenPayload = JSON.parse(atob(token.split('.')[1]))
+        console.log('🔍 DEBUG - Token payload user ID (sub):', tokenPayload.sub)
+        console.log('🔍 DEBUG - User ID match:', user.id === tokenPayload.sub ? 'YES' : 'NO')
+      } catch (e) {
+        console.log('🔍 DEBUG - Could not parse token payload:', e)
+      }
 
       // Use the get-assistants edge function with proper authentication
       const { data, error } = await supabase.functions.invoke('get-assistants', {
@@ -47,7 +74,7 @@ const Dashboard = () => {
       })
 
       if (error) {
-        console.error('Error fetching assistants:', error)
+        console.error('❌ Error fetching assistants:', error)
         toast({
           title: "Error",
           description: "Failed to load your assistants.",
@@ -55,13 +82,14 @@ const Dashboard = () => {
         })
       } else if (data?.success) {
         setAssistants(data.assistants || [])
-        console.log('Fetched assistants:', data.assistants)
+        console.log('✅ Fetched assistants:', data.assistants)
+        console.log('✅ Number of assistants found:', data.assistants?.length || 0)
       } else {
-        console.error('Unexpected response:', data)
+        console.error('❌ Unexpected response:', data)
         setAssistants([])
       }
     } catch (error) {
-      console.error('Error:', error)
+      console.error('❌ Error:', error)
       toast({
         title: "Error",
         description: "An unexpected error occurred.",
