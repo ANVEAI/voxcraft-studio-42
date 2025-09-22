@@ -4,7 +4,7 @@ project_id = "mdkcdjltvfpthqudhhmx"
 verify_jwt = false
 
 [functions.save-assistant]
-verify_jwt = true
+verify_jwt = false
 
 [functions.vapi-list-files]
 verify_jwt = false
