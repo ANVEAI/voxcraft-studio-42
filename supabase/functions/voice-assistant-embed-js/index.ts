@@ -13,6 +13,15 @@ serve(async (req) => {
   }
 
   console.log('[EMBED JS] Request received:', req.method, req.url);
+  
+  // Extract parameters from URL
+  const url = new URL(req.url);
+  const assistant = url.searchParams.get('assistant') || 'default-assistant';
+  const apiKey = url.searchParams.get('apiKey') || 'default-key';
+  const position = url.searchParams.get('position') || 'bottom-right';
+  const theme = url.searchParams.get('theme') || 'light';
+  
+  console.log('[EMBED JS] Parameters:', { assistant, position, theme });
 
   const jsContent = `// VAPI-Centric Voice Automation Embed Script  
 // Load Supabase JS first (add this once to your page)
@@ -26,12 +35,12 @@ if (!window.supabase) {
 (function() {
   'use strict';
   
-  // Configuration - Replace with your bot credentials
+  // Configuration - Dynamically injected from URL parameters
   const BOT_CONFIG = {
-    assistantId: "NEW_ASSISTANT_ID_PLACEHOLDER", // Replace with your assistant ID
-    apiKey: "NEW_PUBLIC_KEY_PLACEHOLDER",        // Replace with your API key
-    position: "bottom-right",
-    theme: "light"
+    assistantId: "${assistant}", // Assistant ID from URL
+    apiKey: "${apiKey}",         // API key from URL
+    position: "${position}",     // Position from URL
+    theme: "${theme}"            // Theme from URL
   };
 
   // Supabase configuration
