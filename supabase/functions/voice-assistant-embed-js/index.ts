@@ -95,9 +95,9 @@ serve(async (req) => {
         // Get assistant ID from bot config
         this.assistantId = BOT_CONFIG.assistantId;
         
-        // Subscribe to function call events for this specific bot
+        // Subscribe to the same channel the webhook publishes to
         this.realtimeChannel = this.supabaseClient
-          .channel(\`bot_\${this.assistantId}\`)
+          .channel('vapi_function_calls')
           .on('broadcast', { event: 'function_call' }, (payload) => {
             console.log('📡 Received function call:', payload);
             this.executeFunctionCall(payload.payload);
