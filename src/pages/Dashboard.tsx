@@ -31,11 +31,13 @@ const Dashboard = () => {
     try {
       setLoading(true)
       
-      // Get Clerk token for authentication
-      const token = await getToken()
+      // Get Clerk JWT token for authentication
+      const token = await getToken({ template: 'integration_supabase' })
       if (!token) {
         throw new Error('No authentication token available')
       }
+
+      console.log('🔑 Using token for get-assistants:', token.substring(0, 50) + '...')
 
       // Use the get-assistants edge function with proper authentication
       const { data, error } = await supabase.functions.invoke('get-assistants', {
@@ -74,11 +76,13 @@ const Dashboard = () => {
     if (!user?.id || !getToken) return;
     
     try {
-      // Get Clerk token for authentication
-      const token = await getToken()
+      // Get Clerk JWT token for authentication
+      const token = await getToken({ template: 'integration_supabase' })
       if (!token) {
         throw new Error('No authentication token available')
       }
+
+      console.log('🔑 Using token for vapi-list-files:', token.substring(0, 50) + '...')
 
       // Fetch files directly from VAPI API via our edge function
       const { data, error } = await supabase.functions.invoke('vapi-list-files', {

@@ -55,7 +55,10 @@ serve(async (req) => {
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       console.error('Invalid authorization header');
-      throw new Error('No valid authorization header');
+      return new Response(JSON.stringify({ error: 'No valid authorization header' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
     // Extract token from Bearer header
@@ -66,7 +69,10 @@ serve(async (req) => {
     const userId = parseClerkToken(token);
     if (!userId) {
       console.error('Failed to parse user ID from token');
-      throw new Error('Invalid user token');
+      return new Response(JSON.stringify({ error: 'Invalid user token' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
     console.log('Fetching assistants for user:', userId);
