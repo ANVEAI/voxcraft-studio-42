@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.vapi-list-files]
 verify_jwt = false
+
+[functions.vapi-function-calls]
+verify_jwt = false

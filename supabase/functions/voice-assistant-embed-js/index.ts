@@ -14,53 +14,39 @@ serve(async (req) => {
 
   console.log('[EMBED JS] Request received:', req.method, req.url);
 
-  const jsContent = `// Universal Voice Navigation Embed Script - Simplified & Fixed
-// Add this script to any website to enable voice navigation
+  const jsContent = `// VAPI-Centric Voice Automation Embed Script
+// Handles DOM command execution via VAPI function calls
 (function() {
   'use strict';
   
-  // Configuration - Replace with your Vapi credentials
-  const VAPI_CONFIG = {
-    assistant: "NEW_ASSISTANT_ID_PLACEHOLDER", // Replace with your assistant ID
-    apiKey: "NEW_PUBLIC_KEY_PLACEHOLDER",     // Replace with your API key
+  // Configuration - Replace with your bot credentials
+  const BOT_CONFIG = {
+    assistantId: "NEW_ASSISTANT_ID_PLACEHOLDER", // Replace with your assistant ID
+    apiKey: "NEW_PUBLIC_KEY_PLACEHOLDER",        // Replace with your API key
     position: "bottom-right",
-    theme: "light",
-    mode: "voice"
+    theme: "light"
   };
 
-  class UniversalVoiceNavigator {
+  class VAPICommandExecutor {
     constructor() {
       this.vapiWidget = null;
+      this.supabaseClient = null;
+      this.realtimeChannel = null;
       this.isInitialized = false;
       this.currentPageElements = [];
       this.statusEl = null;
-      this.navigationInProgress = false;
-      this.reconnectAttempts = 0;
-      this.maxReconnectAttempts = 3;
-      
-      // Simple speech tracking
-      this.callActive = false;
-      this.assistantSpeaking = false;
-      this.lastProcessedTranscript = '';
-      
-      // Session persistence
-      this.sessionId = 'voice_' + Date.now();
+      this.assistantId = null;
       
       this.init();
     }
 
     init() {
-      console.log('🎤 Initializing Universal Voice Navigator...');
+      console.log('🎤 Initializing VAPI Command Executor...');
       this.createStatusIndicator();
-      this.updateStatus("Loading voice navigation...");
-      this.loadVapiSDK();
+      this.updateStatus("Loading voice automation...");
       this.analyzePageContent();
-      this.setupNavigationHandling();
-      
-      // Check for session restoration
-      setTimeout(() => {
-        this.checkForSessionRestore();
-      }, 1500);
+      this.setupSupabaseRealtime();
+      this.loadVapiSDK();
     }
 
     createStatusIndicator() {
@@ -96,8 +82,38 @@ serve(async (req) => {
       this.statusEl = document.getElementById('voice-status-text');
     }
 
-    loadVapiSDK() {
+    async setupSupabaseRealtime() {
+      try {
+        // Import Supabase client
+        const { createClient } = await import('https://cdn.skypack.dev/@supabase/supabase-js');
+        
+        this.supabaseClient = createClient(
+          'https://mdkcdjltvfpthqudhhmx.supabase.co',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg'
+        );
 
+        // Get assistant ID from bot config
+        this.assistantId = BOT_CONFIG.assistantId;
+        
+        // Subscribe to function call events for this specific bot
+        this.realtimeChannel = this.supabaseClient
+          .channel(\`bot_\${this.assistantId}\`)
+          .on('broadcast', { event: 'function_call' }, (payload) => {
+            console.log('📡 Received function call:', payload);
+            this.executeFunctionCall(payload.payload);
+          })
+          .subscribe();
+
+        console.log('✅ Supabase Realtime connected for bot:', this.assistantId);
+        this.updateStatus("🔗 Command listener active");
+        
+      } catch (error) {
+        console.error('❌ Supabase Realtime setup failed:', error);
+        this.updateStatus("❌ Command listener failed");
+      }
+    }
+
+    loadVapiSDK() {
       if (window.vapiSDK) {
         this.initializeVapi();
         return;
@@ -121,31 +137,19 @@ serve(async (req) => {
     initializeVapi() {
       try {
         const config = {
-          position: VAPI_CONFIG.position,
-          theme: VAPI_CONFIG.theme,
-          mode: VAPI_CONFIG.mode,
-          audio: {
-            enableEchoCancellation: true,
-            enableNoiseSuppression: false,
-            enableAutoGainControl: false
-          },
-          microphone: {
-            sampleRate: 44100,
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false
-          }
+          position: BOT_CONFIG.position,
+          theme: BOT_CONFIG.theme
         };
 
         this.vapiWidget = window.vapiSDK.run({
-          apiKey: VAPI_CONFIG.apiKey,
-          assistant: VAPI_CONFIG.assistant,
+          apiKey: BOT_CONFIG.apiKey,
+          assistant: BOT_CONFIG.assistantId,
           config: config
         });
 
         this.setupVapiEventListeners();
         this.isInitialized = true;
-        this.updateStatus("🎤 Click the voice button to start!");
+        this.updateStatus("🎤 Click to start voice control!");
         
       } catch (error) {
         console.error('Vapi initialization error:', error);
@@ -154,222 +158,70 @@ serve(async (req) => {
     }
 
     setupVapiEventListeners() {
-      // Call started - voice is now active
+      // Call started
       this.vapiWidget.on("call-start", () => {
-        console.log('📞 Call started');
-        this.callActive = true;
-        this.assistantSpeaking = false;
-        this.updateStatus("🎤 Voice active - say your command!");
-        this.storeSession();
-        this.reconnectAttempts = 0;
+        console.log('📞 VAPI call started');
+        this.updateStatus("🎤 Voice active - VAPI handling all processing");
       });
 
-      // Call ended - voice is no longer active
+      // Call ended
       this.vapiWidget.on("call-end", () => {
-        console.log('📞 Call ended');
-        this.callActive = false;
-        this.assistantSpeaking = false;
+        console.log('📞 VAPI call ended');
         this.updateStatus("🔄 Voice ended");
-        
-        // Auto-reconnect if not navigating
-        if (!this.navigationInProgress) {
-          setTimeout(() => {
-            this.attemptReconnect();
-          }, 2000);
-        } else {
-          this.storeNavigationState();
-        }
       });
 
-      // Assistant started speaking
+      // Assistant speaking
       this.vapiWidget.on("speech-start", () => {
-        console.log('🤖 Assistant started speaking');
-        this.assistantSpeaking = true;
+        console.log('🤖 Assistant speaking');
         this.updateStatus("🤖 Assistant responding...");
       });
 
-      // Assistant stopped speaking
       this.vapiWidget.on("speech-end", () => {
-        console.log('🤖 Assistant finished speaking');
-        this.assistantSpeaking = false;
-        this.updateStatus("🎤 Ready for your command");
-      });
-
-      // Transcript received - this is the key event
-      this.vapiWidget.on("message", (message) => {
-        console.log('📨 Message received:', message);
-        
-        // Only process transcript messages
-        if (message.type === "transcript" && message.transcriptType === "final") {
-          this.handleTranscript(message);
-        }
+        console.log('🤖 Assistant finished');
+        this.updateStatus("🎤 Ready for commands");
       });
 
       // Error handling
       this.vapiWidget.on("error", (error) => {
-        console.error('❌ Vapi error:', error);
+        console.error('❌ VAPI error:', error);
         this.updateStatus("❌ Voice error");
-        this.callActive = false;
-        
-        setTimeout(() => {
-          this.attemptReconnect();
-        }, 3000);
       });
     }
 
-    handleTranscript(message) {
-      const transcript = message.transcript?.trim();
-      if (!transcript || transcript.length < 3) {
-        console.log('⚠️ Empty or too short transcript, ignoring');
-        return;
-      }
-
-      // Simple duplicate check
-      if (transcript === this.lastProcessedTranscript) {
-        console.log('⚠️ Duplicate transcript, ignoring');
-        return;
-      }
-
-      console.log('📝 Processing transcript:', transcript);
-      this.lastProcessedTranscript = transcript;
+    // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime
+    executeFunctionCall(functionCall) {
+      const { functionName, parameters } = functionCall;
+      console.log('⚡ Executing function call:', functionName, parameters);
       
-      // Only process if call is active and assistant is not speaking
-      if (!this.callActive) {
-        console.log('⚠️ Call not active, ignoring transcript');
-        return;
-      }
-
-      if (this.assistantSpeaking) {
-        console.log('⚠️ Assistant speaking, ignoring transcript');
-        return;
-      }
-
-      // Simple bot speech pattern check
-      const lowerTranscript = transcript.toLowerCase();
-      const botIndicators = [
-        'i can help', 'let me help', 'i\\'ll navigate', 'i understand',
-        'taking you to', 'going to', 'i found', 'here are the',
-        'would you like', 'how can i assist', 'navigating to'
-      ];
-
-      if (botIndicators.some(indicator => lowerTranscript.includes(indicator))) {
-        console.log('⚠️ Detected bot speech pattern, ignoring:', transcript);
-        this.updateStatus(\`🤖 Ignored: "\${transcript}"\`);
-        return;
-      }
-
-      // Process as user command
-      this.updateStatus(\`👤 Processing: "\${transcript}"\`);
-      setTimeout(() => {
-        this.processCommand(lowerTranscript, transcript);
-      }, 500);
-    }
-
-    processCommand(lowerTranscript, originalTranscript) {
-      console.log('⚡ Processing command:', lowerTranscript);
-
-      // Direct command matching - simple and reliable
-      const commands = {
-        // Navigation commands
-        'home': () => this.navigateTo(['home', 'homepage']),
-        'go home': () => this.navigateTo(['home', 'homepage']),
-        'take me home': () => this.navigateTo(['home', 'homepage']),
-        'about': () => this.navigateTo(['about', 'about us']),
-        'go to about': () => this.navigateTo(['about', 'about us']),
-        'contact': () => this.navigateTo(['contact', 'contact us']),
-        'contact us': () => this.navigateTo(['contact', 'contact us']),
-        'services': () => this.navigateTo(['services', 'our services']),
-        'products': () => this.navigateTo(['products', 'shop', 'store']),
-        'blog': () => this.navigateTo(['blog', 'articles', 'news']),
-        'login': () => this.navigateTo(['login', 'sign in', 'log in']),
-        'sign in': () => this.navigateTo(['login', 'sign in', 'log in']),
-        'register': () => this.navigateTo(['register', 'sign up', 'join']),
-        'sign up': () => this.navigateTo(['register', 'sign up', 'join']),
-        
-        // Scrolling commands
-        'scroll down': () => this.scrollPage('down'),
-        'page down': () => this.scrollPage('down'),
-        'scroll up': () => this.scrollPage('up'),
-        'page up': () => this.scrollPage('up'),
-        'top': () => this.scrollPage('top'),
-        'go to top': () => this.scrollPage('top'),
-        'scroll to top': () => this.scrollPage('top'),
-        'bottom': () => this.scrollPage('bottom'),
-        'go to bottom': () => this.scrollPage('bottom'),
-        'scroll to bottom': () => this.scrollPage('bottom'),
-        
-        // Utility commands
-        'refresh': () => this.refreshPage(),
-        'reload': () => this.refreshPage(),
-        'help': () => this.showHelp(),
-        'what can i do': () => this.showHelp(),
-        'analyze page': () => this.analyzePage()
-      };
-
-      // Check for exact command matches first
-      if (commands[lowerTranscript]) {
-        commands[lowerTranscript]();
-        this.updateStatus(\`✅ Executed: \${originalTranscript}\`);
-        return;
-      }
-
-      // Check for partial matches
-      for (const [command, action] of Object.entries(commands)) {
-        if (lowerTranscript.includes(command)) {
-          action();
-          this.updateStatus(\`✅ Executed: \${originalTranscript}\`);
-          return;
+      try {
+        switch (functionName) {
+          case 'scroll_page':
+            this.scroll_page(parameters);
+            break;
+          case 'click_element':
+            this.click_element(parameters);
+            break;
+          case 'fill_field':
+            this.fill_field(parameters);
+            break;
+          case 'toggle_element':
+            this.toggle_element(parameters);
+            break;
+          default:
+            console.warn('Unknown function call:', functionName);
+            this.updateStatus(\`❓ Unknown command: \${functionName}\`);
         }
-      }
-
-      // Try fuzzy matching for page elements
-      const element = this.findElementByVoice(lowerTranscript);
-      if (element) {
-        this.clickElement(element);
-        const elementText = this.getElementText(element);
-        this.updateStatus(\`✅ Clicked: \${elementText}\`);
-        return;
-      }
-
-      // Command not recognized
-      this.updateStatus(\`❓ Not recognized: "\${originalTranscript}"\`);
-      console.log('❓ Command not recognized:', lowerTranscript);
-    }
-
-    navigateTo(searchTerms) {
-      console.log('🧭 Navigating to:', searchTerms);
-      
-      let bestElement = null;
-      let bestScore = 0;
-      
-      this.currentPageElements.forEach(item => {
-        const itemText = item.text.toLowerCase();
-        const itemHref = (item.href || '').toLowerCase();
-        
-        searchTerms.forEach(term => {
-          const termLower = term.toLowerCase();
-          if (itemText.includes(termLower) || itemHref.includes(termLower)) {
-            const score = termLower.length + (itemText === termLower ? 10 : 0);
-            if (score > bestScore) {
-              bestScore = score;
-              bestElement = item.element;
-            }
-          }
-        });
-      });
-
-      if (bestElement) {
-        this.clickElement(bestElement);
-        return true;
-      } else {
-        console.log('❌ Navigation target not found:', searchTerms);
-        this.updateStatus(\`❌ Could not find: \${searchTerms[0]}\`);
-        return false;
+      } catch (error) {
+        console.error('❌ Function execution error:', error);
+        this.updateStatus(\`❌ Error executing \${functionName}\`);
       }
     }
 
-    scrollPage(direction) {
-      console.log('📜 Scrolling:', direction);
+    // DOM manipulation functions - these contain all the DOM logic
+    
+    scroll_page(params) {
+      const { direction } = params;
+      console.log('📜 Scrolling page:', direction);
       
       const scrollAmount = window.innerHeight * 0.8;
       
@@ -391,26 +243,79 @@ serve(async (req) => {
       this.updateStatus(\`📜 Scrolled \${direction}\`);
     }
 
-    findElementByVoice(transcript) {
-      const words = transcript.split(' ').filter(word => word.length > 2);
+    click_element(params) {
+      const { target_text } = params;
+      console.log('🖱️ Finding element to click:', target_text);
+      
+      const element = this.findElementByText(target_text);
+      if (element) {
+        this.clickElement(element);
+        this.updateStatus(\`✅ Clicked: \${target_text}\`);
+      } else {
+        this.updateStatus(\`❌ Element not found: \${target_text}\`);
+      }
+    }
+
+    fill_field(params) {
+      const { value, field_hint } = params;
+      console.log('✏️ Filling field:', value, field_hint);
+      
+      // Find form field based on hint or proximity
+      const field = this.findFieldByHint(field_hint || value);
+      if (field) {
+        field.value = value;
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        field.dispatchEvent(new Event('change', { bubbles: true }));
+        this.updateStatus(\`✅ Filled field: \${value}\`);
+      } else {
+        this.updateStatus(\`❌ Field not found\`);
+      }
+    }
+
+    toggle_element(params) {
+      const { target } = params;
+      console.log('🔄 Toggling element:', target);
+      
+      const element = this.findElementByText(target);
+      if (element) {
+        // Try different toggle strategies
+        if (element.type === 'checkbox' || element.type === 'radio') {
+          element.checked = !element.checked;
+        } else if (element.classList.contains('active')) {
+          element.classList.remove('active');
+        } else {
+          element.classList.add('active');
+        }
+        
+        element.click(); // Also trigger click for additional behaviors
+        this.updateStatus(\`✅ Toggled: \${target}\`);
+      } else {
+        this.updateStatus(\`❌ Element not found: \${target}\`);
+      }
+    }
+
+    // Helper functions for element finding and manipulation
+    
+    findElementByText(targetText) {
+      const searchText = targetText.toLowerCase();
       let bestElement = null;
       let bestScore = 0;
       
       this.currentPageElements.forEach(item => {
-        const searchText = (item.text + ' ' + item.href).toLowerCase();
+        const itemText = item.text.toLowerCase();
+        const itemHref = (item.href || '').toLowerCase();
+        
+        // Calculate match score
         let score = 0;
+        if (itemText.includes(searchText)) {
+          score += searchText.length;
+          if (itemText === searchText) score += 10; // Exact match bonus
+        }
+        if (itemHref.includes(searchText)) {
+          score += searchText.length * 0.5;
+        }
         
-        words.forEach(word => {
-          if (searchText.includes(word)) {
-            score += word.length;
-            // Bonus for exact word matches
-            if (item.text.toLowerCase().split(' ').includes(word)) {
-              score += 5;
-            }
-          }
-        });
-        
-        if (score > bestScore && score > 4) { // Minimum threshold
+        if (score > bestScore) {
           bestScore = score;
           bestElement = item.element;
         }
@@ -419,15 +324,35 @@ serve(async (req) => {
       return bestElement;
     }
 
+    findFieldByHint(hint) {
+      const hintLower = hint.toLowerCase();
+      const fields = document.querySelectorAll('input, textarea, select');
+      
+      for (const field of fields) {
+        const fieldText = (
+          field.placeholder + ' ' +
+          field.name + ' ' +
+          field.id + ' ' +
+          (field.labels?.[0]?.textContent || '') + ' ' +
+          (field.previousElementSibling?.textContent || '') + ' ' +
+          (field.nextElementSibling?.textContent || '')
+        ).toLowerCase();
+        
+        if (fieldText.includes(hintLower) || 
+            (hint.includes('email') && field.type === 'email') ||
+            (hint.includes('password') && field.type === 'password') ||
+            (hint.includes('name') && field.name.includes('name'))) {
+          return field;
+        }
+      }
+      
+      // Fallback: return first visible input
+      return document.querySelector('input:not([type="hidden"]):not([disabled])');
+    }
+
     clickElement(element) {
       try {
         console.log('🖱️ Clicking element:', this.getElementText(element));
-        
-        if (element.href && !element.href.startsWith('#') && !element.href.startsWith('javascript:')) {
-          // This will cause navigation - store state first
-          this.navigationInProgress = true;
-          this.storeNavigationState();
-        }
         
         // Scroll element into view first
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -438,11 +363,9 @@ serve(async (req) => {
           element.click();
           
           // Re-analyze page after click (for dynamic content)
-          if (!this.navigationInProgress) {
-            setTimeout(() => {
-              this.analyzePageContent();
-            }, 1000);
-          }
+          setTimeout(() => {
+            this.analyzePageContent();
+          }, 1000);
         }, 300);
         
       } catch (error) {
@@ -455,15 +378,21 @@ serve(async (req) => {
       console.log('🔍 Analyzing page content...');
       this.currentPageElements = [];
       
-      // Simple selector for interactive elements
+      // Comprehensive selectors for interactive elements
       const selectors = [
         'a[href]:not([href^="#"]):not([href^="javascript:"]):not([href^="mailto:"]):not([href^="tel:"])',
         'button:not([disabled])',
         '[role="button"]:not([disabled])',
         'input[type="submit"]:not([disabled])',
         'input[type="button"]:not([disabled])',
+        'input[type="checkbox"]',
+        'input[type="radio"]',
         '.btn:not([disabled])',
-        '.button:not([disabled])'
+        '.button:not([disabled])',
+        '[onclick]',
+        '[data-toggle]',
+        '.toggle',
+        '.switch'
       ];
       
       selectors.forEach(selector => {
@@ -505,200 +434,54 @@ serve(async (req) => {
 
     getElementText(element) {
       try {
-        return element.getAttribute('aria-label') ||
-               element.textContent?.trim() ||
-               element.value ||
-               element.alt ||
-               element.title ||
-               element.placeholder ||
+        // Get element text content with fallbacks
+        return element.textContent?.trim() || 
+               element.innerText?.trim() || 
+               element.value?.trim() || 
+               element.alt?.trim() || 
+               element.title?.trim() || 
+               element.placeholder?.trim() || 
+               element.getAttribute('aria-label')?.trim() || 
+               element.className?.trim() || 
                '';
       } catch (e) {
         return '';
       }
     }
 
-    refreshPage() {
-      this.updateStatus('🔄 Refreshing page...');
-      window.location.reload();
-    }
-
-    showHelp() {
-      const commands = [
-        'home, about, contact, services',
-        'scroll up/down, go to top/bottom',
-        'login, register, blog, products'
-      ].join(' | ');
-      
-      this.updateStatus(\`ℹ️ Try: \${commands}\`);
-    }
-
-    analyzePage() {
-      this.analyzePageContent();
-      const count = this.currentPageElements.length;
-      const sample = this.currentPageElements
-        .slice(0, 5)
-        .map(item => item.text)
-        .join(', ');
-      
-      this.updateStatus(\`📊 \${count} elements: \${sample}\`);
-    }
-
-    // Session management
-    storeSession() {
-      try {
-        const data = {
-          sessionId: this.sessionId,
-          timestamp: Date.now(),
-          url: window.location.href,
-          active: true
-        };
-        sessionStorage.setItem('voiceNavSession', JSON.stringify(data));
-      } catch (e) {
-        console.warn('Could not store session:', e);
-      }
-    }
-
-    storeNavigationState() {
-      try {
-        const data = {
-          sessionId: this.sessionId,
-          timestamp: Date.now(),
-          needsRestore: true,
-          fromUrl: window.location.href
-        };
-        localStorage.setItem('voiceNavRestore', JSON.stringify(data));
-      } catch (e) {
-        console.warn('Could not store navigation state:', e);
-      }
-    }
-
-    checkForSessionRestore() {
-      try {
-        const restoreData = localStorage.getItem('voiceNavRestore');
-        if (restoreData) {
-          const data = JSON.parse(restoreData);
-          const age = Date.now() - data.timestamp;
-          
-          if (data.needsRestore && age < 60000) { // Within 1 minute
-            console.log('🔄 Restoring voice session after navigation');
-            this.updateStatus('🔄 Restoring voice session...');
-            
-            localStorage.removeItem('voiceNavRestore');
-            
-            setTimeout(() => {
-              this.attemptReconnect();
-            }, 2000);
-          }
-        }
-      } catch (e) {
-        console.warn('Could not check for session restore:', e);
-      }
-    }
-
-    attemptReconnect() {
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        this.updateStatus('❌ Max reconnection attempts reached');
-        return;
-      }
-
-      this.reconnectAttempts++;
-      console.log(\`🔄 Reconnection attempt \${this.reconnectAttempts}/\${this.maxReconnectAttempts}\`);
-      this.updateStatus(\`🔄 Reconnecting... (\${this.reconnectAttempts}/\${this.maxReconnectAttempts})\`);
-
-      try {
-        // Simple reconnection - just reinitialize
-        if (window.vapiSDK) {
-          setTimeout(() => {
-            this.initializeVapi();
-          }, 1000);
-        } else {
-          this.loadVapiSDK();
-        }
-      } catch (error) {
-        console.error('❌ Reconnection failed:', error);
-        
-        const delay = 2000 * this.reconnectAttempts;
-        setTimeout(() => {
-          this.attemptReconnect();
-        }, delay);
-      }
-    }
-
-    setupNavigationHandling() {
-      // Page focus restoration
-      window.addEventListener('focus', () => {
-        if (this.isInitialized && !this.callActive) {
-          setTimeout(() => {
-            this.checkForSessionRestore();
-          }, 500);
-        }
-      });
-
-      // Page visibility restoration
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && this.isInitialized && !this.callActive) {
-          setTimeout(() => {
-            this.checkForSessionRestore();
-          }, 1000);
-        }
-      });
-
-      // Dynamic content changes
-      if (window.MutationObserver) {
-        const observer = new MutationObserver(() => {
-          clearTimeout(this.analyzeTimeout);
-          this.analyzeTimeout = setTimeout(() => {
-            this.analyzePageContent();
-          }, 2000);
-        });
-
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true
-        });
-      }
-    }
-
     updateStatus(message) {
       if (this.statusEl) {
         this.statusEl.textContent = message;
+        console.log('📊 Status:', message);
       }
-      console.log('🎤 Status:', message);
-      
-      // Auto-hide success messages
-      if (message.startsWith('✅')) {
-        setTimeout(() => {
-          if (this.statusEl?.textContent === message) {
-            this.updateStatus('🎤 Ready for commands');
-          }
-        }, 3000);
+    }
+
+    // Cleanup method
+    destroy() {
+      if (this.realtimeChannel) {
+        this.realtimeChannel.unsubscribe();
+      }
+      if (this.vapiWidget) {
+        // VAPI cleanup if needed
       }
     }
   }
 
-  // Initialize
-  function initVoiceNav() {
-    if (window.voiceNav) {
-      console.log('Voice Navigator already exists');
-      return;
-    }
-    
-    window.voiceNav = new UniversalVoiceNavigator();
-  }
-
-  // Start when DOM is ready
+  // Initialize the VAPI Command Executor when DOM is ready
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initVoiceNav);
+    document.addEventListener('DOMContentLoaded', () => {
+      window.vapiCommandExecutor = new VAPICommandExecutor();
+    });
   } else {
-    initVoiceNav();
+    window.vapiCommandExecutor = new VAPICommandExecutor();
   }
 
-  // Global interface
-  window.VoiceNavigator = {
-    refresh: () => window.voiceNav?.analyzePageContent(),
-    reconnect: () => window.voiceNav?.attemptReconnect(),
-    isActive: () => window.voiceNav?.callActive || false
-  };
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', () => {
+    if (window.vapiCommandExecutor) {
+      window.vapiCommandExecutor.destroy();
+    }
+  });
 
 })();`;
 
@@ -706,7 +489,8 @@ serve(async (req) => {
     headers: {
       ...corsHeaders,
       'Content-Type': 'application/javascript; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600'
-    },
+      'Cache-Control': 'public, max-age=3600',
+      'Access-Control-Expose-Headers': 'Content-Length'
+    }
   });
 });
