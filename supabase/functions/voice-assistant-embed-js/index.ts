@@ -14,8 +14,15 @@ serve(async (req) => {
 
   console.log('[EMBED JS] Request received:', req.method, req.url);
 
-  const jsContent = `// VAPI-Centric Voice Automation Embed Script
-// Handles DOM command execution via VAPI function calls
+  const jsContent = `// VAPI-Centric Voice Automation Embed Script  
+// Load Supabase JS first (add this once to your page)
+if (!window.supabase) {
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.53.0/supabase.min.js';
+  script.async = true;
+  document.head.appendChild(script);
+}
+
 (function() {
   'use strict';
   
@@ -26,6 +33,10 @@ serve(async (req) => {
     position: "bottom-right",
     theme: "light"
   };
+
+  // Supabase configuration
+  const SUPABASE_URL = 'https://mdkcdjltvfpthqudhhmx.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg';
 
   class VAPICommandExecutor {
     constructor() {
@@ -84,28 +95,37 @@ serve(async (req) => {
 
     async setupSupabaseRealtime() {
       try {
-        // Import Supabase client
-        const { createClient } = await import('https://cdn.skypack.dev/@supabase/supabase-js');
+        // Wait for Supabase to load
+        let attempts = 0;
+        while (!window.supabase && attempts < 50) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          attempts++;
+        }
         
-        this.supabaseClient = createClient(
-          'https://mdkcdjltvfpthqudhhmx.supabase.co',
-          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg'
-        );
+        if (!window.supabase) {
+          throw new Error('Supabase JS failed to load');
+        }
 
-        // Get assistant ID from bot config
+        this.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         this.assistantId = BOT_CONFIG.assistantId;
         
-        // Subscribe to the same channel the webhook publishes to
+        // Use assistant-specific channel or fallback
+        const channelName = this.assistantId ? \`vapi:\${this.assistantId}\` : 'vapi_function_calls';
+        
         this.realtimeChannel = this.supabaseClient
-          .channel('vapi_function_calls')
+          .channel(channelName)
           .on('broadcast', { event: 'function_call' }, (payload) => {
             console.log('📡 Received function call:', payload);
             this.executeFunctionCall(payload.payload);
           })
-          .subscribe();
+          .subscribe((status) => {
+            console.log('Realtime status:', status, 'channel:', channelName);
+            if (status === 'SUBSCRIBED') {
+              this.updateStatus('🟢 Connected to voice control');
+            }
+          });
 
-        console.log('✅ Supabase Realtime connected for bot:', this.assistantId);
-        this.updateStatus("🔗 Command listener active");
+        console.log('✅ Supabase Realtime setup complete for:', channelName);
         
       } catch (error) {
         console.error('❌ Supabase Realtime setup failed:', error);
@@ -186,31 +206,34 @@ serve(async (req) => {
         console.error('❌ VAPI error:', error);
         this.updateStatus("❌ Voice error");
       });
+
+      // NOTE: Removed transcript parsing - all commands come via realtime now
     }
 
     // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime
     executeFunctionCall(functionCall) {
-      const { functionName, parameters } = functionCall;
-      console.log('⚡ Executing function call:', functionName, parameters);
+      const { functionName, params } = functionCall;
+      console.log('⚡ Executing function call:', functionName, params);
       
       try {
         switch (functionName) {
           case 'scroll_page':
-            this.scroll_page(parameters);
+            this.scroll_page(params);
             break;
           case 'click_element':
-            this.click_element(parameters);
+            this.click_element(params);
             break;
           case 'fill_field':
-            this.fill_field(parameters);
+            this.fill_field(params);
             break;
           case 'toggle_element':
-            this.toggle_element(parameters);
+            this.toggle_element(params);
             break;
           default:
             console.warn('Unknown function call:', functionName);
             this.updateStatus(\`❓ Unknown command: \${functionName}\`);
         }
+        this.updateStatus(\`✅ Executed \${functionName}\`);
       } catch (error) {
         console.error('❌ Function execution error:', error);
         this.updateStatus(\`❌ Error executing \${functionName}\`);

@@ -3,31 +3,24 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-vapi-assistant-id, x-assistant-id, x-assistant',
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
 
-interface VapiFunctionCallPayload {
-  message: {
-    timestamp: number;
-    type: string;
-    toolCalls: Array<{
-      id: string;
-      type: string;
-      function: {
-        name: string;
-        arguments: any;
-      };
-    }>;
-  };
+function safeJsonParse(maybeJson: unknown) {
+  if (typeof maybeJson !== 'string') return maybeJson ?? {};
+  try {
+    return JSON.parse(maybeJson);
+  } catch {
+    console.warn('[VAPI Function Call] Failed to parse arguments JSON string. Sending as empty object.');
+    return {};
+  }
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
-
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
@@ -38,17 +31,40 @@ serve(async (req) => {
   try {
     console.log('[VAPI Function Call] Webhook received');
 
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('[VAPI Function Call] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+      return new Response(JSON.stringify({ error: 'Server misconfigured' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Parse webhook payload
-    const payload: VapiFunctionCallPayload = await req.json();
+    const payload = await req.json();
     console.log('[VAPI Function Call] Payload:', JSON.stringify(payload, null, 2));
 
-    // Extract function call details from VAPI payload
-    const toolCall = payload.message?.toolCalls?.[0];
+    // Try to find assistantId (query, headers, body)
+    const url = new URL(req.url);
+    const assistantFromQuery =
+      url.searchParams.get('assistant') ||
+      url.searchParams.get('assistantId') ||
+      url.searchParams.get('botId');
+    const assistantFromHeader =
+      req.headers.get('x-vapi-assistant-id') ||
+      req.headers.get('x-assistant-id') ||
+      req.headers.get('x-assistant');
+    const assistantFromBody =
+      payload?.assistantId ||
+      payload?.assistant?.id ||
+      payload?.assistant ||
+      payload?.botId ||
+      payload?.bot?.id ||
+      payload?.message?.assistantId;
+    const assistantId = assistantFromQuery || assistantFromHeader || assistantFromBody || null;
+
+    const toolCall = payload?.message?.toolCalls?.[0] ?? null;
     if (!toolCall) {
       console.error('[VAPI Function Call] No tool calls found in payload');
       return new Response(JSON.stringify({ error: 'No tool calls found' }), {
@@ -57,9 +73,10 @@ serve(async (req) => {
       });
     }
 
-    const functionName = toolCall.function?.name;
-    const parameters = toolCall.function?.arguments || {};
-    const callId = toolCall.id;
+    const functionName: string | undefined = toolCall.function?.name;
+    const rawArguments = toolCall.function?.arguments ?? {};
+    const params = safeJsonParse(rawArguments);
+    const callId: string | undefined = toolCall.id;
 
     if (!functionName || !callId) {
       console.error('[VAPI Function Call] Missing required data:', { functionName, callId });
@@ -69,43 +86,41 @@ serve(async (req) => {
       });
     }
 
-    // For now, we'll broadcast to all assistants since VAPI doesn't provide assistant ID in the payload
-    // In production, you might want to include assistant ID in the webhook URL or headers
-    console.log('[VAPI Function Call] Processing function:', functionName, 'with params:', parameters);
+    const channelName = assistantId ? `vapi:${assistantId}` : 'vapi_function_calls';
+    console.log('[VAPI Function Call] Broadcasting', { functionName, channelName, params });
 
-    // Send function call to client via Supabase Realtime
     const functionCallMessage = {
-      type: 'function_call',
       functionName,
-      parameters,
+      params, // IMPORTANT: "params" to match client dispatcher
       callId,
+      assistantId: assistantId || undefined,
       timestamp: new Date().toISOString()
     };
 
-    // Broadcast to a general channel for now - in production you'd want to map this to specific assistants
-    const channel = supabase.channel('vapi_function_calls');
-    
-    // Send the function call to the embedding script
-    await channel.send({
+    const channel = supabase.channel(channelName);
+    const sendResult = await channel.send({
       type: 'broadcast',
       event: 'function_call',
       payload: functionCallMessage
-    });
+    } as any);
 
-    console.log('[VAPI Function Call] Function call broadcasted:', functionName);
+    if (sendResult?.error) {
+      console.error('[VAPI Function Call] Broadcast error:', sendResult.error);
+      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult.error }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-    // Return success response to VAPI
-    return new Response(JSON.stringify({ 
-      success: true,
-      message: `Function ${functionName} executed`,
-      result: `Function call sent to client` 
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    console.log('[VAPI Function Call] Function call broadcasted:', { functionName, channelName });
 
-  } catch (error) {
+    return new Response(
+      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+    );
+  } catch (error: any) {
     console.error('[VAPI Function Call] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error?.message || 'Unknown error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
