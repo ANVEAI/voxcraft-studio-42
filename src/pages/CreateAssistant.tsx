@@ -208,27 +208,49 @@ const CreateAssistant = () => {
         }
 
         // Use edge function to save assistant with proper authentication
-        const { data: saveResponse, error: saveError } = await supabase.functions.invoke('save-assistant', {
-          body: {
-            user_id: user.id,
-            vapi_assistant_id: vapiAssistant.id,
-            name: assistantData.botName,
-            welcome_message: assistantData.welcomeMessage,
-            system_prompt: assistantData.systemPrompt,
-            language: assistantData.language,
-            voice_id: assistantData.voice,
-            position: assistantData.position,
-            theme: assistantData.theme,
-            status: 'active'
-          },
+        const payload = {
+          user_id: user.id,
+          vapi_assistant_id: vapiAssistant.id,
+          name: assistantData.botName,
+          welcome_message: assistantData.welcomeMessage,
+          system_prompt: assistantData.systemPrompt,
+          language: assistantData.language,
+          voice_id: assistantData.voice,
+          position: assistantData.position,
+          theme: assistantData.theme,
+          status: 'active'
+        };
+
+        let saveResponse: any = null;
+        let saveError: any = null;
+
+        // Primary: Supabase invoke
+        const invokeResult = await supabase.functions.invoke('save-assistant', {
+          body: payload,
           headers: {
             Authorization: `Bearer ${token}`
           }
         });
 
-        if (saveError) {
-          console.error('Assistant save error:', saveError);
-          throw new Error(saveError.message || 'Failed to save assistant');
+        saveResponse = invokeResult.data;
+        saveError = invokeResult.error;
+
+        // Fallback: Direct fetch if invoke failed or success flag missing
+        if (saveError || !saveResponse?.success) {
+          console.warn('save-assistant via supabase.invoke failed, trying direct fetch...', saveError || saveResponse);
+          const directRes = await fetch('https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/save-assistant', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+          });
+          const directJson = await directRes.json();
+          if (!directRes.ok || !directJson.success) {
+            throw new Error(directJson?.error || `Failed to save assistant (status ${directRes.status})`);
+          }
+          saveResponse = directJson;
         }
 
         console.log('✅ Assistant saved to database:', saveResponse.assistant);
