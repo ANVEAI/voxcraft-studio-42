@@ -119,7 +119,7 @@ if (!window.supabase) {
         this.assistantId = BOT_CONFIG.assistantId;
         
         // Use assistant-specific channel or fallback
-        const channelName = this.assistantId ? \`vapi:\${this.assistantId}\` : 'vapi_function_calls';
+        const channelName = 'vapi_function_calls';
         
         this.realtimeChannel = this.supabaseClient
           .channel(channelName)
