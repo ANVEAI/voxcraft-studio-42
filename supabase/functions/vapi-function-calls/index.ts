@@ -8,16 +8,17 @@ const corsHeaders = {
 };
 
 interface VapiFunctionCallPayload {
-  type: string;
-  functionCall: {
-    name: string;
-    parameters: any;
-  };
-  call: {
-    id: string;
-    assistant?: {
+  message: {
+    timestamp: number;
+    type: string;
+    toolCalls: Array<{
       id: string;
-    };
+      type: string;
+      function: {
+        name: string;
+        arguments: any;
+      };
+    }>;
   };
 }
 
@@ -46,36 +47,31 @@ serve(async (req) => {
     const payload: VapiFunctionCallPayload = await req.json();
     console.log('[VAPI Function Call] Payload:', JSON.stringify(payload, null, 2));
 
-    // Extract function call details
-    const functionName = payload.functionCall?.name;
-    const parameters = payload.functionCall?.parameters || {};
-    const callId = payload.call?.id;
-    const assistantId = payload.call?.assistant?.id;
+    // Extract function call details from VAPI payload
+    const toolCall = payload.message?.toolCalls?.[0];
+    if (!toolCall) {
+      console.error('[VAPI Function Call] No tool calls found in payload');
+      return new Response(JSON.stringify({ error: 'No tool calls found' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-    if (!functionName || !callId || !assistantId) {
-      console.error('[VAPI Function Call] Missing required data:', { functionName, callId, assistantId });
+    const functionName = toolCall.function?.name;
+    const parameters = toolCall.function?.arguments || {};
+    const callId = toolCall.id;
+
+    if (!functionName || !callId) {
+      console.error('[VAPI Function Call] Missing required data:', { functionName, callId });
       return new Response(JSON.stringify({ error: 'Missing required function call data' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    // Find the assistant to get bot ID for targeting
-    const { data: assistant, error: assistantError } = await supabase
-      .from('assistants')
-      .select('id, user_id')
-      .eq('vapi_assistant_id', assistantId)
-      .single();
-
-    if (assistantError || !assistant) {
-      console.error('[VAPI Function Call] Assistant not found for VAPI ID:', assistantId);
-      return new Response(JSON.stringify({ error: 'Assistant not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    console.log('[VAPI Function Call] Processing function:', functionName, 'for assistant:', assistant.id);
+    // For now, we'll broadcast to all assistants since VAPI doesn't provide assistant ID in the payload
+    // In production, you might want to include assistant ID in the webhook URL or headers
+    console.log('[VAPI Function Call] Processing function:', functionName, 'with params:', parameters);
 
     // Send function call to client via Supabase Realtime
     const functionCallMessage = {
@@ -83,12 +79,11 @@ serve(async (req) => {
       functionName,
       parameters,
       callId,
-      assistantId: assistant.id,
       timestamp: new Date().toISOString()
     };
 
-    // Use Supabase Realtime to broadcast to the specific bot channel
-    const channel = supabase.channel(`bot_${assistant.id}`);
+    // Broadcast to a general channel for now - in production you'd want to map this to specific assistants
+    const channel = supabase.channel('vapi_function_calls');
     
     // Send the function call to the embedding script
     await channel.send({
@@ -97,7 +92,7 @@ serve(async (req) => {
       payload: functionCallMessage
     });
 
-    console.log('[VAPI Function Call] Function call broadcasted to channel:', `bot_${assistant.id}`);
+    console.log('[VAPI Function Call] Function call broadcasted:', functionName);
 
     // Return success response to VAPI
     return new Response(JSON.stringify({ 
