@@ -248,7 +248,7 @@ const CreateAssistant = () => {
 
       // Generate simple embed code that loads from Edge Function
       const embedCodeContent = `<!-- Load Supabase JS -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.53.0/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 
 <!-- Load Voice Assistant -->
 <script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?assistant=${vapiAssistant.id}&apiKey=${import.meta.env.VITE_VAPI_PUBLIC_KEY}&position=${assistantData.position === 'left' ? 'bottom-left' : 'bottom-right'}&theme=${assistantData.theme}"></script>`;
