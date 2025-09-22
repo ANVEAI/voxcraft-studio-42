@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.voice-assistant-embed-js]
 verify_jwt = false
+
+[functions.vapi-analytics]
+verify_jwt = false
