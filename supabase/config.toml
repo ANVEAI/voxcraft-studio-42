@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.vapi-create-page-analyzer-tool]
 verify_jwt = false
+
+[functions.vapi-cleanup-assistant-tools]
+verify_jwt = false
