@@ -26,6 +26,83 @@ const VapiVoiceInterface: React.FC<VapiVoiceInterfaceProps> = ({
   const [currentPageElements, setCurrentPageElements] = useState<any[]>([]);
   const [lastProcessedTranscript, setLastProcessedTranscript] = useState('');
 
+  // Analyze page content for VAPI context
+  const analyzePageForVAPI = () => {
+    try {
+      // Extract headings
+      const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6')).map(heading => ({
+        level: parseInt(heading.tagName.charAt(1)),
+        text: heading.textContent?.trim() || ''
+      })).filter(h => h.text);
+
+      // Extract navigation
+      const navigation = Array.from(document.querySelectorAll('nav a, [role="navigation"] a, .nav a, .navbar a')).map(link => ({
+        text: link.textContent?.trim() || '',
+        href: (link as HTMLAnchorElement).href || ''
+      })).filter(nav => nav.text);
+
+      // Extract forms
+      const forms = Array.from(document.querySelectorAll('form')).map(form => {
+        const inputs = Array.from(form.querySelectorAll('input, select, textarea')).map(input => ({
+          type: input.getAttribute('type') || input.tagName.toLowerCase(),
+          name: input.getAttribute('name') || '',
+          label: input.getAttribute('placeholder') || input.getAttribute('aria-label') || 
+                 form.querySelector(`label[for="${input.id}"]`)?.textContent?.trim() || ''
+        }));
+        return {
+          id: form.id || `form-${Math.random().toString(36).substr(2, 9)}`,
+          inputs
+        };
+      });
+
+      // Extract interactive elements
+      const interactiveElements = Array.from(document.querySelectorAll('button, a, [role="button"], input[type="submit"], input[type="button"]')).map((element, index) => {
+        const text = element.textContent?.trim() || element.getAttribute('aria-label') || element.getAttribute('title') || '';
+        const id = element.id || `element-${index}`;
+        return {
+          type: element.tagName.toLowerCase(),
+          text,
+          id,
+          selector: element.id ? `#${element.id}` : element.className ? `.${element.className.split(' ')[0]}` : element.tagName.toLowerCase()
+        };
+      }).filter(el => el.text);
+
+      // Extract content sections
+      const contentSections = Array.from(document.querySelectorAll('section, article, .content, main')).map(section => {
+        const heading = section.querySelector('h1, h2, h3, h4, h5, h6')?.textContent?.trim() || '';
+        const content = section.textContent?.trim().substring(0, 200) || '';
+        return { heading, content };
+      }).filter(section => section.heading || section.content);
+
+      // Detect page type
+      let pageType = 'general';
+      if (document.querySelector('[data-testid*="cart"], .cart, #cart')) pageType = 'e-commerce';
+      else if (document.querySelector('article, .post, .blog')) pageType = 'blog';
+      else if (document.querySelector('form[action*="contact"], .contact-form')) pageType = 'contact';
+      else if (document.querySelector('.product, [data-testid*="product"]')) pageType = 'product';
+      else if (document.querySelector('nav, .navigation')) pageType = 'navigation';
+
+      // Extract key content
+      const keyContent = document.querySelector('main, .main-content, article')?.textContent?.trim().substring(0, 500) || 
+                        document.body.textContent?.trim().substring(0, 500) || '';
+
+      return {
+        pageTitle: document.title,
+        pageURL: window.location.href,
+        headings,
+        navigation,
+        forms,
+        interactiveElements: interactiveElements.slice(0, 20), // Limit to prevent payload size issues
+        contentSections: contentSections.slice(0, 10),
+        pageType,
+        keyContent
+      };
+    } catch (error) {
+      console.error('[VapiInterface] ❌ Error analyzing page:', error);
+      return null;
+    }
+  };
+
   useEffect(() => {
     // Initialize Vapi instance
     console.log('[VapiInterface] Initializing Vapi with assistant ID:', assistantId);
@@ -59,11 +136,33 @@ const VapiVoiceInterface: React.FC<VapiVoiceInterfaceProps> = ({
       }
       
       // Set up event listeners
-      vapiRef.current.on('call-start', () => {
+      vapiRef.current.on('call-start', async () => {
         console.log('[VapiInterface] ✅ Call started successfully');
         setIsConnected(true);
         setIsSpeaking(false);
         onSpeakingChange?.(false);
+        
+        // Automatically analyze page context for VAPI
+        const pageData = analyzePageForVAPI();
+        if (pageData) {
+          console.log('[VapiInterface] 📊 Sending page analysis to VAPI:', pageData.pageTitle);
+          try {
+            // Call the page analyzer tool via message
+            vapiRef.current?.send({
+              type: 'add-message',
+              message: {
+                role: 'function',
+                name: 'analyze_page_context',
+                content: JSON.stringify({
+                  result: `Page context analyzed: ${pageData.pageTitle}`,
+                  pageData
+                })
+              }
+            });
+          } catch (error) {
+            console.error('[VapiInterface] ❌ Failed to send page analysis:', error);
+          }
+        }
       });
 
       vapiRef.current.on('call-end', () => {
