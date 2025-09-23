@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.vapi-analytics]
 verify_jwt = false
+
+[functions.vapi-create-page-analyzer-tool]
+verify_jwt = false
