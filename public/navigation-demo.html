@@ -208,12 +208,11 @@
         console.log('Available navigation functions: navigate_to_url, scroll_page, click_element, type_text, go_back, go_forward, get_page_info');
     </script>
 
-    <!-- Voice Bot Integration -->
-    <script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/external-chatbot-voice"
-            data-chatbot-uuid="YOUR_ASSISTANT_UUID"
-            data-language="en"
-            data-position="right"
-            data-theme="light">
-    </script>
+    <!-- Voice Bot Integration - NavDemoBot -->
+    <!-- Load Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+
+    <!-- Load Voice Assistant -->
+    <script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?assistant=9d43be64-90cf-4855-8790-2ec6cb81db43&apiKey=8e527c78-d329-48e6-a992-e65ccf28a7b9&position=bottom-right&theme=light"></script>
 </body>
 </html>
