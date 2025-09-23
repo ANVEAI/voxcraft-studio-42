@@ -252,78 +252,842 @@ if (!window.supabase) {
     // DOM manipulation functions - these contain all the DOM logic
     
     scroll_page(params) {
-      const { direction } = params;
-      console.log('📜 Scrolling page:', direction);
+      const { direction, target_section } = params;
+      console.log('📜 Scrolling page:', direction, target_section);
       
-      const scrollAmount = window.innerHeight * 0.8;
-      
-      switch(direction) {
-        case 'down':
-          window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
-          break;
-        case 'up':
-          window.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
-          break;
-        case 'top':
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-          break;
-        case 'bottom':
-          window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-          break;
+      // If target_section is provided, try to scroll to specific section
+      if (target_section) {
+        const sectionFound = this.scrollToSection(target_section);
+        if (sectionFound) {
+          this.updateStatus(\`📜 Scrolled to \${target_section}\`);
+          return;
+        }
       }
       
-      this.updateStatus(\`📜 Scrolled \${direction}\`);
+      // Enhanced scrolling with better amount calculations
+      const scrollAmount = window.innerHeight * 0.85;
+      const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      
+      switch(direction?.toLowerCase()) {
+        case 'down':
+        case 'next':
+          const downAmount = Math.min(scrollAmount, maxScroll - currentScroll);
+          window.scrollBy({ 
+            top: downAmount, 
+            behavior: 'smooth' 
+          });
+          break;
+          
+        case 'up':
+        case 'previous':
+        case 'back':
+          const upAmount = Math.min(scrollAmount, currentScroll);
+          window.scrollBy({ 
+            top: -upAmount, 
+            behavior: 'smooth' 
+          });
+          break;
+          
+        case 'top':
+        case 'start':
+        case 'beginning':
+          window.scrollTo({ 
+            top: 0, 
+            behavior: 'smooth' 
+          });
+          break;
+          
+        case 'bottom':
+        case 'end':
+          window.scrollTo({ 
+            top: document.documentElement.scrollHeight, 
+            behavior: 'smooth' 
+          });
+          break;
+          
+        case 'middle':
+        case 'center':
+          window.scrollTo({ 
+            top: document.documentElement.scrollHeight / 2, 
+            behavior: 'smooth' 
+          });
+          break;
+          
+        default:
+          // Try to find element or section by direction text
+          if (direction) {
+            const element = this.findScrollTarget(direction);
+            if (element) {
+              element.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'start',
+                inline: 'nearest'
+              });
+              this.updateStatus(\`📜 Scrolled to \${direction}\`);
+              return;
+            }
+          }
+          window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+      }
+      
+      this.updateStatus(\`📜 Scrolled \${direction || 'down'}\`);
+    }
+    
+    scrollToSection(sectionName) {
+      const searchTerms = sectionName.toLowerCase().split(/\s+/);
+      
+      // Common section identifiers
+      const sectionSelectors = [
+        'section', 'article', 'header', 'footer', 'nav', 'main', 'aside',
+        '[role="region"]', '[role="navigation"]', '[role="main"]',
+        '.section', '.container', '#content', '.content',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        '[id*="section"]', '[class*="section"]'
+      ];
+      
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      sectionSelectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(element => {
+            if (!this.isVisible(element)) return;
+            
+            const elementText = (
+              element.id + ' ' +
+              element.className + ' ' +
+              element.textContent + ' ' +
+              element.getAttribute('aria-label') + ' ' +
+              element.getAttribute('data-section') + ' ' +
+              element.getAttribute('title')
+            ).toLowerCase();
+            
+            let score = 0;
+            searchTerms.forEach(term => {
+              if (elementText.includes(term)) {
+                score += term.length * (elementText.indexOf(term) === 0 ? 2 : 1);
+              }
+            });
+            
+            // Bonus for exact ID or class match
+            if (element.id && element.id.toLowerCase() === sectionName.toLowerCase()) {
+              score += 100;
+            }
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = element;
+            }
+          });
+        } catch (e) {
+          console.warn('Section search error:', e);
+        }
+      });
+      
+      if (bestMatch) {
+        bestMatch.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start',
+          inline: 'nearest'
+        });
+        // Adjust for fixed headers
+        const offset = 80; // Typical fixed header height
+        window.scrollBy(0, -offset);
+        return true;
+      }
+      
+      return false;
+    }
+    
+    findScrollTarget(targetText) {
+      const searchText = targetText.toLowerCase();
+      
+      // Look for anchors, headings, and sections
+      const targetSelectors = [
+        \`[id="\${CSS.escape(targetText)}"]\`,
+        \`[id*="\${CSS.escape(searchText)}"]\`,
+        \`a[name="\${CSS.escape(targetText)}"]\`,
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        '[data-section]', '[role="region"]', 'section'
+      ];
+      
+      for (const selector of targetSelectors) {
+        try {
+          const elements = document.querySelectorAll(selector);
+          for (const element of elements) {
+            const elementText = this.getElementText(element).toLowerCase();
+            const elementId = (element.id || '').toLowerCase();
+            
+            if (elementText.includes(searchText) || 
+                elementId.includes(searchText) ||
+                (element.getAttribute('data-section') || '').toLowerCase().includes(searchText)) {
+              return element;
+            }
+          }
+        } catch (e) {
+          console.warn('Scroll target search error:', e);
+        }
+      }
+      
+      return null;
     }
 
     click_element(params) {
-      const { target_text } = params;
-      console.log('🖱️ Finding element to click:', target_text);
+      const { target_text, element_type, nth_match } = params;
+      console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
       
-      const element = this.findElementByText(target_text);
+      // Try multiple strategies to find the element
+      let element = this.findElementByText(target_text);
+      
+      // If not found, try more aggressive search
+      if (!element) {
+        element = this.findElementByFuzzyMatch(target_text, element_type);
+      }
+      
+      // If still not found, try by partial match
+      if (!element) {
+        element = this.findElementByPartialMatch(target_text, nth_match || 0);
+      }
+      
       if (element) {
-        this.clickElement(element);
+        this.performClick(element);
         this.updateStatus(\`✅ Clicked: \${target_text}\`);
       } else {
-        this.updateStatus(\`❌ Element not found: \${target_text}\`);
+        // Try to provide helpful feedback
+        const suggestions = this.getSimilarElements(target_text);
+        if (suggestions.length > 0) {
+          console.log('🔍 Similar elements found:', suggestions.map(s => s.text));
+          this.updateStatus(\`❌ Not found. Try: \${suggestions[0].text}\`);
+        } else {
+          this.updateStatus(\`❌ Element not found: \${target_text}\`);
+        }
       }
+    }
+    
+    performClick(element) {
+      try {
+        // Ensure element is in view
+        element.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center',
+          inline: 'center'
+        });
+        
+        // Wait for scroll to complete
+        setTimeout(() => {
+          // Try multiple click strategies
+          element.focus();
+          
+          // Dispatch mouse events for better compatibility
+          const mouseEvents = ['mousedown', 'mouseup', 'click'];
+          mouseEvents.forEach(eventType => {
+            const event = new MouseEvent(eventType, {
+              view: window,
+              bubbles: true,
+              cancelable: true,
+              buttons: 1
+            });
+            element.dispatchEvent(event);
+          });
+          
+          // Also try native click
+          element.click();
+          
+          // Handle special cases
+          if (element.tagName === 'A' && element.href) {
+            // For links that might use preventDefault
+            const clickEvent = new MouseEvent('click', {
+              view: window,
+              bubbles: true,
+              cancelable: true,
+              ctrlKey: false,
+              metaKey: false
+            });
+            
+            if (!element.dispatchEvent(clickEvent)) {
+              // If prevented, try navigation
+              if (element.href && !element.href.startsWith('javascript:')) {
+                window.location.href = element.href;
+              }
+            }
+          }
+          
+          // Re-analyze page after click for dynamic content
+          setTimeout(() => {
+            this.analyzePageContent();
+          }, 500);
+        }, 300);
+        
+      } catch (error) {
+        console.error('❌ Click failed:', error);
+        this.updateStatus('❌ Click failed');
+      }
+    }
+    
+    findElementByFuzzyMatch(targetText, elementType) {
+      const searchTerms = targetText.toLowerCase().split(/\s+/);
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      // Define element type filters
+      const typeFilters = {
+        'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
+        'link': ['a[href]'],
+        'input': ['input', 'textarea'],
+        'checkbox': ['input[type="checkbox"]'],
+        'radio': ['input[type="radio"]'],
+        'dropdown': ['select'],
+        'menu': ['[role="menu"]', '[role="menuitem"]', '.menu', '.dropdown']
+      };
+      
+      const selectors = elementType && typeFilters[elementType] ? 
+        typeFilters[elementType] : 
+        Object.values(typeFilters).flat();
+      
+      selectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(element => {
+            if (!this.isVisible(element)) return;
+            
+            const elementText = this.getCompleteElementText(element).toLowerCase();
+            
+            let score = 0;
+            searchTerms.forEach(term => {
+              if (elementText.includes(term)) {
+                score += term.length;
+                // Bonus for word boundary matches
+                if (new RegExp(\`\\\\b\${term}\\\\b\`).test(elementText)) {
+                  score += term.length * 0.5;
+                }
+              }
+            });
+            
+            // Normalize score by element text length to prefer shorter exact matches
+            if (elementText.length > 0) {
+              score = score / Math.sqrt(elementText.length);
+            }
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = element;
+            }
+          });
+        } catch (e) {
+          console.warn('Fuzzy match error:', e);
+        }
+      });
+      
+      return bestMatch;
+    }
+    
+    findElementByPartialMatch(targetText, nthMatch = 0) {
+      const searchText = targetText.toLowerCase();
+      const matches = [];
+      
+      // Get all clickable elements
+      const clickableElements = document.querySelectorAll(
+        'a, button, [role="button"], input[type="submit"], input[type="button"], [onclick], [ng-click], [data-click]'
+      );
+      
+      clickableElements.forEach(element => {
+        if (!this.isVisible(element)) return;
+        
+        const elementText = this.getCompleteElementText(element).toLowerCase();
+        
+        if (elementText.includes(searchText)) {
+          matches.push(element);
+        }
+      });
+      
+      return matches[nthMatch] || null;
+    }
+    
+    getSimilarElements(targetText) {
+      const searchText = targetText.toLowerCase();
+      const similar = [];
+      const maxSuggestions = 3;
+      
+      this.currentPageElements.forEach(item => {
+        const itemText = item.text.toLowerCase();
+        const similarity = this.calculateSimilarity(searchText, itemText);
+        
+        if (similarity > 0.3) { // 30% similarity threshold
+          similar.push({
+            element: item.element,
+            text: item.text,
+            similarity: similarity
+          });
+        }
+      });
+      
+      // Sort by similarity and return top matches
+      return similar
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, maxSuggestions);
+    }
+    
+    calculateSimilarity(str1, str2) {
+      const longer = str1.length > str2.length ? str1 : str2;
+      const shorter = str1.length > str2.length ? str2 : str1;
+      
+      if (longer.length === 0) return 1.0;
+      
+      const editDistance = this.levenshteinDistance(longer, shorter);
+      return (longer.length - editDistance) / longer.length;
+    }
+    
+    levenshteinDistance(str1, str2) {
+      const matrix = [];
+      
+      for (let i = 0; i <= str2.length; i++) {
+        matrix[i] = [i];
+      }
+      
+      for (let j = 0; j <= str1.length; j++) {
+        matrix[0][j] = j;
+      }
+      
+      for (let i = 1; i <= str2.length; i++) {
+        for (let j = 1; j <= str1.length; j++) {
+          if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+            matrix[i][j] = matrix[i - 1][j - 1];
+          } else {
+            matrix[i][j] = Math.min(
+              matrix[i - 1][j - 1] + 1,
+              matrix[i][j - 1] + 1,
+              matrix[i - 1][j] + 1
+            );
+          }
+        }
+      }
+      
+      return matrix[str2.length][str1.length];
+    }
+    
+    getCompleteElementText(element) {
+      // Get text from multiple sources for better matching
+      const texts = [
+        element.textContent?.trim(),
+        element.innerText?.trim(),
+        element.value?.trim(),
+        element.alt?.trim(),
+        element.title?.trim(),
+        element.placeholder?.trim(),
+        element.getAttribute('aria-label')?.trim(),
+        element.getAttribute('data-text')?.trim(),
+        element.getAttribute('data-title')?.trim(),
+        element.getAttribute('data-original-title')?.trim(), // Bootstrap tooltips
+        element.getAttribute('data-content')?.trim()
+      ].filter(Boolean);
+      
+      return texts.join(' ');
     }
 
     fill_field(params) {
-      const { value, field_hint } = params;
-      console.log('✏️ Filling field:', value, field_hint);
+      const { value, field_hint, field_type, submit_after } = params;
+      console.log('✏️ Filling field:', value, field_hint, field_type);
       
-      // Find form field based on hint or proximity
-      const field = this.findFieldByHint(field_hint || value);
+      // Find form field based on hint, type, or proximity
+      const field = this.findFieldByHint(field_hint || value, field_type);
+      
       if (field) {
-        field.value = value;
+        // Clear existing value first
+        field.value = '';
         field.dispatchEvent(new Event('input', { bubbles: true }));
-        field.dispatchEvent(new Event('change', { bubbles: true }));
+        
+        // Set focus to field
+        field.focus();
+        
+        // Fill the field character by character for better compatibility
+        if (field.tagName === 'INPUT' || field.tagName === 'TEXTAREA') {
+          // Use more robust filling method
+          this.fillFieldRobustly(field, value);
+        } else if (field.tagName === 'SELECT') {
+          // Handle dropdown selection
+          this.selectDropdownOption(field, value);
+        }
+        
+        // Trigger all necessary events
+        const events = ['input', 'change', 'blur', 'keyup'];
+        events.forEach(eventType => {
+          field.dispatchEvent(new Event(eventType, { 
+            bubbles: true, 
+            cancelable: true 
+          }));
+        });
+        
+        // Also dispatch KeyboardEvent for better compatibility
+        field.dispatchEvent(new KeyboardEvent('keydown', { 
+          bubbles: true,
+          cancelable: true,
+          key: 'Enter',
+          keyCode: 13
+        }));
+        
         this.updateStatus(\`✅ Filled field: \${value}\`);
+        
+        // Auto-submit if requested
+        if (submit_after) {
+          setTimeout(() => {
+            this.submitForm(field);
+          }, 500);
+        }
       } else {
-        this.updateStatus(\`❌ Field not found\`);
+        this.updateStatus(\`❌ Field not found: \${field_hint || 'any'}\`);
       }
+    }
+    
+    fillFieldRobustly(field, value) {
+      try {
+        // Method 1: Direct value setting with proper event sequence
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        )?.set;
+        
+        const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype,
+          'value'
+        )?.set;
+        
+        const valueSetter = field.tagName === 'TEXTAREA' ? 
+          nativeTextAreaValueSetter : 
+          nativeInputValueSetter;
+        
+        if (valueSetter) {
+          valueSetter.call(field, value);
+        } else {
+          field.value = value;
+        }
+        
+        // Method 2: Simulate typing for React/Vue/Angular compatibility
+        const inputEvent = new InputEvent('input', {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertText',
+          data: value
+        });
+        field.dispatchEvent(inputEvent);
+        
+        // Method 3: For contenteditable elements
+        if (field.contentEditable === 'true') {
+          field.textContent = value;
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        
+      } catch (error) {
+        console.warn('Robust fill fallback:', error);
+        field.value = value;
+      }
+    }
+    
+    selectDropdownOption(selectField, value) {
+      const valueLower = value.toLowerCase();
+      let optionFound = false;
+      
+      // Try to find option by text or value
+      Array.from(selectField.options).forEach(option => {
+        const optionText = option.textContent.toLowerCase();
+        const optionValue = option.value.toLowerCase();
+        
+        if (optionText.includes(valueLower) || 
+            optionValue.includes(valueLower) ||
+            optionText === valueLower ||
+            optionValue === valueLower) {
+          option.selected = true;
+          optionFound = true;
+        }
+      });
+      
+      if (!optionFound && selectField.options.length > 0) {
+        // Fallback: select first non-empty option
+        for (let i = 0; i < selectField.options.length; i++) {
+          if (selectField.options[i].value) {
+            selectField.options[i].selected = true;
+            break;
+          }
+        }
+      }
+    }
+    
+    submitForm(field) {
+      // Find the parent form
+      const form = field.closest('form');
+      
+      if (form) {
+        // Try to submit the form
+        const submitButton = form.querySelector(
+          'button[type="submit"], input[type="submit"], button:not([type="button"])'
+        );
+        
+        if (submitButton) {
+          submitButton.click();
+        } else {
+          form.submit();
+        }
+        
+        this.updateStatus('📤 Form submitted');
+      } else {
+        // Look for a nearby submit button
+        const nearbySubmit = this.findNearbySubmitButton(field);
+        if (nearbySubmit) {
+          nearbySubmit.click();
+          this.updateStatus('📤 Triggered submission');
+        }
+      }
+    }
+    
+    findNearbySubmitButton(field) {
+      // Look for submit buttons in the same container
+      const container = field.closest('div, section, article, form');
+      if (!container) return null;
+      
+      const submitSelectors = [
+        'button[type="submit"]',
+        'input[type="submit"]',
+        'button:contains("submit")',
+        'button:contains("search")',
+        'button:contains("go")',
+        'button:contains("enter")',
+        '[role="button"][type="submit"]'
+      ];
+      
+      for (const selector of submitSelectors) {
+        try {
+          const button = container.querySelector(selector);
+          if (button && this.isVisible(button)) {
+            return button;
+          }
+        } catch (e) {
+          // Some selectors might not be valid
+          continue;
+        }
+      }
+      
+      // Fallback: any visible button in container
+      const anyButton = container.querySelector('button:not([disabled])');
+      return anyButton && this.isVisible(anyButton) ? anyButton : null;
     }
 
     toggle_element(params) {
-      const { target } = params;
-      console.log('🔄 Toggling element:', target);
+      const { target, toggle_state } = params;
+      console.log('🔄 Toggling element:', target, toggle_state);
       
-      const element = this.findElementByText(target);
+      const element = this.findElementByText(target) || 
+                     this.findToggleableElement(target);
+      
       if (element) {
-        // Try different toggle strategies
-        if (element.type === 'checkbox' || element.type === 'radio') {
-          element.checked = !element.checked;
-        } else if (element.classList.contains('active')) {
-          element.classList.remove('active');
+        const toggled = this.performToggle(element, toggle_state);
+        
+        if (toggled) {
+          this.updateStatus(\`✅ Toggled: \${target}\`);
         } else {
-          element.classList.add('active');
+          this.updateStatus(\`⚠️ Toggle may not have worked: \${target}\`);
+        }
+      } else {
+        this.updateStatus(\`❌ Toggle element not found: \${target}\`);
+      }
+    }
+    
+    performToggle(element, desiredState) {
+      try {
+        let toggled = false;
+        
+        // Handle different types of toggle elements
+        if (element.type === 'checkbox' || element.type === 'radio') {
+          // Checkbox or radio button
+          const previousState = element.checked;
+          
+          if (desiredState === undefined) {
+            element.checked = !element.checked;
+          } else if (desiredState === 'on' || desiredState === true) {
+            element.checked = true;
+          } else if (desiredState === 'off' || desiredState === false) {
+            element.checked = false;
+          }
+          
+          // Trigger change event
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          toggled = element.checked !== previousState;
+          
+        } else if (element.tagName === 'SELECT') {
+          // Dropdown toggle
+          if (element.size > 1 || element.multiple) {
+            // Multi-select
+            const options = element.querySelectorAll('option');
+            options.forEach(option => {
+              option.selected = !option.selected;
+            });
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+            toggled = true;
+          }
+          
+        } else if (element.getAttribute('role') === 'switch' || 
+                   element.classList.contains('switch') ||
+                   element.classList.contains('toggle')) {
+          // ARIA switch or custom toggle
+          const isOn = element.getAttribute('aria-checked') === 'true' ||
+                       element.classList.contains('on') ||
+                       element.classList.contains('active') ||
+                       element.classList.contains('checked');
+          
+          if (desiredState === undefined) {
+            this.setToggleState(element, !isOn);
+          } else {
+            this.setToggleState(element, desiredState === 'on' || desiredState === true);
+          }
+          
+          element.click();
+          toggled = true;
+          
+        } else if (element.hasAttribute('aria-expanded')) {
+          // Expandable/collapsible element
+          const isExpanded = element.getAttribute('aria-expanded') === 'true';
+          element.setAttribute('aria-expanded', !isExpanded);
+          element.click();
+          toggled = true;
+          
+        } else if (element.hasAttribute('aria-pressed')) {
+          // Toggle button
+          const isPressed = element.getAttribute('aria-pressed') === 'true';
+          element.setAttribute('aria-pressed', !isPressed);
+          element.click();
+          toggled = true;
+          
+        } else {
+          // Generic toggle - try various strategies
+          const toggleClasses = ['active', 'on', 'open', 'selected', 'checked', 'expanded'];
+          let hasToggleClass = false;
+          
+          toggleClasses.forEach(className => {
+            if (element.classList.contains(className)) {
+              element.classList.remove(className);
+              hasToggleClass = true;
+            } else if (!hasToggleClass) {
+              element.classList.add(className);
+            }
+          });
+          
+          // Always click to trigger any JavaScript handlers
+          element.click();
+          toggled = true;
         }
         
-        element.click(); // Also trigger click for additional behaviors
-        this.updateStatus(\`✅ Toggled: \${target}\`);
-      } else {
-        this.updateStatus(\`❌ Element not found: \${target}\`);
+        // Trigger additional events for better compatibility
+        const events = ['toggle', 'change', 'input'];
+        events.forEach(eventType => {
+          try {
+            element.dispatchEvent(new Event(eventType, { bubbles: true }));
+          } catch (e) {
+            // Some events might not be applicable
+          }
+        });
+        
+        return toggled;
+        
+      } catch (error) {
+        console.error('Toggle error:', error);
+        // Fallback: just click the element
+        element.click();
+        return true;
       }
+    }
+    
+    setToggleState(element, state) {
+      if (state) {
+        element.classList.add('on', 'active', 'checked');
+        element.classList.remove('off', 'inactive');
+        element.setAttribute('aria-checked', 'true');
+      } else {
+        element.classList.remove('on', 'active', 'checked');
+        element.classList.add('off');
+        element.setAttribute('aria-checked', 'false');
+      }
+    }
+    
+    findToggleableElement(searchText) {
+      const searchLower = searchText.toLowerCase();
+      
+      // Specific selectors for toggle elements
+      const toggleSelectors = [
+        'input[type="checkbox"]',
+        'input[type="radio"]',
+        '[role="switch"]',
+        '[role="checkbox"]',
+        '[aria-checked]',
+        '[aria-pressed]',
+        '[aria-expanded]',
+        '.switch',
+        '.toggle',
+        '.checkbox',
+        '.radio',
+        '[data-toggle]',
+        '.btn-toggle'
+      ];
+      
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      toggleSelectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(element => {
+            if (!this.isVisible(element)) return;
+            
+            // Get associated label text
+            const labelText = this.getToggleLabelText(element).toLowerCase();
+            
+            if (labelText.includes(searchLower)) {
+              const score = searchLower.length / labelText.length;
+              if (score > bestScore) {
+                bestScore = score;
+                bestMatch = element;
+              }
+            }
+          });
+        } catch (e) {
+          console.warn('Toggle search error:', e);
+        }
+      });
+      
+      return bestMatch;
+    }
+    
+    getToggleLabelText(element) {
+      // Get label text for toggle element
+      let labelText = '';
+      
+      // Check for associated label
+      if (element.id) {
+        const label = document.querySelector(\`label[for="\${element.id}"]\`);
+        if (label) {
+          labelText += label.textContent + ' ';
+        }
+      }
+      
+      // Check parent label
+      const parentLabel = element.closest('label');
+      if (parentLabel) {
+        labelText += parentLabel.textContent + ' ';
+      }
+      
+      // Check aria-label and other attributes
+      labelText += (element.getAttribute('aria-label') || '') + ' ';
+      labelText += (element.getAttribute('title') || '') + ' ';
+      labelText += (element.getAttribute('data-label') || '') + ' ';
+      
+      // Check nearby text
+      const nextSibling = element.nextElementSibling;
+      if (nextSibling && nextSibling.tagName !== 'INPUT') {
+        labelText += nextSibling.textContent + ' ';
+      }
+      
+      const previousSibling = element.previousElementSibling;
+      if (previousSibling && previousSibling.tagName !== 'INPUT') {
+        labelText += previousSibling.textContent + ' ';
+      }
+      
+      return labelText.trim();
     }
 
     // Helper functions for element finding and manipulation
