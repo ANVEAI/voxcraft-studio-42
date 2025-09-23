@@ -223,10 +223,17 @@ serve(async (req) => {
 
     const assistantData = await assistantResponse.json();
     
-    // Add the new tool to the assistant's tools
-    const updatedTools = [...(assistantData.tools || []), createdTool.id];
+    // Add the new tool to the assistant's tools (use toolIds from model or fallback to tools)
+    const currentTools = assistantData.model?.toolIds || assistantData.tools || [];
+    const updatedTools = [...currentTools, createdTool.id];
 
-    // Update the assistant with the new tool using the correct VAPI ID
+    // Get the existing model configuration and preserve all properties
+    const existingModel = assistantData.model || {};
+    
+    console.log('🔧 Current model config:', JSON.stringify(existingModel, null, 2));
+    console.log('🔧 Updated tools:', updatedTools);
+
+    // Update the assistant with toolIds nested in the model object (VAPI API requirement)
     const updateResponse = await fetch(`https://api.vapi.ai/assistant/${vapiAssistantId}`, {
       method: 'PATCH',
       headers: {
@@ -234,7 +241,10 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        toolIds: updatedTools,
+        model: {
+          ...existingModel,
+          toolIds: updatedTools,
+        }
       }),
     });
 
