@@ -85,29 +85,26 @@
         
         <div class="voice-instructions">
             <h3>🎤 Voice Navigation Instructions</h3>
-            <p><strong>Click the voice bot widget (bottom-right) and try these commands:</strong></p>
+            <p><strong>Click the voice bot widget (bottom-right) and try these core commands:</strong></p>
             <ul>
-                <li>"Navigate to google.com" or "Open Wikipedia"</li>
+                <li>"Navigate to Google" or "Open Google"</li>
                 <li>"Scroll down" or "Scroll to the top"</li>
-                <li>"Click the demo button" or "Click on settings"</li>
-                <li>"Go back" or "Refresh the page"</li>
+                <li>"Go to form section"</li>
                 <li>"Type hello in the search box"</li>
-                <li>"Find all buttons on this page"</li>
+                <li>"Click the demo button"</li>
             </ul>
         </div>
 
         <div class="section" id="navigation-section">
-            <h2>🧭 Navigation Functions</h2>
-            <p>This demo showcases various navigation capabilities:</p>
+            <h2>🧭 Navigation & Links</h2>
+            <p>Test voice navigation and link opening:</p>
             
             <div class="navigation-commands">
-                <h4>Available Commands:</h4>
-                <span class="command">navigate_to_url</span>
-                <span class="command">scroll_page</span>
-                <span class="command">click_element</span>
-                <span class="command">type_text</span>
-                <span class="command">go_back / go_forward</span>
-                <span class="command">get_page_info</span>
+                <h4>Try These Commands:</h4>
+                <span class="command">"Navigate to Google"</span>
+                <span class="command">"Open Google"</span>
+                <span class="command">"Click the demo button"</span>
+                <span class="command">"Go to form section"</span>
             </div>
 
             <button class="demo-button" onclick="alert('Demo button clicked!')">Demo Button</button>
@@ -117,56 +114,60 @@
 
         <div class="section" id="scroll-section">
             <h2>📜 Scrolling Demo</h2>
-            <p>Try voice commands like:</p>
+            <p>Test voice scrolling commands:</p>
             <ul>
-                <li>"Scroll down" - Scrolls page down by 300px</li>
+                <li>"Scroll down" - Scrolls page down</li>
                 <li>"Scroll to the top" - Scrolls to page top</li>
-                <li>"Scroll to the form section" - Scrolls to specific element</li>
+                <li>"Go to form section" - Scrolls to specific section</li>
             </ul>
-            <div style="height: 400px; background: linear-gradient(to bottom, #f0f0f0, #ffffff); padding: 20px; border-radius: 5px;">
-                <p>This is a tall section for scrolling demonstration...</p>
-                <p>The voice bot can scroll up, down, to top, to bottom, or to specific elements.</p>
-                <p>You can also specify scroll amounts like "scroll down 500 pixels".</p>
+            <div style="height: 500px; background: linear-gradient(to bottom, #f0f0f0, #ffffff, #f0f0f0); padding: 30px; border-radius: 5px; margin: 20px 0;">
+                <h3>Scrollable Content Area</h3>
+                <p>This is a tall section designed for scrolling demonstration. The voice bot can navigate through this content using various scroll commands.</p>
+                <br><br>
+                <p>🌟 Voice scrolling is one of the most useful navigation features. You can:</p>
+                <ul>
+                    <li>Scroll up and down by voice</li>
+                    <li>Jump to the top or bottom instantly</li>
+                    <li>Navigate to specific sections</li>
+                    <li>Control scroll speed and distance</li>
+                </ul>
+                <br><br>
+                <p>📱 This works especially well on mobile devices where scrolling through long content can be tedious.</p>
+                <br><br>
+                <p>Try saying "Scroll down" to continue through this content area, or "Go to form section" to jump directly to the form below.</p>
+                <br><br>
+                <div style="text-align: center; padding: 20px; background: rgba(102, 126, 234, 0.1); border-radius: 8px;">
+                    <h4>🎯 Navigation Target</h4>
+                    <p>This is the middle of the scrolling section. Perfect for testing scroll commands!</p>
+                </div>
             </div>
         </div>
 
         <div class="section" id="form-section">
             <h2>📝 Form Interaction Demo</h2>
             <p>Test voice typing and form interaction:</p>
-            <input type="text" class="input-demo" id="search-box" placeholder="Search box - try 'type hello in the search box'">
-            <input type="email" class="input-demo" id="email-input" placeholder="Email input">
-            <textarea class="input-demo" id="message-area" placeholder="Message area" rows="4"></textarea>
-            <button class="demo-button" id="submit-btn">Submit Form</button>
-        </div>
-
-        <div class="section" id="elements-section">
-            <h2>🔍 Element Finding Demo</h2>
-            <p>Voice commands can find and interact with elements by:</p>
-            <ul>
-                <li><strong>CSS Selector:</strong> "Click the submit button" (finds #submit-btn)</li>
-                <li><strong>Text Content:</strong> "Click on Demo Button" (finds button with that text)</li>
-                <li><strong>Element Index:</strong> "Click the second button" (finds element by index)</li>
-            </ul>
-            
-            <div id="settings-panel" style="background: #f0f0f0; padding: 15px; border-radius: 5px; margin: 10px 0;">
-                <h4>Settings Panel</h4>
-                <button class="demo-button">Settings Button 1</button>
-                <button class="demo-button">Settings Button 2</button>
-                <input type="checkbox" id="enable-notifications"> Enable Notifications
+            <div style="margin: 20px 0;">
+                <label for="search-box">Search Box:</label>
+                <input type="text" class="input-demo" id="search-box" placeholder="Try: 'Type hello in the search box'">
             </div>
-        </div>
-
-        <div class="section" id="info-section">
-            <h2>📊 Page Information</h2>
-            <p>The voice bot can get information about the current page:</p>
-            <ul>
-                <li>Page title and URL</li>
-                <li>Current scroll position</li>
-                <li>Page height and viewport size</li>
-                <li>Domain information</li>
-            </ul>
-            <button class="demo-button" onclick="showPageInfo()">Show Page Info</button>
-            <div id="page-info-display" style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px; display: none;"></div>
+            <div style="margin: 20px 0;">
+                <label for="email-input">Email Input:</label>
+                <input type="email" class="input-demo" id="email-input" placeholder="Try: 'Type user@example.com in email'">
+            </div>
+            <div style="margin: 20px 0;">
+                <label for="message-area">Message Area:</label>
+                <textarea class="input-demo" id="message-area" placeholder="Try: 'Type your message in the text area'" rows="4"></textarea>
+            </div>
+            <button class="demo-button" id="submit-btn">Submit Form</button>
+            <div style="margin-top: 30px; padding: 20px; background: rgba(102, 126, 234, 0.1); border-radius: 8px;">
+                <h4>Voice Commands for Forms:</h4>
+                <ul>
+                    <li>"Type [text] in the search box"</li>
+                    <li>"Type [email] in email"</li>
+                    <li>"Type [message] in the text area"</li>
+                    <li>"Click submit form"</li>
+                </ul>
+            </div>
         </div>
     </div>
 
@@ -175,28 +176,6 @@
             document.getElementById(sectionId).scrollIntoView({ behavior: 'smooth' });
         }
 
-        function showPageInfo() {
-            const info = {
-                title: document.title,
-                url: window.location.href,
-                domain: window.location.hostname,
-                scrollPosition: window.pageYOffset,
-                pageHeight: document.body.scrollHeight,
-                viewportHeight: window.innerHeight
-            };
-            
-            const display = document.getElementById('page-info-display');
-            display.innerHTML = `
-                <h4>Current Page Information:</h4>
-                <p><strong>Title:</strong> ${info.title}</p>
-                <p><strong>URL:</strong> ${info.url}</p>
-                <p><strong>Domain:</strong> ${info.domain}</p>
-                <p><strong>Scroll Position:</strong> ${info.scrollPosition}px</p>
-                <p><strong>Page Height:</strong> ${info.pageHeight}px</p>
-                <p><strong>Viewport Height:</strong> ${info.viewportHeight}px</p>
-            `;
-            display.style.display = 'block';
-        }
 
         // Add event listeners for demonstration
         document.getElementById('submit-btn').addEventListener('click', function() {
