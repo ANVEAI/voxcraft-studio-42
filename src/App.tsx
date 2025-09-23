@@ -14,6 +14,7 @@ import NotFound from "./pages/NotFound";
 import VoiceAssistantEmbedJS from "./pages/VoiceAssistantEmbedJS";
 import JavaScriptEmbed from "./pages/JavaScriptEmbed";
 import QueryTool from "./pages/QueryTool";
+import CleanupAssistant from "./pages/CleanupAssistant";
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,7 @@ const App = () => (
           <Route path="/live-test" element={<LiveAssistantTest />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/query-tool" element={<QueryTool />} />
+          <Route path="/cleanup-assistant" element={<CleanupAssistant />} />
           {/* Serve the voice assistant embed JavaScript */}
           <Route path="/js/voice-assistant-embed.js" element={<VoiceAssistantEmbedJS />} />
           <Route path="/js/external-chatbot-voice.js" element={<JavaScriptEmbed />} />
