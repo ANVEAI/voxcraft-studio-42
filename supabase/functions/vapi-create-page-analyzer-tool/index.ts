@@ -69,7 +69,7 @@ serve(async (req) => {
 
     const { data: assistant, error: assistantError } = await supabase
       .from('assistants')
-      .select('id')
+      .select('id, vapi_assistant_id')
       .eq('id', assistantId)
       .eq('user_id', userId)
       .single();
@@ -83,6 +83,15 @@ serve(async (req) => {
     }
 
     console.log('✅ Assistant ownership verified');
+
+    // Extract VAPI assistant ID for API calls
+    const vapiAssistantId = assistant.vapi_assistant_id;
+    if (!vapiAssistantId) {
+      return new Response(JSON.stringify({ error: 'Assistant has no VAPI ID configured' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Get VAPI private key
     const vapiPrivateKey = Deno.env.get('VAPI_PRIVATE_KEY');
@@ -201,8 +210,8 @@ serve(async (req) => {
     const createdTool = await toolResponse.json();
     console.log('✅ Tool created successfully:', createdTool.id);
 
-    // Get current assistant data from VAPI
-    const assistantResponse = await fetch(`https://api.vapi.ai/assistant/${assistantId}`, {
+    // Get current assistant data from VAPI using the correct VAPI ID
+    const assistantResponse = await fetch(`https://api.vapi.ai/assistant/${vapiAssistantId}`, {
       headers: {
         'Authorization': `Bearer ${vapiPrivateKey}`,
       },
@@ -217,8 +226,8 @@ serve(async (req) => {
     // Add the new tool to the assistant's tools
     const updatedTools = [...(assistantData.tools || []), createdTool.id];
 
-    // Update the assistant with the new tool
-    const updateResponse = await fetch(`https://api.vapi.ai/assistant/${assistantId}`, {
+    // Update the assistant with the new tool using the correct VAPI ID
+    const updateResponse = await fetch(`https://api.vapi.ai/assistant/${vapiAssistantId}`, {
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${vapiPrivateKey}`,
