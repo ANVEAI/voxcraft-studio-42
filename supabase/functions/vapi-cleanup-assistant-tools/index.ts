@@ -13,10 +13,17 @@ function parseClerkToken(token: string): string | null {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     
-    const payload = JSON.parse(atob(parts[1]));
-    return payload.sub || null;
+    // Add padding if needed for proper base64 decoding
+    let payload = parts[1];
+    while (payload.length % 4) {
+      payload += '=';
+    }
+    
+    const decoded = JSON.parse(atob(payload));
+    console.log('🔍 Decoded JWT payload:', decoded);
+    return decoded.sub || null;
   } catch (error) {
-    console.error('Error parsing token:', error);
+    console.error('❌ Error parsing token:', error);
     return null;
   }
 }
