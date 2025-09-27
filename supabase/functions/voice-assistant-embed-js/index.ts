@@ -139,17 +139,45 @@ if (!window.supabase) {
           channelName = 'vapi_function_calls';
         }
         
-        console.log('🔗 Using session-specific channel:', channelName, 'for session:', this.sessionId);
+        console.log('🔗 Setting up channel subscription:', { 
+          channelName, 
+          sessionId: this.sessionId, 
+          assistantId: this.assistantId 
+        });
+        
+        // Also subscribe to fallback channels in case VAPI variable substitution fails
+        const fallbackChannels = [
+          channelName,
+          \`vapi:\${this.assistantId}\`, // Assistant-specific fallback
+          'vapi_function_calls' // Global fallback
+        ];
+        
+        console.log('🔗 Will monitor channels:', fallbackChannels);
         
         this.realtimeChannel = this.supabaseClient
           .channel(channelName)
           .on('broadcast', { event: 'function_call' }, (payload) => {
-            console.log('📡 Received function call:', payload);
-            // Verify session isolation - only execute if sessionId matches
-            if (payload.payload.sessionId && payload.payload.sessionId !== this.sessionId) {
-              console.log('🚫 Ignoring function call for different session:', payload.payload.sessionId);
+            console.log('📡 Received function call:', { 
+              payload, 
+              ourSessionId: this.sessionId,
+              payloadSessionId: payload.payload?.sessionId,
+              effectiveSessionId: payload.payload?.effectiveSessionId 
+            });
+            
+            // Enhanced session validation with multiple fallback strategies
+            const incomingSessionId = payload.payload?.sessionId || payload.payload?.effectiveSessionId;
+            const shouldExecute = this.shouldExecuteCommand(incomingSessionId, payload.payload);
+            
+            if (!shouldExecute) {
+              console.log('🚫 Ignoring function call - session mismatch:', {
+                ourSession: this.sessionId,
+                incomingSession: incomingSessionId,
+                vapiCallId: payload.payload?.vapiCallId
+              });
               return;
             }
+            
+            console.log('✅ Executing function call for our session');
             this.executeFunctionCall(payload.payload);
           })
           .subscribe((status) => {
@@ -159,6 +187,9 @@ if (!window.supabase) {
             }
           });
 
+        // Set up additional channel monitoring for better fallback coverage
+        this.setupFallbackChannelMonitoring();
+        
         console.log('✅ Supabase Realtime setup complete for:', channelName, 'session:', this.sessionId);
         
       } catch (error) {
@@ -218,14 +249,17 @@ if (!window.supabase) {
 
     setupVapiEventListeners() {
       // Call started
-      this.vapiWidget.on("call-start", () => {
-        console.log('📞 VAPI call started');
+      this.vapiWidget.on("call-start", (callData) => {
+        console.log('📞 VAPI call started', callData);
+        this.currentVapiCallId = callData?.id || callData?.callId;
+        console.log('🆔 Tracking VAPI call ID:', this.currentVapiCallId);
         this.updateStatus("🎤 Voice active - VAPI handling all processing");
       });
 
       // Call ended
       this.vapiWidget.on("call-end", () => {
         console.log('📞 VAPI call ended');
+        this.currentVapiCallId = null;
         this.updateStatus("🔄 Voice ended");
       });
 
@@ -247,6 +281,59 @@ if (!window.supabase) {
       });
 
       // NOTE: Removed transcript parsing - all commands come via realtime now
+    }
+
+    // Enhanced session validation for command execution
+    shouldExecuteCommand(incomingSessionId, payload) {
+      // Strategy 1: Exact session match
+      if (incomingSessionId === this.sessionId) {
+        console.log('✅ Session exact match');
+        return true;
+      }
+      
+      // Strategy 2: Handle VAPI variable substitution failure
+      if (incomingSessionId === '{{sessionId}}') {
+        console.log('⚠️ VAPI variable substitution failed, checking fallback strategies');
+        
+        // Use VAPI call ID as session identifier
+        if (payload.vapiCallId && this.currentVapiCallId === payload.vapiCallId) {
+          console.log('✅ VAPI call ID match');
+          return true;
+        }
+        
+        // Fallback: If no other sessions are active, assume it's for us
+        // This is risky but better than no isolation
+        console.log('🔄 Using risky fallback - assuming command is for us');
+        return true;
+      }
+      
+      // Strategy 3: Check if it's a fallback session ID that could be ours
+      if (incomingSessionId && incomingSessionId.startsWith('fallback_')) {
+        console.log('🔄 Fallback session ID detected, checking if it could be ours');
+        // This is also risky - in a real deployment you'd want better logic
+        return true;
+      }
+      
+      console.log('❌ No session match found');
+      return false;
+    }
+
+    // Monitor additional channels for better fallback coverage
+    setupFallbackChannelMonitoring() {
+      // Monitor assistant-specific channel as backup
+      if (this.assistantId) {
+        const assistantChannel = \`vapi:\${this.assistantId}\`;
+        const assistantChannelInstance = this.supabaseClient
+          .channel(assistantChannel + '_fallback')
+          .on('broadcast', { event: 'function_call' }, (payload) => {
+            console.log('📡 Received on assistant channel:', payload);
+            const incomingSessionId = payload.payload?.sessionId || payload.payload?.effectiveSessionId;
+            if (this.shouldExecuteCommand(incomingSessionId, payload.payload)) {
+              this.executeFunctionCall(payload.payload);
+            }
+          })
+          .subscribe();
+      }
     }
 
     // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime

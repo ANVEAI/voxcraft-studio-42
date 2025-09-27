@@ -104,30 +104,66 @@ serve(async (req) => {
     }
 
     // Extract sessionId from function call parameters for session isolation
-    const sessionId = params?.sessionId;
-    console.log('[VAPI Function Call] Session isolation:', { assistantId, sessionId });
+    let sessionId = params?.sessionId;
+    
+    // CRITICAL FIX: VAPI variable substitution not working - literal "{{sessionId}}" being passed
+    // Fallback strategies for session isolation
+    let effectiveSessionId = sessionId;
+    
+    // Strategy 1: Check if VAPI failed to substitute sessionId variable
+    if (sessionId === '{{sessionId}}' || !sessionId) {
+      console.log('[VAPI Function Call] ⚠️ VAPI variable substitution failed, sessionId:', sessionId);
+      
+      // Strategy 2: Try to extract sessionId from VAPI call ID or assistant context
+      effectiveSessionId = payload?.call?.id || 
+                          payload?.artifact?.call?.id || 
+                          `fallback_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      
+      console.log('[VAPI Function Call] 🔄 Using fallback sessionId:', effectiveSessionId);
+    }
+    
+    console.log('[VAPI Function Call] Session isolation debug:', { 
+      assistantId, 
+      originalSessionId: sessionId, 
+      effectiveSessionId,
+      payloadKeys: Object.keys(payload || {}),
+      callId: payload?.call?.id,
+      artifactCallId: payload?.artifact?.call?.id
+    });
 
     // Determine channel name with session isolation priority:
     // 1. Session-specific: vapi:assistantId:sessionId
     // 2. Assistant-specific: vapi:assistantId  
     // 3. Global fallback: vapi_function_calls
     let channelName;
-    if (assistantId && sessionId) {
-      channelName = `vapi:${assistantId}:${sessionId}`;
+    if (assistantId && effectiveSessionId && effectiveSessionId !== '{{sessionId}}') {
+      channelName = `vapi:${assistantId}:${effectiveSessionId}`;
     } else if (assistantId) {
       channelName = `vapi:${assistantId}`;
     } else {
       channelName = 'vapi_function_calls';
     }
     
-    console.log('[VAPI Function Call] Broadcasting', { functionName, channelName, params, sessionId });
+    console.log('[VAPI Function Call] Broadcasting', { 
+      functionName, 
+      channelName, 
+      originalParams: params, 
+      originalSessionId: sessionId,
+      effectiveSessionId,
+      vapiCallId: payload?.call?.id
+    });
 
     const functionCallMessage = {
       functionName,
-      params, // IMPORTANT: "params" to match client dispatcher
+      params: {
+        ...params,
+        sessionId: effectiveSessionId // Use effective sessionId for client matching
+      },
       callId,
       assistantId: assistantId || undefined,
-      sessionId: sessionId || undefined,
+      sessionId: effectiveSessionId, // Use effective sessionId
+      originalSessionId: sessionId, // Keep original for debugging
+      vapiCallId: payload?.call?.id,
       timestamp: new Date().toISOString()
     };
 
@@ -146,7 +182,13 @@ serve(async (req) => {
       });
     }
 
-    console.log('[VAPI Function Call] Function call broadcasted:', { functionName, channelName, sessionId });
+    console.log('[VAPI Function Call] Function call broadcasted:', { 
+      functionName, 
+      channelName, 
+      effectiveSessionId,
+      originalSessionId: sessionId,
+      vapiCallId: payload?.call?.id
+    });
 
     return new Response(
       JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId, sessionId }),
