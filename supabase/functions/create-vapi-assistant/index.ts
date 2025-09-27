@@ -84,8 +84,8 @@ serve(async (req) => {
             const errorText = await fileUploadResponse.text();
             console.error(`❌ Failed to upload file: ${file.name}`, errorText);
           }
-        } catch (error) {
-          console.error(`💥 Error uploading file ${file.name}:`, error.message);
+        } catch (error: any) {
+          console.error(`💥 Error uploading file ${file.name}:`, error?.message);
         }
       }
 
@@ -128,8 +128,8 @@ serve(async (req) => {
             const toolErrorText = await toolResponse.text();
             console.error('❌ Failed to create query tool:', toolResponse.status, toolErrorText);
           }
-        } catch (error) {
-          console.error('💥 Error creating query tool:', error.message);
+        } catch (error: any) {
+          console.error('💥 Error creating query tool:', error?.message);
         }
       } else {
         console.log('⚠️ No files were successfully uploaded, skipping query tool creation');
@@ -242,13 +242,13 @@ serve(async (req) => {
       },
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('💥 Error in create-vapi-assistant:', error);
-    console.error('💥 Error stack:', error.stack);
+    console.error('💥 Error stack:', error?.stack);
     
     const errorResponse = {
       success: false,
-      error: error.message
+      error: error?.message || 'Unknown error'
     };
     
     console.log('📤 Sending error response:', errorResponse);
