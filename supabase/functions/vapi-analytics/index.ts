@@ -85,9 +85,9 @@ serve(async (req) => {
       return await getOverviewAnalytics(supabase, userId, vapiPrivateKey, url);
     }
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[VAPI Analytics] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error?.message || 'Unknown error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -120,7 +120,7 @@ async function fetchCallsFromVapi(supabase: any, userId: string, vapiPrivateKey:
     console.log('[VAPI Analytics] Found assistants:', assistants.length);
 
     // Fetch calls from VAPI API for each assistant
-    let allCalls = [];
+    let allCalls: any[] = [];
     
     for (const assistant of assistants) {
       if (!assistant.vapi_assistant_id) continue;
