@@ -56,17 +56,27 @@ if (!window.supabase) {
       this.currentPageElements = [];
       this.statusEl = null;
       this.assistantId = null;
+      this.sessionId = null;
       
       this.init();
     }
 
     init() {
       console.log('🎤 Initializing VAPI Command Executor...');
+      // Generate unique session ID for this browser tab/instance
+      this.sessionId = this.generateSessionId();
+      console.log('🔑 Generated session ID:', this.sessionId);
       this.createStatusIndicator();
       this.updateStatus("Loading voice automation...");
       this.analyzePageContent();
       this.setupSupabaseRealtime();
       this.loadVapiSDK();
+    }
+
+    generateSessionId() {
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 15);
+      return \`session_\${timestamp}_\${random}\`;
     }
 
     createStatusIndicator() {
@@ -118,23 +128,38 @@ if (!window.supabase) {
         this.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         this.assistantId = BOT_CONFIG.assistantId;
         
-        // Use assistant-specific channel or fallback
-        const channelName = 'vapi_function_calls';
+        // Use session-specific channel for complete isolation
+        // Priority: vapi:assistantId:sessionId > vapi:assistantId > vapi_function_calls
+        let channelName;
+        if (this.assistantId && this.sessionId) {
+          channelName = \`vapi:\${this.assistantId}:\${this.sessionId}\`;
+        } else if (this.assistantId) {
+          channelName = \`vapi:\${this.assistantId}\`;
+        } else {
+          channelName = 'vapi_function_calls';
+        }
+        
+        console.log('🔗 Using session-specific channel:', channelName, 'for session:', this.sessionId);
         
         this.realtimeChannel = this.supabaseClient
           .channel(channelName)
           .on('broadcast', { event: 'function_call' }, (payload) => {
             console.log('📡 Received function call:', payload);
+            // Verify session isolation - only execute if sessionId matches
+            if (payload.payload.sessionId && payload.payload.sessionId !== this.sessionId) {
+              console.log('🚫 Ignoring function call for different session:', payload.payload.sessionId);
+              return;
+            }
             this.executeFunctionCall(payload.payload);
           })
           .subscribe((status) => {
-            console.log('Realtime status:', status, 'channel:', channelName);
+            console.log('Realtime status:', status, 'channel:', channelName, 'session:', this.sessionId);
             if (status === 'SUBSCRIBED') {
-              this.updateStatus('🟢 Connected to voice control');
+              this.updateStatus(\`🟢 Connected (Session: \${this.sessionId.split('_')[1]})\`);
             }
           });
 
-        console.log('✅ Supabase Realtime setup complete for:', channelName);
+        console.log('✅ Supabase Realtime setup complete for:', channelName, 'session:', this.sessionId);
         
       } catch (error) {
         console.error('❌ Supabase Realtime setup failed:', error);
@@ -173,7 +198,12 @@ if (!window.supabase) {
         this.vapiWidget = window.vapiSDK.run({
           apiKey: BOT_CONFIG.apiKey,
           assistant: BOT_CONFIG.assistantId,
-          config: config
+          config: config,
+          assistantOverrides: {
+            variableValues: {
+              sessionId: this.sessionId
+            }
+          }
         });
 
         this.setupVapiEventListeners();
