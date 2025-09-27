@@ -25,20 +25,8 @@ const VapiVoiceInterface: React.FC<VapiVoiceInterfaceProps> = ({
   const [conversationMemory, setConversationMemory] = useState<any[]>([]);
   const [currentPageElements, setCurrentPageElements] = useState<any[]>([]);
   const [lastProcessedTranscript, setLastProcessedTranscript] = useState('');
-  const [sessionId, setSessionId] = useState<string>('');
 
   useEffect(() => {
-    // Generate unique session ID for this component instance
-    const generateSessionId = () => {
-      const timestamp = Date.now();
-      const random = Math.random().toString(36).substring(2, 15);
-      return `session_${timestamp}_${random}`;
-    };
-    
-    const newSessionId = generateSessionId();
-    setSessionId(newSessionId);
-    console.log('[VapiInterface] Generated session ID:', newSessionId);
-    
     // Initialize Vapi instance
     console.log('[VapiInterface] Initializing Vapi with assistant ID:', assistantId);
     console.log('[VapiInterface] Using public key:', publicKey ? `${publicKey.substring(0, 10)}...` : 'NO KEY PROVIDED');
@@ -705,13 +693,9 @@ const VapiVoiceInterface: React.FC<VapiVoiceInterfaceProps> = ({
         return;
       }
       
-      // Start call with assistant ID and session isolation
-      await vapiRef.current.start(assistantId, {
-        variableValues: {
-          sessionId: sessionId
-        }
-      } as any);
-      console.log('[VapiInterface] 🚀 Call start command sent with session:', sessionId);
+      // Start call with assistant ID
+      await vapiRef.current.start(assistantId);
+      console.log('[VapiInterface] 🚀 Call start command sent');
       
     } catch (error) {
       console.error('[VapiInterface] ❌ Failed to start call:', error);
