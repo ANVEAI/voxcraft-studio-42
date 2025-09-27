@@ -82,7 +82,7 @@ serve(async (req) => {
       ok: response.ok
     });
 
-    const result: any = {
+    const result = {
       assistantId,
       exists: response.ok,
       status: response.status,
@@ -110,13 +110,13 @@ serve(async (req) => {
       },
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('💥 Error in check-assistant:', error);
-    console.error('💥 Error stack:', error?.stack);
+    console.error('💥 Error stack:', error.stack);
     
     const VAPI_PRIVATE_KEY = Deno.env.get('VAPI_PRIVATE_KEY');
     const errorResponse = { 
-      error: error?.message || 'Unknown error',
+      error: error.message,
       exists: false,
       keyInfo: {
         privateKeyPrefix: VAPI_PRIVATE_KEY ? 

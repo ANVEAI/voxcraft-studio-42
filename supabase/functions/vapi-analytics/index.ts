@@ -120,7 +120,7 @@ async function fetchCallsFromVapi(supabase: any, userId: string, vapiPrivateKey:
     console.log('[VAPI Analytics] Found assistants:', assistants.length);
 
     // Fetch calls from VAPI API for each assistant
-    let allCalls: any[] = [];
+    let allCalls = [];
     
     for (const assistant of assistants) {
       if (!assistant.vapi_assistant_id) continue;
@@ -146,7 +146,7 @@ async function fetchCallsFromVapi(supabase: any, userId: string, vapiPrivateKey:
         console.log('[VAPI Analytics] Fetched calls for assistant:', assistant.name, vapiCalls.length);
         
         // Add assistant info to each call
-        const callsWithAssistant = vapiCalls.map((call: any) => ({
+        const callsWithAssistant = vapiCalls.map(call => ({
           ...call,
           local_assistant_id: assistant.id,
           local_assistant_name: assistant.name
