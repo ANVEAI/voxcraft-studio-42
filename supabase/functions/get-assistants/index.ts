@@ -101,11 +101,12 @@ serve(async (req) => {
       }
     );
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching assistants:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'Failed to fetch assistants',
+        error: errorMessage || 'Failed to fetch assistants',
         success: false 
       }),
       {

@@ -147,11 +147,12 @@ serve(async (req) => {
       }
     );
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error in vapi-file-upload function:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({
-        error: error.message || 'Internal server error'
+        error: errorMessage || 'Internal server error'
       }),
       {
         status: 500,

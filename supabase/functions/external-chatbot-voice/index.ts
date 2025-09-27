@@ -1576,10 +1576,11 @@ serve(async (req) => {
       },
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error serving JavaScript:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      `console.error('Failed to load voice bot script: ${error.message}');`,
+      `console.error('Failed to load voice bot script: ${errorMessage}');`,
       {
         status: 500,
         headers: {

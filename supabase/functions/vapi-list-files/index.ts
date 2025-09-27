@@ -76,7 +76,7 @@ serve(async (req) => {
     console.log('📁 Retrieved files from VAPI:', vapiFiles.length || 0);
 
     // Process files to get recent ones with details
-    const processedFiles = (vapiFiles || []).slice(0, 3).map(file => ({
+    const processedFiles = (vapiFiles || []).slice(0, 3).map((file: any) => ({
       id: file.id,
       name: file.name || 'Unknown',
       originalName: file.originalName || file.name,
@@ -100,11 +100,12 @@ serve(async (req) => {
       }
     );
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error in vapi-list-files function:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({
-        error: error.message || 'Internal server error',
+        error: errorMessage || 'Internal server error',
         success: false
       }),
       {

@@ -137,9 +137,9 @@ serve(async (req) => {
       payload: functionCallMessage
     } as any);
 
-    if (sendResult?.error) {
-      console.error('[VAPI Function Call] Broadcast error:', sendResult.error);
-      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult.error }), {
+    if (sendResult === 'error') {
+      console.error('[VAPI Function Call] Broadcast error:', sendResult);
+      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
