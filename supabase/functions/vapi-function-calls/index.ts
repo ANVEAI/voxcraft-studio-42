@@ -103,30 +103,14 @@ serve(async (req) => {
       });
     }
 
-    // Extract sessionId from function call parameters for session isolation
-    const sessionId = params?.sessionId;
-    
-    // Use session-specific channel if sessionId is provided, otherwise fallback to assistant-based channel
-    const channelName = sessionId 
-      ? `vapi:session:${sessionId}` 
-      : assistantId 
-        ? `vapi:${assistantId}` 
-        : 'vapi_function_calls';
-    
-    console.log('[VAPI Function Call] Broadcasting', { 
-      functionName, 
-      channelName, 
-      sessionId: sessionId || 'none',
-      assistantId: assistantId || 'none',
-      params 
-    });
+    const channelName = assistantId ? `vapi:${assistantId}` : 'vapi_function_calls';
+    console.log('[VAPI Function Call] Broadcasting', { functionName, channelName, params });
 
     const functionCallMessage = {
       functionName,
       params, // IMPORTANT: "params" to match client dispatcher
       callId,
       assistantId: assistantId || undefined,
-      sessionId: sessionId || undefined,
       timestamp: new Date().toISOString()
     };
 
@@ -137,9 +121,9 @@ serve(async (req) => {
       payload: functionCallMessage
     } as any);
 
-    if (sendResult === 'error') {
-      console.error('[VAPI Function Call] Broadcast error:', sendResult);
-      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult }), {
+    if (sendResult?.error) {
+      console.error('[VAPI Function Call] Broadcast error:', sendResult.error);
+      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult.error }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });

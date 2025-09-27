@@ -201,7 +201,7 @@ serve(async (req) => {
         console.log('[FRAME] Creating VAPI instance with ID:', '${vapiAssistantId}');
         
         // Initialize VAPI with cross-origin compatible settings
-        vapi = new window.Vapi('${Deno.env.get('VAPI_PUBLIC_KEY') || 'VAPI_PUBLIC_KEY_NOT_SET'}');
+        vapi = new window.Vapi('${import.meta.env.VITE_VAPI_PUBLIC_KEY}');
         
         // Configure for embedded/cross-origin environments
         const vapiConfig = {

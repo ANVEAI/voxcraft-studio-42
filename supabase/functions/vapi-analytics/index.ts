@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
@@ -86,9 +85,9 @@ serve(async (req) => {
       return await getOverviewAnalytics(supabase, userId, vapiPrivateKey, url);
     }
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('[VAPI Analytics] Error:', error);
-    return new Response(JSON.stringify({ error: error?.message || 'Unknown error' }), {
+    return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -121,7 +120,7 @@ async function fetchCallsFromVapi(supabase: any, userId: string, vapiPrivateKey:
     console.log('[VAPI Analytics] Found assistants:', assistants.length);
 
     // Fetch calls from VAPI API for each assistant
-    let allCalls: any[] = [];
+    let allCalls = [];
     
     for (const assistant of assistants) {
       if (!assistant.vapi_assistant_id) continue;
@@ -147,7 +146,7 @@ async function fetchCallsFromVapi(supabase: any, userId: string, vapiPrivateKey:
         console.log('[VAPI Analytics] Fetched calls for assistant:', assistant.name, vapiCalls.length);
         
         // Add assistant info to each call
-        const callsWithAssistant = vapiCalls.map((call: any) => ({
+        const callsWithAssistant = vapiCalls.map(call => ({
           ...call,
           local_assistant_id: assistant.id,
           local_assistant_name: assistant.name
@@ -212,7 +211,7 @@ async function getAnalyticsData(supabase: any, userId: string, vapiPrivateKey: s
       throw new Error(`Failed to fetch assistants: ${assistantError.message}`);
     }
 
-    const assistantIds = assistants?.map((a: any) => a.vapi_assistant_id).filter(Boolean) || [];
+    const assistantIds = assistants?.map(a => a.vapi_assistant_id).filter(Boolean) || [];
     console.log('[VAPI Analytics] Found assistant IDs:', assistantIds);
     
     // Fetch calls directly from VAPI API for the most accurate data
@@ -374,11 +373,11 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
       throw new Error(`Failed to fetch assistants: ${assistantError.message}`);
     }
 
-    const assistantIds = assistants?.map((a: any) => a.vapi_assistant_id).filter(Boolean) || [];
+    const assistantIds = assistants?.map(a => a.vapi_assistant_id).filter(Boolean) || [];
     console.log('[VAPI Analytics Overview] Found', assistants?.length || 0, 'assistants with IDs:', assistantIds);
     
     // Fetch ALL calls at once instead of per assistant to avoid 400 errors
-    let allCalls: any[] = [];
+    let allCalls = [];
     try {
       console.log('[VAPI Analytics Overview] Fetching all calls from VAPI...');
       
@@ -400,14 +399,14 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
         
         // Filter calls for user's assistants
         if (assistantIds.length > 0) {
-          allCalls = allVapiCalls.filter((call: any) => 
+          allCalls = allVapiCalls.filter(call => 
             call.assistantId && assistantIds.includes(call.assistantId)
           );
           console.log('[VAPI Analytics Overview] Filtered to', allCalls.length, 'calls for user assistants');
           
           // Add assistant names
-          allCalls = allCalls.map((call: any) => {
-            const assistant = assistants?.find((a: any) => a.vapi_assistant_id === call.assistantId);
+          allCalls = allCalls.map(call => {
+            const assistant = assistants?.find(a => a.vapi_assistant_id === call.assistantId);
             return { ...call, assistantName: assistant?.name || 'Unknown Assistant' };
           });
         } else {
@@ -426,9 +425,9 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
 
     // Calculate metrics
     const totalCalls = allCalls.length;
-    const activeCalls = allCalls.filter((c: any) => c.status === 'in-progress').length;
-    const completedCalls = allCalls.filter((c: any) => c.status === 'ended').length;
-    const successfulCalls = allCalls.filter((c: any) =>
+    const activeCalls = allCalls.filter(c => c.status === 'in-progress').length;
+    const completedCalls = allCalls.filter(c => c.status === 'ended').length;
+    const successfulCalls = allCalls.filter(c => 
       c.status === 'ended' && 
       !['assistant-error', 'pipeline-error', 'customer-did-not-give-microphone-permission'].includes(c.endedReason)
     ).length;
@@ -442,7 +441,7 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
       totalCallsFound: allCalls.length
     });
 
-    const totalDuration = allCalls.reduce((sum: any, call: any) => {
+    const totalDuration = allCalls.reduce((sum, call) => {
       if (call.endedAt && call.startedAt) {
         return sum + Math.floor((new Date(call.endedAt).getTime() - new Date(call.startedAt).getTime()) / 1000);
       }
@@ -519,7 +518,7 @@ async function getCallAnalytics(supabase: any, userId: string, vapiPrivateKey: s
       .select('id, vapi_assistant_id, name')
       .eq('user_id', userId);
 
-    let allCalls: any[] = [];
+    let allCalls = [];
     for (const assistant of assistants || []) {
       if (!assistant.vapi_assistant_id) continue;
       
