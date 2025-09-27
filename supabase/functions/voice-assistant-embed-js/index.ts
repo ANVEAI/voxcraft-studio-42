@@ -56,6 +56,9 @@ if (!window.supabase) {
       this.currentPageElements = [];
       this.statusEl = null;
       this.assistantId = null;
+      // Generate unique session ID for this page load
+      this.sessionId = \`session_\${Date.now()}_\${Math.random().toString(36).substr(2, 9)}\`;
+      console.log('🔐 Generated session ID:', this.sessionId);
       
       this.init();
     }
@@ -118,8 +121,8 @@ if (!window.supabase) {
         this.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         this.assistantId = BOT_CONFIG.assistantId;
         
-        // Use assistant-specific channel or fallback
-        const channelName = 'vapi_function_calls';
+        // Use session-specific channel for isolation
+        const channelName = \`vapi:session:\${this.sessionId}\`;
         
         this.realtimeChannel = this.supabaseClient
           .channel(channelName)
@@ -130,7 +133,7 @@ if (!window.supabase) {
           .subscribe((status) => {
             console.log('Realtime status:', status, 'channel:', channelName);
             if (status === 'SUBSCRIBED') {
-              this.updateStatus('🟢 Connected to voice control');
+              this.updateStatus('🟢 Connected to voice control (session isolated)');
             }
           });
 
@@ -173,7 +176,12 @@ if (!window.supabase) {
         this.vapiWidget = window.vapiSDK.run({
           apiKey: BOT_CONFIG.apiKey,
           assistant: BOT_CONFIG.assistantId,
-          config: config
+          config: config,
+          assistantOverrides: {
+            variableValues: {
+              sessionId: this.sessionId
+            }
+          }
         });
 
         this.setupVapiEventListeners();
@@ -221,8 +229,14 @@ if (!window.supabase) {
 
     // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime
     executeFunctionCall(functionCall) {
-      const { functionName, params } = functionCall;
-      console.log('⚡ Executing function call:', functionName, params);
+      const { functionName, params, sessionId: callSessionId } = functionCall;
+      console.log('⚡ Executing function call:', functionName, params, 'session:', callSessionId);
+      
+      // Validate session ID to ensure this function call belongs to this session
+      if (callSessionId && callSessionId !== this.sessionId) {
+        console.log('🔒 Ignoring function call for different session:', callSessionId, 'vs', this.sessionId);
+        return;
+      }
       
       try {
         switch (functionName) {

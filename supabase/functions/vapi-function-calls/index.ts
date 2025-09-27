@@ -103,14 +103,30 @@ serve(async (req) => {
       });
     }
 
-    const channelName = assistantId ? `vapi:${assistantId}` : 'vapi_function_calls';
-    console.log('[VAPI Function Call] Broadcasting', { functionName, channelName, params });
+    // Extract sessionId from function call parameters for session isolation
+    const sessionId = params?.sessionId;
+    
+    // Use session-specific channel if sessionId is provided, otherwise fallback to assistant-based channel
+    const channelName = sessionId 
+      ? `vapi:session:${sessionId}` 
+      : assistantId 
+        ? `vapi:${assistantId}` 
+        : 'vapi_function_calls';
+    
+    console.log('[VAPI Function Call] Broadcasting', { 
+      functionName, 
+      channelName, 
+      sessionId: sessionId || 'none',
+      assistantId: assistantId || 'none',
+      params 
+    });
 
     const functionCallMessage = {
       functionName,
       params, // IMPORTANT: "params" to match client dispatcher
       callId,
       assistantId: assistantId || undefined,
+      sessionId: sessionId || undefined,
       timestamp: new Date().toISOString()
     };
 
