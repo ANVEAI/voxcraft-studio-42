@@ -117,11 +117,11 @@ if (!window.supabase) {
 
         this.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         this.assistantId = BOT_CONFIG.assistantId;
-        
-        // Listen to multiple channels to catch function calls
+        this.currentSessionId = null;
+        this.currentCallId = null;
+        // Listen only to assistant-specific channel initially; session channel will be added on call-start
         const channels = [
-          'vapi_function_calls', // Generic fallback channel
-          \`vapi:assistant:\${this.assistantId}\`, // Assistant-specific channel
+          \`vapi:assistant:\${this.assistantId}\`
         ];
 
         this.channels = [];
@@ -236,8 +236,28 @@ if (!window.supabase) {
         console.log('📞 VAPI call started with event:', event);
         this.updateStatus("🎤 Voice active - VAPI handling all processing");
         
-        // Set up dynamic channel subscription after call starts
-        this.setupDynamicChannelSubscription();
+        // Derive call/session identifiers
+        const callId = event?.callId || event?.id || event?.call?.id;
+        if (callId) {
+          this.currentCallId = callId;
+          // Match server fallback format: \`call_\` + callId
+          this.currentSessionId = \`call_\${callId}\`;
+          const sessionChannelName = \`vapi:session:\${this.currentSessionId}\`;
+          if (this.sessionChannelName !== sessionChannelName) {
+            this.sessionChannelName = sessionChannelName;
+            console.log('🔗 Subscribing to session channel:', sessionChannelName);
+            const sessionChannel = this.supabaseClient
+              .channel(sessionChannelName)
+              .on('broadcast', { event: 'function_call' }, (payload) => {
+                console.log(\`📡 Received session function call on \${sessionChannelName}:\`, payload);
+                this.executeFunctionCall(payload.payload);
+              })
+              .subscribe((status) => {
+                console.log(\`Session channel \${sessionChannelName} status:\`, status);
+              });
+            this.channels.push(sessionChannel);
+          }
+        }
       });
 
       // Call ended
@@ -281,6 +301,17 @@ if (!window.supabase) {
     executeFunctionCall(functionCall) {
       const { functionName, params, sessionId, callId, debug } = functionCall;
       console.log('⚡ Executing function call:', { functionName, params, sessionId, callId, debug });
+      
+      // Session isolation guard
+      const incomingSession = (sessionId && sessionId !== '{{sessionId}}') ? sessionId : (callId ? \`call_\${callId}\` : null);
+      if (!this.currentSessionId && incomingSession) {
+        this.currentSessionId = incomingSession;
+        this.sessionChannelName = \`vapi:session:\${this.currentSessionId}\`;
+      }
+      if (this.currentSessionId && incomingSession && incomingSession !== this.currentSessionId) {
+        console.warn('🚫 Ignoring function call for different session', { incomingSession, currentSession: this.currentSessionId });
+        return;
+      }
       
       // Add visual feedback for debugging
       this.updateStatus(\`🔧 Executing: \${functionName}\`);
