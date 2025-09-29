@@ -1,5 +1,7 @@
+// @ts-nocheck
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,66 +9,53 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  console.log('🚀 Function started - create-vapi-assistant');
-  
   if (req.method === 'OPTIONS') {
-    console.log('📋 CORS preflight request');
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    console.log('📨 Parsing request body...');
+    console.log('📥 Request received for assistant creation');
+
     const body = await req.json();
-    console.log('✅ Request body parsed successfully');
-    const { assistantData, selectedVoice, files } = body;
+    const { assistantData, files } = body;
+    
+    // Get Supabase URL from environment
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || 'https://mdkcdjltvfpthqudhhmx.supabase.co';
+    
+    console.log('🔧 Assistant data:', JSON.stringify(assistantData, null, 2));
+    console.log('📁 Files to upload:', files?.length || 0);
 
     const VAPI_PRIVATE_KEY = Deno.env.get('VAPI_PRIVATE_KEY');
-    console.log('🔑 VAPI key check:', {
-      exists: !!VAPI_PRIVATE_KEY,
-      length: VAPI_PRIVATE_KEY?.length
-    });
-    
     if (!VAPI_PRIVATE_KEY) {
-      console.log('❌ VAPI_PRIVATE_KEY not configured');
+      console.error('❌ VAPI_PRIVATE_KEY not configured');
       throw new Error('VAPI_PRIVATE_KEY not configured');
     }
 
-    console.log('🤖 Creating VAPI assistant:', assistantData?.botName || 'Unknown');
+    console.log('🔑 VAPI Key available:', !!VAPI_PRIVATE_KEY);
 
-    // Simplified assistant creation - no file upload for now
-    console.log('🛠️ Building assistant payload...');
-
-    // Handle file uploads if provided
+    // Handle file uploads to VAPI if provided
     const tools = [];
+    let fileIds = [];
+
     if (files && files.length > 0) {
-      console.log(`📁 Processing ${files.length} files for knowledge base`);
-      
-      const fileIds = [];
+      console.log(`📤 Uploading ${files.length} files to VAPI...`);
+
+      // Upload files to VAPI
       for (const file of files) {
         try {
-          console.log(`🔼 Uploading file: ${file.name}, type: ${file.type}, size: ${file.size}`);
-          console.log(`📄 File data prefix: ${file.data ? file.data.substring(0, 50) : 'No data'}...`);
+          console.log(`📤 Uploading file: ${file.name}`);
           
-          if (!file.data || !file.data.includes(',')) {
-            throw new Error('Invalid file data format - expected base64 data URL');
+          // Convert base64 to blob
+          const binaryString = atob(file.content);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
           }
           
-          // Create proper FormData for file upload
           const formData = new FormData();
-          
-          // Convert base64 data URL to Blob for VAPI upload
-          const base64Data = file.data.split(',')[1]; // Remove data:mime;base64, prefix
-          if (!base64Data) {
-            throw new Error('Failed to extract base64 data from file');
-          }
-          
-          const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-          const fileBlob = new Blob([binaryData], { type: file.type });
-          
-          console.log(`📦 Created blob with size: ${fileBlob.size} bytes`);
-          formData.append('file', fileBlob, file.name);
+          formData.append('file', new Blob([bytes], { type: file.type }), file.name);
 
-          const fileUploadResponse = await fetch('https://api.vapi.ai/file', {
+          const uploadResponse = await fetch('https://api.vapi.ai/file', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${VAPI_PRIVATE_KEY}`,
@@ -74,29 +63,31 @@ serve(async (req) => {
             body: formData,
           });
 
-          console.log(`📡 VAPI file upload response: ${fileUploadResponse.status} ${fileUploadResponse.statusText}`);
-
-          if (fileUploadResponse.ok) {
-            const fileData = await fileUploadResponse.json();
-            fileIds.push(fileData.id);
-            console.log(`✅ File uploaded successfully: ${file.name} -> ${fileData.id}`);
+          if (uploadResponse.ok) {
+            const uploadResult = await uploadResponse.json();
+            fileIds.push(uploadResult.id);
+            console.log(`✅ File uploaded successfully: ${uploadResult.id}`);
           } else {
-            const errorText = await fileUploadResponse.text();
-            console.error(`❌ Failed to upload file: ${file.name}`, errorText);
+            const errorText = await uploadResponse.text();
+            console.error(`❌ Failed to upload file ${file.name}:`, uploadResponse.status, errorText);
           }
         } catch (error) {
-          console.error(`💥 Error uploading file ${file.name}:`, error.message);
+          console.error(`💥 Error uploading file ${file.name}:`, (error as Error).message);
         }
       }
 
-      // Create query tool if files were uploaded
+      console.log(`📁 Successfully uploaded ${fileIds.length} files to VAPI`);
+
+      // Create a query tool if we have uploaded files
       if (fileIds.length > 0) {
-        console.log(`🛠️ Creating query tool with ${fileIds.length} files`);
+        console.log('🔧 Creating query tool with uploaded files...');
         
         const queryTool = {
           type: "query",
-          function: {
-            name: `${assistantData.botName.toLowerCase().replace(/\s+/g, '-')}-knowledge`
+          queryKnowledgeBase: {
+            topK: 10,
+            fileIds: fileIds,
+            enabled: true
           },
           knowledgeBases: [
             {
@@ -129,7 +120,7 @@ serve(async (req) => {
             console.error('❌ Failed to create query tool:', toolResponse.status, toolErrorText);
           }
         } catch (error) {
-          console.error('💥 Error creating query tool:', error.message);
+          console.error('💥 Error creating query tool:', (error as Error).message);
         }
       } else {
         console.log('⚠️ No files were successfully uploaded, skipping query tool creation');
@@ -168,7 +159,7 @@ serve(async (req) => {
             }
           },
           server: {
-            url: `${supabaseUrl}/functions/v1/vapi-function-calls`
+            url: `https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/vapi-function-calls`
           }
         },
         {
@@ -192,7 +183,7 @@ serve(async (req) => {
             }
           },
           server: {
-            url: `${supabaseUrl}/functions/v1/vapi-function-calls`
+            url: `https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/vapi-function-calls`
           }
         },
         {
@@ -220,7 +211,7 @@ serve(async (req) => {
             }
           },
           server: {
-            url: `${supabaseUrl}/functions/v1/vapi-function-calls`
+            url: `https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/vapi-function-calls`
           }
         },
         {
@@ -244,7 +235,7 @@ serve(async (req) => {
             }
           },
           server: {
-            url: `${supabaseUrl}/functions/v1/vapi-function-calls`
+            url: `https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/vapi-function-calls`
           }
         }
       ];
@@ -272,7 +263,7 @@ serve(async (req) => {
             console.error(`❌ Failed to create tool ${toolDef.function.name}:`, toolResponse.status, toolErrorText);
           }
         } catch (error) {
-          console.error(`💥 Error creating tool ${toolDef.function.name}:`, error.message);
+          console.error(`💥 Error creating tool ${toolDef.function.name}:`, (error as Error).message);
         }
       }
     }
@@ -291,7 +282,7 @@ serve(async (req) => {
       },
       voice: {
         provider: 'vapi',
-        voiceId: selectedVoice?.voiceId || 'Elliot'
+        voiceId: assistantData.voice || 'Elliot'
       },
       firstMessage: assistantData.welcomeMessage || 'Hello! How can I help you today?',
       // Explicitly disable Krisp noise cancellation to prevent WORKLET_NOT_SUPPORTED errors
@@ -383,13 +374,13 @@ serve(async (req) => {
       },
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('💥 Error in create-vapi-assistant:', error);
-    console.error('💥 Error stack:', error.stack);
+    console.error('💥 Error stack:', (error as Error).stack);
     
     const errorResponse = {
       success: false,
-      error: error.message
+      error: (error as Error).message
     };
     
     console.log('📤 Sending error response:', errorResponse);

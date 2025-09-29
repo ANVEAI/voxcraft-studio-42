@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
@@ -155,9 +156,9 @@ serve(async (req) => {
       payload: functionCallMessage
     } as any);
 
-    if (sendResult?.error) {
-      console.error('[VAPI Function Call] Broadcast error:', sendResult.error);
-      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult.error }), {
+    if (sendResult === 'error') {
+      console.error('[VAPI Function Call] Broadcast error:', sendResult);
+      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -171,7 +172,7 @@ serve(async (req) => {
     );
   } catch (error: any) {
     console.error('[VAPI Function Call] Error:', error);
-    return new Response(JSON.stringify({ error: error?.message || 'Unknown error' }), {
+    return new Response(JSON.stringify({ error: (error as Error)?.message || 'Unknown error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

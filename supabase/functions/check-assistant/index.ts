@@ -82,7 +82,7 @@ serve(async (req) => {
       ok: response.ok
     });
 
-    const result = {
+    const result: any = {
       assistantId,
       exists: response.ok,
       status: response.status,
@@ -92,9 +92,9 @@ serve(async (req) => {
 
     if (response.ok) {
       const assistantData = await response.json();
-      result.name = assistantData.name;
-      result.voice = assistantData.voice;
-      result.model = assistantData.model;
+      result.name = (assistantData as any).name;
+      result.voice = (assistantData as any).voice;
+      result.model = (assistantData as any).model;
       console.log('✅ Assistant found:', result);
     } else {
       const errorText = await response.text();
@@ -110,13 +110,13 @@ serve(async (req) => {
       },
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('💥 Error in check-assistant:', error);
-    console.error('💥 Error stack:', error.stack);
+    console.error('💥 Error stack:', (error as Error).stack);
     
     const VAPI_PRIVATE_KEY = Deno.env.get('VAPI_PRIVATE_KEY');
     const errorResponse = { 
-      error: error.message,
+      error: (error as Error).message,
       exists: false,
       keyInfo: {
         privateKeyPrefix: VAPI_PRIVATE_KEY ? 
