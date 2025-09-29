@@ -87,7 +87,8 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('[VAPI Analytics] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -120,7 +121,7 @@ async function fetchCallsFromVapi(supabase: any, userId: string, vapiPrivateKey:
     console.log('[VAPI Analytics] Found assistants:', assistants.length);
 
     // Fetch calls from VAPI API for each assistant
-    let allCalls = [];
+    let allCalls: any[] = [];
     
     for (const assistant of assistants) {
       if (!assistant.vapi_assistant_id) continue;
@@ -146,7 +147,7 @@ async function fetchCallsFromVapi(supabase: any, userId: string, vapiPrivateKey:
         console.log('[VAPI Analytics] Fetched calls for assistant:', assistant.name, vapiCalls.length);
         
         // Add assistant info to each call
-        const callsWithAssistant = vapiCalls.map(call => ({
+        const callsWithAssistant = vapiCalls.map((call: any) => ({
           ...call,
           local_assistant_id: assistant.id,
           local_assistant_name: assistant.name
@@ -211,7 +212,7 @@ async function getAnalyticsData(supabase: any, userId: string, vapiPrivateKey: s
       throw new Error(`Failed to fetch assistants: ${assistantError.message}`);
     }
 
-    const assistantIds = assistants?.map(a => a.vapi_assistant_id).filter(Boolean) || [];
+    const assistantIds = assistants?.map((a: any) => a.vapi_assistant_id).filter(Boolean) || [];
     console.log('[VAPI Analytics] Found assistant IDs:', assistantIds);
     
     // Fetch calls directly from VAPI API for the most accurate data
@@ -373,7 +374,7 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
       throw new Error(`Failed to fetch assistants: ${assistantError.message}`);
     }
 
-    const assistantIds = assistants?.map(a => a.vapi_assistant_id).filter(Boolean) || [];
+    const assistantIds = assistants?.map((a: any) => a.vapi_assistant_id).filter(Boolean) || [];
     console.log('[VAPI Analytics Overview] Found', assistants?.length || 0, 'assistants with IDs:', assistantIds);
     
     // Fetch ALL calls at once instead of per assistant to avoid 400 errors
@@ -399,14 +400,14 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
         
         // Filter calls for user's assistants
         if (assistantIds.length > 0) {
-          allCalls = allVapiCalls.filter(call => 
+          allCalls = allVapiCalls.filter((call: any) => 
             call.assistantId && assistantIds.includes(call.assistantId)
           );
           console.log('[VAPI Analytics Overview] Filtered to', allCalls.length, 'calls for user assistants');
           
           // Add assistant names
-          allCalls = allCalls.map(call => {
-            const assistant = assistants?.find(a => a.vapi_assistant_id === call.assistantId);
+          allCalls = allCalls.map((call: any) => {
+            const assistant = assistants?.find((a: any) => a.vapi_assistant_id === call.assistantId);
             return { ...call, assistantName: assistant?.name || 'Unknown Assistant' };
           });
         } else {
@@ -425,9 +426,9 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
 
     // Calculate metrics
     const totalCalls = allCalls.length;
-    const activeCalls = allCalls.filter(c => c.status === 'in-progress').length;
-    const completedCalls = allCalls.filter(c => c.status === 'ended').length;
-    const successfulCalls = allCalls.filter(c => 
+    const activeCalls = allCalls.filter((c: any) => c.status === 'in-progress').length;
+    const completedCalls = allCalls.filter((c: any) => c.status === 'ended').length;
+    const successfulCalls = allCalls.filter((c: any) =>
       c.status === 'ended' && 
       !['assistant-error', 'pipeline-error', 'customer-did-not-give-microphone-permission'].includes(c.endedReason)
     ).length;
@@ -441,14 +442,14 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
       totalCallsFound: allCalls.length
     });
 
-    const totalDuration = allCalls.reduce((sum, call) => {
+    const totalDuration = allCalls.reduce((sum: number, call: any) => {
       if (call.endedAt && call.startedAt) {
         return sum + Math.floor((new Date(call.endedAt).getTime() - new Date(call.startedAt).getTime()) / 1000);
       }
       return sum;
     }, 0);
 
-    const totalCost = allCalls.reduce((sum, call) => {
+    const totalCost = allCalls.reduce((sum: number, call: any) => {
       if (call.cost) {
         return sum + call.cost;
       }
@@ -456,7 +457,7 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
         return sum + call.costBreakdown.total;
       }
       if (call.costs && Array.isArray(call.costs)) {
-        return sum + call.costs.reduce((costSum, cost) => costSum + (cost.cost || 0), 0);
+        return sum + call.costs.reduce((costSum: number, cost: any) => costSum + (cost.cost || 0), 0);
       }
       return sum;
     }, 0);
@@ -474,10 +475,10 @@ async function getOverviewAnalytics(supabase: any, userId: string, vapiPrivateKe
         successRate: completedCalls > 0 ? Math.round((successfulCalls / completedCalls) * 100 * 100) / 100 : 0
       },
       enhancedMetrics: {
-        dailyStats: allCalls.reduce((acc, call) => {
+        dailyStats: allCalls.reduce((acc: any[], call: any) => {
         if (call.startedAt) {
           const date = new Date(call.startedAt).toISOString().split('T')[0];
-          const existing = acc.find(item => item.date === date);
+          const existing = acc.find((item: any) => item.date === date);
           if (existing) {
             existing.calls += 1;
             existing.duration += call.endedAt && call.startedAt ? 
@@ -518,7 +519,7 @@ async function getCallAnalytics(supabase: any, userId: string, vapiPrivateKey: s
       .select('id, vapi_assistant_id, name')
       .eq('user_id', userId);
 
-    let allCalls = [];
+    let allCalls: any[] = [];
     for (const assistant of assistants || []) {
       if (!assistant.vapi_assistant_id) continue;
       
@@ -585,8 +586,8 @@ async function getSessionAnalytics(supabase: any, userId: string, vapiPrivateKey
       .eq('user_id', userId)
       .order('started_at', { ascending: false });
 
-    const activeSessions = sessions?.filter(s => s.status === 'in-progress').length || 0;
-    const completedSessions = sessions?.filter(s => s.status === 'ended').length || 0;
+    const activeSessions = sessions?.filter((s: any) => s.status === 'in-progress').length || 0;
+    const completedSessions = sessions?.filter((s: any) => s.status === 'ended').length || 0;
 
     const result = {
       totalSessions: sessions?.length || 0,
@@ -594,10 +595,10 @@ async function getSessionAnalytics(supabase: any, userId: string, vapiPrivateKey
       completedSessions,
       durationStats: {
         average: sessions?.length ? 
-          sessions.reduce((sum, s) => sum + (s.duration_seconds || 0), 0) / sessions.length : 0,
+          sessions.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0) / sessions.length : 0,
         median: 0, // Would calculate median
-        longest: Math.max(...(sessions?.map(s => s.duration_seconds || 0) || [0])),
-        shortest: Math.min(...(sessions?.map(s => s.duration_seconds || 0).filter(d => d > 0) || [0]))
+        longest: Math.max(...(sessions?.map((s: any) => s.duration_seconds || 0) || [0])),
+        shortest: Math.min(...(sessions?.map((s: any) => s.duration_seconds || 0).filter((d: any) => d > 0) || [0]))
       },
       geographic: {
         // Mock data - would integrate with actual geographic tracking
@@ -740,17 +741,18 @@ async function getBotAnalytics(supabase: any, userId: string, vapiPrivateKey: st
         });
         
         if (vapiResponse.ok) {
-          const calls = await vapiResponse.json();
-          botCallCounts[assistant.id] = calls.length;
+          const data = await vapiResponse.json();
+          const calls = data.filter ? data.filter((d: any) => d.assistantId === assistant.id) : [];
+          (botCallCounts as any)[assistant.id] = calls.length;
         }
       } catch (error) {
         console.error(`Error fetching call count for assistant ${assistant.vapi_assistant_id}:`, error);
-        botCallCounts[assistant.id] = 0;
+        (botCallCounts as any)[assistant.id] = 0;
       }
     }
 
-    const activeBots = assistants?.filter(a => a.status === 'active').length || 0;
-    const inactiveBots = assistants?.filter(a => a.status !== 'active').length || 0;
+    const activeBots = assistants?.filter((a: any) => a.status === 'active').length || 0;
+    const inactiveBots = assistants?.filter((a: any) => a.status !== 'active').length || 0;
     const ragEnabledBots = detailedAssistants.filter(a => 
       a.vapiDetails?.tools?.some(tool => tool.type === 'query')
     ).length;
@@ -762,16 +764,16 @@ async function getBotAnalytics(supabase: any, userId: string, vapiPrivateKey: st
       ragEnabledBots,
       creationTrends: {
         // Would implement creation trend analysis
-        thisMonth: assistants?.filter(a => {
+        thisMonth: assistants?.filter((a: any) => {
           const thisMonth = new Date().getMonth();
           return new Date(a.created_at).getMonth() === thisMonth;
         }).length || 0
       },
       topPerformingBots: Object.entries(botCallCounts)
-        .sort((a, b) => b[1] - a[1])
+        .sort((a: any[], b: any[]) => (b[1] as number) - (a[1] as number))
         .slice(0, 5)
         .map(([botId, callCount]) => {
-          const bot = assistants?.find(a => a.id === botId);
+          const bot = assistants?.find((a: any) => a.id === botId);
           return {
             id: botId,
             name: bot?.name || 'Unknown',

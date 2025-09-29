@@ -85,7 +85,8 @@ serve(async (req) => {
             console.error(`❌ Failed to upload file: ${file.name}`, errorText);
           }
         } catch (error) {
-          console.error(`💥 Error uploading file ${file.name}:`, error.message);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error(`💥 Error uploading file ${file.name}:`, errorMessage);
         }
       }
 
@@ -129,7 +130,8 @@ serve(async (req) => {
             console.error('❌ Failed to create query tool:', toolResponse.status, toolErrorText);
           }
         } catch (error) {
-          console.error('💥 Error creating query tool:', error.message);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error('💥 Error creating query tool:', errorMessage);
         }
       } else {
         console.log('⚠️ No files were successfully uploaded, skipping query tool creation');
@@ -244,11 +246,13 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('💥 Error in create-vapi-assistant:', error);
-    console.error('💥 Error stack:', error.stack);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('💥 Error stack:', errorStack);
     
     const errorResponse = {
       success: false,
-      error: error.message
+      error: errorMessage
     };
     
     console.log('📤 Sending error response:', errorResponse);

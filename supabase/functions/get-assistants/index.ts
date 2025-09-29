@@ -105,7 +105,7 @@ serve(async (req) => {
     console.error('Error fetching assistants:', error);
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'Failed to fetch assistants',
+        error: error instanceof Error ? error.message : 'Failed to fetch assistants',
         success: false 
       }),
       {
