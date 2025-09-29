@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
@@ -104,81 +103,17 @@ serve(async (req) => {
       });
     }
 
-    // Enhanced session isolation with fallback
-    let sessionId = params?.sessionId;
-    let channelName;
-    
-    console.log('[VAPI Function Call] Session isolation debug:', {
-      functionName,
-      callId,
-      sessionId,
-      assistantId,
-      params,
-      toolCallStructure: {
-        hasSessionId: !!sessionId,
-        paramsKeys: Object.keys(params || {}),
-        rawArguments: typeof rawArguments
-      }
-    });
-
-    // Handle VAPI variable substitution issues - fallback to call-based isolation
-    if (!sessionId || sessionId === '{{sessionId}}') {
-      console.warn('[VAPI Function Call] SessionId not properly substituted by VAPI, using call-based isolation');
-      
-      // Extract call ID from payload for fallback isolation
-      const callIdFromPayload = payload?.message?.artifact?.call?.id || 
-                               payload?.call?.id || 
-                               payload?.message?.callId ||
-                               callId;
-      
-      if (callIdFromPayload) {
-        sessionId = `call_${callIdFromPayload}`;
-        channelName = `vapi:session:${sessionId}`;
-        console.log('[VAPI Function Call] Using call-based session isolation:', { sessionId, channelName });
-      } else {
-        console.error('[VAPI Function Call] No valid session identifier found');
-        return new Response(JSON.stringify({ 
-          error: 'Session isolation error: No valid session identifier found',
-          debug: {
-            functionName,
-            params,
-            callData: {
-              callId,
-              payloadCallId: payload?.call?.id,
-              messageCallId: payload?.message?.callId,
-              artifactCallId: payload?.message?.artifact?.call?.id
-            },
-            expectedFormat: 'Tool calls must include "sessionId": "{{sessionId}}" parameter or have valid call ID'
-          }
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-    } else {
-      // Use provided session ID
-      channelName = `vapi:session:${sessionId}`;
-    }
-
-    console.log('[VAPI Function Call] Broadcasting with session isolation:', { functionName, channelName, sessionId, params });
+    const channelName = assistantId ? `vapi:${assistantId}` : 'vapi_function_calls';
+    console.log('[VAPI Function Call] Broadcasting', { functionName, channelName, params });
 
     const functionCallMessage = {
       functionName,
       params, // IMPORTANT: "params" to match client dispatcher
       callId,
-      sessionId,
       assistantId: assistantId || undefined,
-      timestamp: new Date().toISOString(),
-      // Add debugging info
-      debug: {
-        originalSessionId: params?.sessionId,
-        wasVariableSubstituted: params?.sessionId !== '{{sessionId}}',
-        usedFallback: sessionId.startsWith('call_'),
-        channelName
-      }
+      timestamp: new Date().toISOString()
     };
 
-    // Broadcast ONLY to session-specific channel for strict isolation
     const channel = supabase.channel(channelName);
     const sendResult = await channel.send({
       type: 'broadcast',
@@ -186,23 +121,23 @@ serve(async (req) => {
       payload: functionCallMessage
     } as any);
 
-    if (sendResult === 'error') {
-      console.error('[VAPI Function Call] Broadcast error:', sendResult);
-      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult }), {
+    if (sendResult?.error) {
+      console.error('[VAPI Function Call] Broadcast error:', sendResult.error);
+      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult.error }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    console.log('[VAPI Function Call] Function call broadcasted with session isolation:', { functionName, channelName, sessionId });
+    console.log('[VAPI Function Call] Function call broadcasted:', { functionName, channelName });
 
     return new Response(
-      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId, sessionId }),
+      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
   } catch (error: any) {
     console.error('[VAPI Function Call] Error:', error);
-    return new Response(JSON.stringify({ error: (error as Error)?.message || 'Unknown error' }), {
+    return new Response(JSON.stringify({ error: error?.message || 'Unknown error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

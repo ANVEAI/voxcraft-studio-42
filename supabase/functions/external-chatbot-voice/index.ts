@@ -1579,7 +1579,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error serving JavaScript:', error);
     return new Response(
-      `console.error('Failed to load voice bot script: ${(error as Error).message}');`,
+      `console.error('Failed to load voice bot script: ${error.message}');`,
       {
         status: 500,
         headers: {
