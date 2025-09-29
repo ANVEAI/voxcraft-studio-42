@@ -6,6 +6,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Default utility tools that should be attached to every assistant
+const DEFAULT_UTILITY_TOOLS = [
+  '88e7444d-52a6-444b-bc3f-9b755c84b341', // toggle_element
+  '671701dd-2ce8-41fa-875a-39920990d099', // fill_field  
+  '246cbd22-dfdf-4692-8e71-7a1c54702a36', // click_element
+  '779dc8cf-28af-4605-9163-dffb054fb721'  // scroll_page
+];
+
 serve(async (req) => {
   console.log('🚀 Function started - create-vapi-assistant');
   
@@ -37,9 +45,11 @@ serve(async (req) => {
     console.log('🛠️ Building assistant payload...');
 
     // Handle file uploads if provided
-    const tools = [];
+    const tools = [...DEFAULT_UTILITY_TOOLS]; // Start with default utility tools
     if (files && files.length > 0) {
       console.log(`📁 Processing ${files.length} files for knowledge base`);
+      console.log(`🛠️ Starting with ${DEFAULT_UTILITY_TOOLS.length} default utility tools`);
+      console.log(`🛠️ Starting with ${DEFAULT_UTILITY_TOOLS.length} default utility tools`);
       
       const fileIds = [];
       for (const file of files) {
@@ -136,6 +146,8 @@ serve(async (req) => {
       } else {
         console.log('⚠️ No files were successfully uploaded, skipping query tool creation');
       }
+    } else {
+      console.log(`🛠️ No files provided, proceeding with ${DEFAULT_UTILITY_TOOLS.length} default utility tools only`);
     }
     
     const payload = {
@@ -190,7 +202,9 @@ serve(async (req) => {
 
     // Attach tools to the assistant using PATCH request with toolIds
     if (tools.length > 0) {
-      console.log(`🔧 Attaching ${tools.length} tools to assistant...`);
+      const defaultToolsCount = DEFAULT_UTILITY_TOOLS.length;
+      const dynamicToolsCount = tools.length - defaultToolsCount;
+      console.log(`🔧 Attaching ${tools.length} tools to assistant (${defaultToolsCount} default utility + ${dynamicToolsCount} dynamic tools)...`);
       
       const updatePayload = {
         model: {
@@ -222,7 +236,9 @@ serve(async (req) => {
       });
 
       if (updateResponse.ok) {
-        console.log(`✅ Successfully attached ${tools.length} tools to assistant`);
+        const defaultToolsCount = DEFAULT_UTILITY_TOOLS.length;
+        const dynamicToolsCount = tools.length - defaultToolsCount;
+        console.log(`✅ Successfully attached ${tools.length} tools to assistant (${defaultToolsCount} default utility + ${dynamicToolsCount} dynamic tools)`);
       } else {
         const updateErrorText = await updateResponse.text();
         console.error('❌ Failed to attach tools to assistant:', updateErrorText);
