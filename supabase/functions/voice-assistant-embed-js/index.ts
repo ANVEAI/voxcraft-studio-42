@@ -119,13 +119,47 @@ if (!window.supabase) {
         this.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         this.assistantId = BOT_CONFIG.assistantId;
         
-        console.log('✅ Supabase client initialized, waiting for call ID...');
+        console.log('✅ Supabase client initialized, setting up discovery mechanism...');
         this.updateStatus('🟡 Waiting for voice session...');
+        
+        // Set up discovery channel
+        this.setupDiscoveryChannel();
         
       } catch (error) {
         console.error('❌ Supabase Realtime setup failed:', error);
         this.updateStatus("❌ Command listener failed");
       }
+    }
+
+    // Call ID Discovery Mechanism
+    setupDiscoveryChannel() {
+      const discoveryChannelName = \`vapi:discovery:\${this.assistantId}\`;
+      console.log('🔍 Setting up discovery channel:', discoveryChannelName);
+      
+      this.discoveryChannel = this.supabaseClient
+        .channel(discoveryChannelName)
+        .on('broadcast', { event: 'call_discovery' }, (payload) => {
+          console.log('📡 Received call discovery:', payload);
+          const { vapiCallId } = payload.payload;
+          
+          if (vapiCallId && !this.currentCallId) {
+            console.log('🎯 Call ID discovered via backend:', vapiCallId);
+            this.currentCallId = vapiCallId;
+            
+            // Clean up discovery channel
+            if (this.discoveryChannel) {
+              this.discoveryChannel.unsubscribe();
+              this.discoveryChannel = null;
+            }
+            
+            // Set up session-specific channel
+            this.subscribeToCallChannel(vapiCallId);
+            this.updateStatus('🔗 Session isolated - ready for commands!');
+          }
+        })
+        .subscribe((status) => {
+          console.log('🔍 Discovery channel status:', status);
+        });
     }
 
     // VAPI-Native Session Isolation: Subscribe to call-specific channel
@@ -198,45 +232,30 @@ if (!window.supabase) {
     }
 
     setupVapiEventListeners() {
-      // Call started - Extract call ID for session isolation
+      // Call started - Wait for backend discovery
       this.vapiWidget.on("call-start", (event) => {
-        console.log('📞 VAPI call started with event:', event);
+        console.log('📞 VAPI call started, waiting for backend call ID discovery...');
+        this.updateStatus("🎤 Voice active - discovering session...");
         
-        // Extract call ID from VAPI event
-        const callId = event?.call?.id || event?.id || event?.callId;
-        
-        if (callId) {
-          console.log('🔑 Extracted call ID for session isolation:', callId);
-          this.currentCallId = callId;
-          this.subscribeToCallChannel(callId);
-        } else {
-          console.warn('⚠️ No call ID found in call-start event, trying alternative methods...');
-          // Try to get call ID from VAPI client directly
-          const vapiCallId = this.vapiWidget.getCall?.()?.id || 
-                            this.vapiWidget.call?.id ||
-                            this.vapiWidget._call?.id;
-          
-          if (vapiCallId) {
-            console.log('🔑 Extracted call ID from VAPI client:', vapiCallId);
-            this.currentCallId = vapiCallId;
-            this.subscribeToCallChannel(vapiCallId);
-          } else {
-            console.error('❌ Could not extract call ID for session isolation');
-            this.updateStatus("⚠️ Session isolation may not work");
-          }
-        }
-        
-        this.updateStatus("🎤 Voice active - VAPI handling all processing");
+        // The backend will send us the call ID via discovery channel
+        // No need to extract it here since frontend can't reliably access it
       });
 
       // Call ended - Clean up session
       this.vapiWidget.on("call-end", () => {
         console.log('📞 VAPI call ended');
         this.currentCallId = null;
+        
         if (this.realtimeChannel) {
           this.realtimeChannel.unsubscribe();
           this.realtimeChannel = null;
         }
+        
+        if (this.discoveryChannel) {
+          this.discoveryChannel.unsubscribe();
+          this.discoveryChannel = null;
+        }
+        
         this.updateStatus("🔄 Voice ended");
       });
 

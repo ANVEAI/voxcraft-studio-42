@@ -754,7 +754,7 @@ async function getBotAnalytics(supabase: any, userId: string, vapiPrivateKey: st
     const activeBots = assistants?.filter((a: any) => a.status === 'active').length || 0;
     const inactiveBots = assistants?.filter((a: any) => a.status !== 'active').length || 0;
     const ragEnabledBots = detailedAssistants.filter(a => 
-      a.vapiDetails?.tools?.some(tool => tool.type === 'query')
+      a.vapiDetails?.tools?.some((tool: any) => tool.type === 'query')
     ).length;
 
     const result = {

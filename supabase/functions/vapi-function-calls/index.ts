@@ -110,9 +110,24 @@ serve(async (req) => {
       payload: functionCallMessage
     } as any);
 
-    if (sendResult?.error) {
-      console.error('[VAPI Function Call] Broadcast error:', sendResult.error);
-      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult.error }), {
+    // Also broadcast to discovery channel for call ID sharing
+    const discoveryChannel = `vapi:discovery:${payload?.message?.assistant?.id || 'unknown'}`;
+    const discoveryMessage = {
+      type: 'call_id_discovery',
+      vapiCallId,
+      assistantId: payload?.message?.assistant?.id,
+      timestamp: new Date().toISOString()
+    };
+    
+    await supabase.channel(discoveryChannel).send({
+      type: 'broadcast',
+      event: 'call_discovery',
+      payload: discoveryMessage
+    } as any);
+
+    if (sendResult === 'error') {
+      console.error('[VAPI Function Call] Broadcast error:', sendResult);
+      return new Response(JSON.stringify({ error: 'Broadcast failed', details: sendResult }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
