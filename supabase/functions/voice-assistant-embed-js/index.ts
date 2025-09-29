@@ -132,9 +132,23 @@ if (!window.supabase) {
             .channel(channelName)
             .on('broadcast', { event: 'function_call' }, (payload) => {
               console.log(\`📡 Received function call on \${channelName}:\`, payload);
+              console.log('📊 Function call payload structure:', {
+                hasPayload: !!payload.payload,
+                payloadKeys: payload.payload ? Object.keys(payload.payload) : 'none',
+                assistantId: payload.payload?.assistantId,
+                callId: payload.payload?.callId,
+                sessionId: payload.payload?.sessionId
+              });
+              
               // Filter by assistant ID if available
               if (!payload.payload.assistantId || payload.payload.assistantId === this.assistantId) {
+                console.log('✅ Function call accepted - executing...');
                 this.executeFunctionCall(payload.payload);
+              } else {
+                console.log('🚫 Function call rejected - wrong assistant ID:', {
+                  received: payload.payload.assistantId,
+                  expected: this.assistantId
+                });
               }
             })
             .subscribe((status) => {
@@ -231,61 +245,88 @@ if (!window.supabase) {
     }
 
     setupVapiEventListeners() {
-      // Call started
+      // Call started - Enhanced with comprehensive call ID discovery
       this.vapiWidget.on("call-start", (event) => {
-        console.log('📞 VAPI call started with event:', event);
+        console.log('📞 VAPI call-start event received');
+        console.log('📊 Full event object:', JSON.stringify(event, null, 2));
+        console.log('📊 Event type:', typeof event);
+        console.log('📊 Event keys:', event ? Object.keys(event) : 'null/undefined');
         this.updateStatus("🎤 Voice active - VAPI handling all processing");
         
-        // Derive call/session identifiers
-        const callId = event?.callId || event?.id || event?.call?.id;
-        if (callId) {
-          this.currentCallId = callId;
-          // Match server fallback format: \`call_\` + callId
-          this.currentSessionId = \`call_\${callId}\`;
-          const sessionChannelName = \`vapi:session:\${this.currentSessionId}\`;
-          if (this.sessionChannelName !== sessionChannelName) {
-            this.sessionChannelName = sessionChannelName;
-            console.log('🔗 Subscribing to session channel:', sessionChannelName);
-            const sessionChannel = this.supabaseClient
-              .channel(sessionChannelName)
-              .on('broadcast', { event: 'function_call' }, (payload) => {
-                console.log(\`📡 Received session function call on \${sessionChannelName}:\`, payload);
-                this.executeFunctionCall(payload.payload);
-              })
-              .subscribe((status) => {
-                console.log(\`Session channel \${sessionChannelName} status:\`, status);
-              });
-            this.channels.push(sessionChannel);
+        // Multiple extraction strategies for call ID discovery
+        const extractCallId = (eventData) => {
+          if (!eventData) return null;
+          
+          // Strategy 1: Direct properties
+          const directId = eventData.callId || eventData.id || eventData.call?.id || eventData.call?.callId;
+          if (directId) {
+            console.log('✅ Call ID found via direct properties:', directId);
+            return directId;
           }
-        }
-      });
-
-      // Call ended
-      this.vapiWidget.on("call-end", () => {
-        console.log('📞 VAPI call ended');
-        this.updateStatus("🔄 Voice ended");
-        
-        // Clean up session channels
-        if (this.channels) {
-          this.channels.forEach(channel => {
-            try {
-              this.supabaseClient.removeChannel(channel);
-            } catch (e) {
-              console.warn('Channel cleanup warning:', e);
+          
+          // Strategy 2: Nested object exploration
+          const searchNested = (obj, depth = 0) => {
+            if (depth > 3 || !obj || typeof obj !== 'object') return null;
+            
+            for (const key of Object.keys(obj)) {
+              if (key.toLowerCase().includes('call') && typeof obj[key] === 'string') {
+                console.log(\`✅ Call ID found via nested search (\${key}):\`, obj[key]);
+                return obj[key];
+              }
+              if (typeof obj[key] === 'object') {
+                const nested = searchNested(obj[key], depth + 1);
+                if (nested) return nested;
+              }
             }
-          });
+            return null;
+          };
+          
+          return searchNested(eventData);
+        };
+        
+        const callId = extractCallId(event);
+        this.attemptSessionSetup(callId, 'call-start');
+      });
+
+      // Enhanced discovery via other VAPI events
+      this.vapiWidget.on("call-end", (event) => {
+        console.log('📞 VAPI call ended');
+        console.log('📊 Call-end event:', JSON.stringify(event, null, 2));
+        this.updateStatus("🔄 Voice ended");
+        this.cleanupSessionChannels();
+      });
+
+      // Try to capture call ID from speech events
+      this.vapiWidget.on("speech-start", (event) => {
+        console.log('🤖 Assistant speaking');
+        console.log('📊 Speech-start event:', JSON.stringify(event, null, 2));
+        this.updateStatus("🤖 Assistant responding...");
+        
+        if (!this.currentCallId) {
+          const callId = this.extractCallIdFromEvent(event);
+          this.attemptSessionSetup(callId, 'speech-start');
         }
       });
 
-      // Assistant speaking
-      this.vapiWidget.on("speech-start", () => {
-        console.log('🤖 Assistant speaking');
-        this.updateStatus("🤖 Assistant responding...");
+      this.vapiWidget.on("speech-end", (event) => {
+        console.log('🤖 Assistant finished');
+        console.log('📊 Speech-end event:', JSON.stringify(event, null, 2));
+        this.updateStatus("🎤 Ready for commands");
+        
+        if (!this.currentCallId) {
+          const callId = this.extractCallIdFromEvent(event);
+          this.attemptSessionSetup(callId, 'speech-end');
+        }
       });
 
-      this.vapiWidget.on("speech-end", () => {
-        console.log('🤖 Assistant finished');
-        this.updateStatus("🎤 Ready for commands");
+      // Capture any other VAPI events that might contain call info
+      this.vapiWidget.on("message", (event) => {
+        console.log('📨 VAPI message event:', JSON.stringify(event, null, 2));
+        
+        if (!this.currentCallId) {
+          const callId = this.extractCallIdFromEvent(event);
+          this.attemptSessionSetup(callId, 'message');
+        }
       });
 
       // Error handling
@@ -293,8 +334,103 @@ if (!window.supabase) {
         console.error('❌ VAPI error:', error);
         this.updateStatus("❌ Voice error");
       });
+    }
 
-      // NOTE: Removed transcript parsing - all commands come via realtime now
+    // Helper method to extract call ID from any event
+    extractCallIdFromEvent(event) {
+      if (!event) return null;
+      
+      // Check common call ID locations
+      const possiblePaths = [
+        event.callId,
+        event.id,
+        event.call?.id,
+        event.call?.callId,
+        event.data?.callId,
+        event.data?.id,
+        event.payload?.callId,
+        event.payload?.id
+      ];
+      
+      for (const path of possiblePaths) {
+        if (path && typeof path === 'string') {
+          console.log('✅ Call ID extracted from event:', path);
+          return path;
+        }
+      }
+      
+      return null;
+    }
+
+    // Enhanced session setup with fallback handling
+    attemptSessionSetup(callId, source) {
+      if (!callId) {
+        console.log(\`⏭️ No call ID from \${source}, will try function call fallback\`);
+        return;
+      }
+      
+      if (this.currentCallId === callId) {
+        console.log(\`✅ Call ID already set: \${callId}\`);
+        return;
+      }
+      
+      console.log(\`🔗 Setting up session from \${source} with call ID:\`, callId);
+      this.currentCallId = callId;
+      this.currentSessionId = \`call_\${callId}\`;
+      
+      const sessionChannelName = \`vapi:session:\${this.currentSessionId}\`;
+      
+      // Check if we're already subscribed to this session channel
+      if (this.sessionChannelName === sessionChannelName) {
+        console.log('✅ Already subscribed to session channel:', sessionChannelName);
+        return;
+      }
+      
+      this.sessionChannelName = sessionChannelName;
+      console.log('🎯 Subscribing to session channel:', sessionChannelName);
+      
+      try {
+        const sessionChannel = this.supabaseClient
+          .channel(sessionChannelName)
+          .on('broadcast', { event: 'function_call' }, (payload) => {
+            console.log(\`📡 Received session function call on \${sessionChannelName}:\`, payload);
+            this.executeFunctionCall(payload.payload);
+          })
+          .subscribe((status) => {
+            console.log(\`📊 Session channel \${sessionChannelName} status:\`, status);
+            if (status === 'SUBSCRIBED') {
+              this.updateStatus('🔗 Session channel ready');
+            } else if (status === 'CHANNEL_ERROR') {
+              console.error('❌ Session channel subscription failed');
+              this.updateStatus('⚠️ Session channel failed');
+            }
+          });
+          
+        this.channels.push(sessionChannel);
+        console.log('✅ Session channel subscription initiated');
+        
+      } catch (error) {
+        console.error('❌ Session channel setup error:', error);
+        this.updateStatus('❌ Session setup failed');
+      }
+    }
+
+    // Enhanced cleanup
+    cleanupSessionChannels() {
+      console.log('🧹 Cleaning up session channels...');
+      if (this.channels) {
+        this.channels.forEach(channel => {
+          try {
+            this.supabaseClient.removeChannel(channel);
+            console.log('✅ Channel removed:', channel.topic);
+          } catch (e) {
+            console.warn('⚠️ Channel cleanup warning:', e);
+          }
+        });
+      }
+      this.currentCallId = null;
+      this.currentSessionId = null;
+      this.sessionChannelName = null;
     }
 
     // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime
@@ -302,15 +438,40 @@ if (!window.supabase) {
       const { functionName, params, sessionId, callId, debug } = functionCall;
       console.log('⚡ Executing function call:', { functionName, params, sessionId, callId, debug });
       
-      // Session isolation guard
+      // **ENHANCED FALLBACK STRATEGY**: Use function call data to discover session if not set
+      const incomingCallId = callId;
       const incomingSession = (sessionId && sessionId !== '{{sessionId}}') ? sessionId : (callId ? \`call_\${callId}\` : null);
-      if (!this.currentSessionId && incomingSession) {
-        this.currentSessionId = incomingSession;
+      
+      // If we don't have a current session, try to establish one from function call data
+      if (!this.currentSessionId && incomingCallId) {
+        console.log('🔍 No current session, attempting discovery from function call...');
+        console.log('📊 Function call discovery data:', { callId: incomingCallId, sessionId, incomingSession });
+        
+        // Set up session from function call data
+        this.currentCallId = incomingCallId;
+        this.currentSessionId = incomingSession || \`call_\${incomingCallId}\`;
         this.sessionChannelName = \`vapi:session:\${this.currentSessionId}\`;
+        
+        console.log('✅ Session discovered via function call:', this.currentSessionId);
+        
+        // Subscribe to the session channel now that we have the call ID
+        this.attemptSessionSetup(incomingCallId, 'function-call-fallback');
       }
+      
+      // Enhanced session isolation guard
       if (this.currentSessionId && incomingSession && incomingSession !== this.currentSessionId) {
-        console.warn('🚫 Ignoring function call for different session', { incomingSession, currentSession: this.currentSessionId });
+        console.warn('🚫 Ignoring function call for different session', { 
+          incomingSession, 
+          currentSession: this.currentSessionId,
+          incomingCallId,
+          currentCallId: this.currentCallId
+        });
         return;
+      }
+      
+      // Log successful session match
+      if (this.currentSessionId && incomingSession === this.currentSessionId) {
+        console.log('✅ Function call session match confirmed:', this.currentSessionId);
       }
       
       // Add visual feedback for debugging
