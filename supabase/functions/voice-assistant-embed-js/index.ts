@@ -56,6 +56,7 @@ if (!window.supabase) {
       this.currentPageElements = [];
       this.statusEl = null;
       this.assistantId = null;
+      this.currentCallId = null;
       
       this.init();
     }
@@ -118,28 +119,38 @@ if (!window.supabase) {
         this.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         this.assistantId = BOT_CONFIG.assistantId;
         
-        // Use assistant-specific channel or fallback
-        const channelName = 'vapi_function_calls';
-        
-        this.realtimeChannel = this.supabaseClient
-          .channel(channelName)
-          .on('broadcast', { event: 'function_call' }, (payload) => {
-            console.log('📡 Received function call:', payload);
-            this.executeFunctionCall(payload.payload);
-          })
-          .subscribe((status) => {
-            console.log('Realtime status:', status, 'channel:', channelName);
-            if (status === 'SUBSCRIBED') {
-              this.updateStatus('🟢 Connected to voice control');
-            }
-          });
-
-        console.log('✅ Supabase Realtime setup complete for:', channelName);
+        console.log('✅ Supabase client initialized, waiting for call ID...');
+        this.updateStatus('🟡 Waiting for voice session...');
         
       } catch (error) {
         console.error('❌ Supabase Realtime setup failed:', error);
         this.updateStatus("❌ Command listener failed");
       }
+    }
+
+    // VAPI-Native Session Isolation: Subscribe to call-specific channel
+    subscribeToCallChannel(callId) {
+      if (this.realtimeChannel) {
+        this.realtimeChannel.unsubscribe();
+      }
+
+      const channelName = 'vapi:call:' + callId;
+      console.log('📡 Subscribing to session-specific channel:', channelName);
+      
+      this.realtimeChannel = this.supabaseClient
+        .channel(channelName)
+        .on('broadcast', { event: 'function_call' }, (payload) => {
+          console.log('📡 Received session-specific function call:', payload);
+          this.executeFunctionCall(payload.payload);
+        })
+        .subscribe((status) => {
+          console.log('Realtime status for', channelName, ':', status);
+          if (status === 'SUBSCRIBED') {
+            this.updateStatus('🟢 Connected to voice control');
+          }
+        });
+
+      console.log('✅ Supabase Realtime setup complete for channels:', [channelName]);
     }
 
     loadVapiSDK() {
@@ -187,15 +198,45 @@ if (!window.supabase) {
     }
 
     setupVapiEventListeners() {
-      // Call started
-      this.vapiWidget.on("call-start", () => {
-        console.log('📞 VAPI call started');
+      // Call started - Extract call ID for session isolation
+      this.vapiWidget.on("call-start", (event) => {
+        console.log('📞 VAPI call started with event:', event);
+        
+        // Extract call ID from VAPI event
+        const callId = event?.call?.id || event?.id || event?.callId;
+        
+        if (callId) {
+          console.log('🔑 Extracted call ID for session isolation:', callId);
+          this.currentCallId = callId;
+          this.subscribeToCallChannel(callId);
+        } else {
+          console.warn('⚠️ No call ID found in call-start event, trying alternative methods...');
+          // Try to get call ID from VAPI client directly
+          const vapiCallId = this.vapiWidget.getCall?.()?.id || 
+                            this.vapiWidget.call?.id ||
+                            this.vapiWidget._call?.id;
+          
+          if (vapiCallId) {
+            console.log('🔑 Extracted call ID from VAPI client:', vapiCallId);
+            this.currentCallId = vapiCallId;
+            this.subscribeToCallChannel(vapiCallId);
+          } else {
+            console.error('❌ Could not extract call ID for session isolation');
+            this.updateStatus("⚠️ Session isolation may not work");
+          }
+        }
+        
         this.updateStatus("🎤 Voice active - VAPI handling all processing");
       });
 
-      // Call ended
+      // Call ended - Clean up session
       this.vapiWidget.on("call-end", () => {
         console.log('📞 VAPI call ended');
+        this.currentCallId = null;
+        if (this.realtimeChannel) {
+          this.realtimeChannel.unsubscribe();
+          this.realtimeChannel = null;
+        }
         this.updateStatus("🔄 Voice ended");
       });
 

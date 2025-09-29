@@ -45,40 +45,20 @@ serve(async (req) => {
     const payload = await req.json();
     console.log('[VAPI Function Call] Payload:', JSON.stringify(payload, null, 2));
 
-    // Try to find assistantId (query, headers, body)
-    const url = new URL(req.url);
-    const assistantFromQuery =
-      url.searchParams.get('assistant') ||
-      url.searchParams.get('assistantId') ||
-      url.searchParams.get('botId');
-    const assistantFromHeader =
-      req.headers.get('x-vapi-assistant-id') ||
-      req.headers.get('x-assistant-id') ||
-      req.headers.get('x-assistant');
-    
-    // Enhanced assistant ID extraction for VAPI webhook payload structure
-    const assistantFromBody =
-      payload?.message?.artifact?.call?.assistantId ||     // VAPI: From nested call object
-      payload?.message?.artifact?.assistant?.id ||         // VAPI: From nested assistant object
-      payload?.assistant?.id ||                            // Direct from assistant object
-      payload?.call?.assistantId ||                       // From call object
-      payload?.assistantId ||                             // Direct assistantId field
-      payload?.assistant ||                               // If assistant is just a string
-      payload?.botId ||
-      payload?.bot?.id ||
-      payload?.message?.assistantId;
+    // Extract call ID from VAPI webhook payload structure
+    const vapiCallId = 
+      payload?.message?.call?.id ||                       // VAPI: From nested call object
+      payload?.call?.id ||                                // From call object
+      payload?.callId ||                                  // Direct callId field
+      payload?.message?.callId;                           // From message object
 
-    const assistantId = assistantFromQuery || assistantFromHeader || assistantFromBody || null;
-    
-    // Enhanced logging to debug assistant ID extraction
-    console.log('[VAPI Function Call] Assistant ID extraction:', {
-      assistantFromQuery,
-      assistantFromHeader,
-      assistantFromBody,
-      finalAssistantId: assistantId,
+    // Enhanced logging to debug call ID extraction
+    console.log('[VAPI Function Call] Call ID extraction:', {
+      vapiCallId,
       payloadKeys: Object.keys(payload || {}),
-      assistantObject: payload?.assistant,
-      callObject: payload?.call
+      messageObject: payload?.message,
+      callObject: payload?.call,
+      messageCallObject: payload?.message?.call
     });
 
     const toolCall = payload?.message?.toolCalls?.[0] ?? null;
@@ -103,14 +83,23 @@ serve(async (req) => {
       });
     }
 
-    const channelName = assistantId ? `vapi:${assistantId}` : 'vapi_function_calls';
-    console.log('[VAPI Function Call] Broadcasting', { functionName, channelName, params });
+    // VAPI-Native Session Isolation: Use call ID for unique channels
+    if (!vapiCallId) {
+      console.error('[VAPI Function Call] Missing VAPI call ID for session isolation');
+      return new Response(JSON.stringify({ error: 'Missing VAPI call ID for session isolation' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const channelName = `vapi:call:${vapiCallId}`;
+    console.log('[VAPI Function Call] Broadcasting to session-specific channel:', { functionName, channelName, vapiCallId, params });
 
     const functionCallMessage = {
       functionName,
       params, // IMPORTANT: "params" to match client dispatcher
       callId,
-      assistantId: assistantId || undefined,
+      vapiCallId,
       timestamp: new Date().toISOString()
     };
 
@@ -129,10 +118,10 @@ serve(async (req) => {
       });
     }
 
-    console.log('[VAPI Function Call] Function call broadcasted:', { functionName, channelName });
+    console.log('[VAPI Function Call] Function call broadcasted to session:', { functionName, channelName, vapiCallId });
 
     return new Response(
-      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId }),
+      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId, vapiCallId }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
   } catch (error: any) {
