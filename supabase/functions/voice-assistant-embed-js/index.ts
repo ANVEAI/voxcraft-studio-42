@@ -118,27 +118,71 @@ if (!window.supabase) {
         this.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         this.assistantId = BOT_CONFIG.assistantId;
         
-        // Use assistant-specific channel or fallback
-        const channelName = 'vapi_function_calls';
-        
-        this.realtimeChannel = this.supabaseClient
-          .channel(channelName)
-          .on('broadcast', { event: 'function_call' }, (payload) => {
-            console.log('📡 Received function call:', payload);
-            this.executeFunctionCall(payload.payload);
-          })
-          .subscribe((status) => {
-            console.log('Realtime status:', status, 'channel:', channelName);
-            if (status === 'SUBSCRIBED') {
-              this.updateStatus('🟢 Connected to voice control');
-            }
-          });
+        // Listen to multiple channels to catch function calls
+        const channels = [
+          'vapi_function_calls', // Generic fallback channel
+          \`vapi:assistant:\${this.assistantId}\`, // Assistant-specific channel
+        ];
 
-        console.log('✅ Supabase Realtime setup complete for:', channelName);
+        this.channels = [];
+        
+        // Subscribe to all channels
+        channels.forEach(channelName => {
+          const channel = this.supabaseClient
+            .channel(channelName)
+            .on('broadcast', { event: 'function_call' }, (payload) => {
+              console.log(\`📡 Received function call on \${channelName}:\`, payload);
+              // Filter by assistant ID if available
+              if (!payload.payload.assistantId || payload.payload.assistantId === this.assistantId) {
+                this.executeFunctionCall(payload.payload);
+              }
+            })
+            .subscribe((status) => {
+              console.log(\`Realtime status for \${channelName}:\`, status);
+              if (status === 'SUBSCRIBED') {
+                this.updateStatus('🟢 Connected to voice control');
+              }
+            });
+            
+          this.channels.push(channel);
+        });
+
+        // Also listen for session-specific channels when VAPI calls start
+        this.setupDynamicChannelSubscription();
+
+        console.log('✅ Supabase Realtime setup complete for channels:', channels);
         
       } catch (error) {
         console.error('❌ Supabase Realtime setup failed:', error);
         this.updateStatus("❌ Command listener failed");
+      }
+    }
+
+    setupDynamicChannelSubscription() {
+      // Listen for VAPI events to get call/session ID
+      if (this.vapiWidget) {
+        this.vapiWidget.on("call-start", (event) => {
+          console.log('📞 VAPI call started with event:', event);
+          
+          // Extract call ID from event if available
+          const callId = event?.callId || event?.id || event?.call?.id;
+          if (callId) {
+            const sessionChannelName = \`vapi:session:call_\${callId}\`;
+            console.log('🔗 Subscribing to session channel:', sessionChannelName);
+            
+            const sessionChannel = this.supabaseClient
+              .channel(sessionChannelName)
+              .on('broadcast', { event: 'function_call' }, (payload) => {
+                console.log(\`📡 Received session function call on \${sessionChannelName}:\`, payload);
+                this.executeFunctionCall(payload.payload);
+              })
+              .subscribe((status) => {
+                console.log(\`Session channel \${sessionChannelName} status:\`, status);
+              });
+              
+            this.channels.push(sessionChannel);
+          }
+        });
       }
     }
 
@@ -188,15 +232,29 @@ if (!window.supabase) {
 
     setupVapiEventListeners() {
       // Call started
-      this.vapiWidget.on("call-start", () => {
-        console.log('📞 VAPI call started');
+      this.vapiWidget.on("call-start", (event) => {
+        console.log('📞 VAPI call started with event:', event);
         this.updateStatus("🎤 Voice active - VAPI handling all processing");
+        
+        // Set up dynamic channel subscription after call starts
+        this.setupDynamicChannelSubscription();
       });
 
       // Call ended
       this.vapiWidget.on("call-end", () => {
         console.log('📞 VAPI call ended');
         this.updateStatus("🔄 Voice ended");
+        
+        // Clean up session channels
+        if (this.channels) {
+          this.channels.forEach(channel => {
+            try {
+              this.supabaseClient.removeChannel(channel);
+            } catch (e) {
+              console.warn('Channel cleanup warning:', e);
+            }
+          });
+        }
       });
 
       // Assistant speaking
@@ -221,10 +279,16 @@ if (!window.supabase) {
 
     // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime
     executeFunctionCall(functionCall) {
-      const { functionName, params } = functionCall;
-      console.log('⚡ Executing function call:', functionName, params);
+      const { functionName, params, sessionId, callId, debug } = functionCall;
+      console.log('⚡ Executing function call:', { functionName, params, sessionId, callId, debug });
+      
+      // Add visual feedback for debugging
+      this.updateStatus(\`🔧 Executing: \${functionName}\`);
       
       try {
+        // Log the DOM manipulation attempt
+        console.log(\`🎯 DOM Action: \${functionName} with params:\`, params);
+        
         switch (functionName) {
           case 'scroll_page':
             this.scroll_page(params);
@@ -241,11 +305,16 @@ if (!window.supabase) {
           default:
             console.warn('Unknown function call:', functionName);
             this.updateStatus(\`❓ Unknown command: \${functionName}\`);
+            return;
         }
-        this.updateStatus(\`✅ Executed \${functionName}\`);
+        
+        // Success feedback
+        this.updateStatus(\`✅ \${functionName} completed\`);
+        console.log(\`✅ Successfully executed \${functionName}\`);
+        
       } catch (error) {
         console.error('❌ Function execution error:', error);
-        this.updateStatus(\`❌ Error executing \${functionName}\`);
+        this.updateStatus(\`❌ Error: \${functionName}\`);
       }
     }
 

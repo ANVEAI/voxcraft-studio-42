@@ -178,12 +178,23 @@ serve(async (req) => {
       }
     };
 
-    const channel = supabase.channel(channelName);
-    const sendResult = await channel.send({
-      type: 'broadcast',
-      event: 'function_call',
-      payload: functionCallMessage
-    } as any);
+    // Broadcast to both session-specific AND generic channels for maximum compatibility
+    const channels = [
+      channelName, // Session-specific channel
+      'vapi_function_calls' // Generic fallback channel
+    ];
+
+    const broadcastPromises = channels.map(async (ch) => {
+      const channel = supabase.channel(ch);
+      return channel.send({
+        type: 'broadcast',
+        event: 'function_call',
+        payload: functionCallMessage
+      } as any);
+    });
+
+    const results = await Promise.all(broadcastPromises);
+    const sendResult = results.find(r => r === 'error') || 'ok';
 
     if (sendResult === 'error') {
       console.error('[VAPI Function Call] Broadcast error:', sendResult);
