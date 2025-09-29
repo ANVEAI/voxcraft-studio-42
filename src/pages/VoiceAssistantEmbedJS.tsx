@@ -384,10 +384,22 @@ const VoiceAssistantEmbedJS = () => {
         // Get VAPI public key from environment
         const vapiPublicKey = '${import.meta.env.VITE_VAPI_PUBLIC_KEY}';
 
-        // Start VAPI call with the specific assistant
+        // Generate unique session ID for isolation
+        const sessionId = \`session_\${Date.now()}_\${Math.random().toString(36).slice(2)}\`;
+        console.log('🔒 Session ID generated:', sessionId);
+        
+        // Store session ID globally for access
+        window.sessionId = sessionId;
+
+        // Start VAPI call with the specific assistant and session isolation
         window.vapiInstance = window.vapiSDK.run({
           apiKey: vapiPublicKey,
           assistant: window.botInfo.vapiAssistantId,
+          assistantOverrides: {
+            variableValues: {
+              sessionId: sessionId
+            }
+          },
           config: {
             audio: {
               enableEchoCancellation: true,
@@ -406,6 +418,9 @@ const VoiceAssistantEmbedJS = () => {
 
         // Setup VAPI event listeners for navigation functionality
         setupVapiEventListeners();
+
+        // Setup session-isolated Supabase listener for function calls
+        setupSupabaseListener(sessionId);
 
         // Update widget to show active state
         const widget = document.getElementById('vapi-bot-widget');
@@ -609,7 +624,190 @@ const VoiceAssistantEmbedJS = () => {
     console.log('✅ VAPI event listeners setup complete');
   }
 
-  // Setup message listener for navigation commands
+  // Setup session-isolated Supabase listener for function calls
+  function setupSupabaseListener(sessionId) {
+    console.log('🔗 Setting up session-isolated Supabase listener for session:', sessionId);
+    
+    // Create Supabase client
+    const SUPABASE_URL = 'https://mdkcdjltvfpthqudhhmx.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg';
+    
+    // Dynamically load Supabase if not already loaded
+    if (!window.supabase) {
+      loadSupabaseSDK().then(() => {
+        setupSessionChannel(sessionId);
+      }).catch(error => {
+        console.error('Failed to load Supabase SDK:', error);
+      });
+    } else {
+      setupSessionChannel(sessionId);
+    }
+  }
+
+  function loadSupabaseSDK() {
+    return new Promise((resolve, reject) => {
+      if (window.supabase) {
+        resolve(window.supabase);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';
+      script.onload = () => {
+        console.log('✅ Supabase SDK loaded successfully');
+        const { createClient } = window.supabase;
+        window.supabaseClient = createClient(
+          'https://mdkcdjltvfpthqudhhmx.supabase.co',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg'
+        );
+        resolve(window.supabaseClient);
+      };
+      script.onerror = (error) => {
+        console.error('❌ Failed to load Supabase SDK:', error);
+        reject(error);
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  function setupSessionChannel(sessionId) {
+    if (!window.supabaseClient) {
+      console.error('Supabase client not available');
+      return;
+    }
+
+    console.log('🔗 Subscribing to session-specific channel:', \`vapi:session:\${sessionId}\`);
+    
+    const channel = window.supabaseClient
+      .channel(\`vapi:session:\${sessionId}\`)
+      .on('broadcast', { event: 'function_call' }, (payload) => {
+        console.log('📨 Session-isolated function call received:', payload);
+        
+        // Verify this is for our session
+        if (payload.payload.sessionId === sessionId) {
+          handleFunctionCall(payload.payload);
+        } else {
+          console.warn('⚠️ Received function call for different session, ignoring');
+        }
+      })
+      .subscribe((status) => {
+        console.log('📡 Session channel subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to session-specific function calls');
+        }
+      });
+
+    // Store channel reference for cleanup
+    window.sessionChannel = channel;
+  }
+
+  function handleFunctionCall(functionCall) {
+    console.log('🔧 Handling session-isolated function call:', functionCall);
+    
+    const { functionName, params, callId, sessionId } = functionCall;
+    
+    switch (functionName) {
+      case 'scroll_page':
+        handleScrollPage(params);
+        break;
+      case 'click_element':
+        handleClickElement(params);
+        break;
+      case 'fill_field':
+        handleFillField(params);
+        break;
+      case 'toggle_element':
+        handleToggleElement(params);
+        break;
+      default:
+        console.warn('Unknown function call:', functionName);
+    }
+  }
+
+  function handleScrollPage(params) {
+    console.log('📜 Executing scroll_page:', params);
+    const direction = params.direction || 'down';
+    const scrollAmount = window.innerHeight * 0.8;
+
+    switch(direction) {
+      case 'up':
+        window.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
+        break;
+      case 'down':
+        window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+        break;
+      case 'top':
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        break;
+      case 'bottom':
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        break;
+    }
+  }
+
+  function handleClickElement(params) {
+    console.log('🖱️ Executing click_element:', params);
+    const selector = params.selector;
+    if (!selector) return;
+
+    try {
+      const element = document.querySelector(selector);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+          element.click();
+        }, 500);
+      } else {
+        console.warn('Element not found:', selector);
+      }
+    } catch (error) {
+      console.error('Click element error:', error);
+    }
+  }
+
+  function handleFillField(params) {
+    console.log('✏️ Executing fill_field:', params);
+    const { selector, value } = params;
+    if (!selector || value === undefined) return;
+
+    try {
+      const element = document.querySelector(selector);
+      if (element) {
+        element.focus();
+        element.value = value;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        console.warn('Input field not found:', selector);
+      }
+    } catch (error) {
+      console.error('Fill field error:', error);
+    }
+  }
+
+  function handleToggleElement(params) {
+    console.log('🔄 Executing toggle_element:', params);
+    const selector = params.selector;
+    if (!selector) return;
+
+    try {
+      const element = document.querySelector(selector);
+      if (element) {
+        if (element.type === 'checkbox') {
+          element.checked = !element.checked;
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          element.click();
+        }
+      } else {
+        console.warn('Toggle element not found:', selector);
+      }
+    } catch (error) {
+      console.error('Toggle element error:', error);
+    }
+  }
+
+  // Setup message listener for navigation commands (legacy)
   function setupMessageListener() {
     window.addEventListener('message', function(event) {
       if (event.origin !== chatbotHostOrigin) return;

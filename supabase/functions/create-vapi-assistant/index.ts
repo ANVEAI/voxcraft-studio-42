@@ -135,6 +135,147 @@ serve(async (req) => {
         console.log('⚠️ No files were successfully uploaded, skipping query tool creation');
       }
     }
+
+    // Add voice navigation function tools if this is a voice navigation assistant
+    const isVoiceNavigation = assistantData.systemPromptTemplate === 'voice-navigation' || 
+                              assistantData.systemPrompt.includes('scroll_page') ||
+                              assistantData.systemPrompt.includes('click_element');
+
+    if (isVoiceNavigation) {
+      console.log('🧭 Adding voice navigation function tools...');
+      
+      // Create function tools for voice navigation
+      const navigationTools = [
+        {
+          async: false,
+          function: {
+            name: 'scroll_page',
+            description: 'Scroll the page in the specified direction',
+            parameters: {
+              type: 'object',
+              properties: {
+                sessionId: {
+                  type: 'string',
+                  description: 'Unique session identifier for isolation - REQUIRED'
+                },
+                direction: {
+                  type: 'string',
+                  enum: ['up', 'down', 'top', 'bottom'],
+                  description: 'Direction to scroll the page'
+                }
+              },
+              required: ['sessionId', 'direction']
+            }
+          },
+          server: {
+            url: `${supabaseUrl}/functions/v1/vapi-function-calls`
+          }
+        },
+        {
+          async: false,
+          function: {
+            name: 'click_element',
+            description: 'Click a button, link, or interactive element on the page',
+            parameters: {
+              type: 'object',
+              properties: {
+                sessionId: {
+                  type: 'string',
+                  description: 'Unique session identifier for isolation - REQUIRED'
+                },
+                selector: {
+                  type: 'string',
+                  description: 'CSS selector for the element to click'
+                }
+              },
+              required: ['sessionId', 'selector']
+            }
+          },
+          server: {
+            url: `${supabaseUrl}/functions/v1/vapi-function-calls`
+          }
+        },
+        {
+          async: false,
+          function: {
+            name: 'fill_field',
+            description: 'Fill an input field with the specified value',
+            parameters: {
+              type: 'object',
+              properties: {
+                sessionId: {
+                  type: 'string',
+                  description: 'Unique session identifier for isolation - REQUIRED'
+                },
+                selector: {
+                  type: 'string',
+                  description: 'CSS selector for the input field'
+                },
+                value: {
+                  type: 'string',
+                  description: 'Value to fill in the field'
+                }
+              },
+              required: ['sessionId', 'selector', 'value']
+            }
+          },
+          server: {
+            url: `${supabaseUrl}/functions/v1/vapi-function-calls`
+          }
+        },
+        {
+          async: false,
+          function: {
+            name: 'toggle_element',
+            description: 'Toggle a checkbox, switch, or similar UI control',
+            parameters: {
+              type: 'object',
+              properties: {
+                sessionId: {
+                  type: 'string',
+                  description: 'Unique session identifier for isolation - REQUIRED'
+                },
+                selector: {
+                  type: 'string',
+                  description: 'CSS selector for the element to toggle'
+                }
+              },
+              required: ['sessionId', 'selector']
+            }
+          },
+          server: {
+            url: `${supabaseUrl}/functions/v1/vapi-function-calls`
+          }
+        }
+      ];
+
+      // Create each navigation tool
+      for (const toolDef of navigationTools) {
+        console.log(`🔧 Creating tool: ${toolDef.function.name}`);
+        
+        try {
+          const toolResponse = await fetch('https://api.vapi.ai/tool', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${VAPI_PRIVATE_KEY}`,
+            },
+            body: JSON.stringify(toolDef),
+          });
+
+          if (toolResponse.ok) {
+            const toolData = await toolResponse.json();
+            tools.push(toolData.id);
+            console.log(`✅ Created tool: ${toolDef.function.name} with ID: ${toolData.id}`);
+          } else {
+            const toolErrorText = await toolResponse.text();
+            console.error(`❌ Failed to create tool ${toolDef.function.name}:`, toolResponse.status, toolErrorText);
+          }
+        } catch (error) {
+          console.error(`💥 Error creating tool ${toolDef.function.name}:`, error.message);
+        }
+      }
+    }
     
     const payload = {
       name: assistantData.botName || 'Voice Assistant',

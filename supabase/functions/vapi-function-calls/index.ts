@@ -103,13 +103,47 @@ serve(async (req) => {
       });
     }
 
-    const channelName = assistantId ? `vapi:${assistantId}` : 'vapi_function_calls';
-    console.log('[VAPI Function Call] Broadcasting', { functionName, channelName, params });
+    // Session isolation: Extract sessionId from tool call arguments
+    const sessionId = params?.sessionId;
+    
+    console.log('[VAPI Function Call] Session isolation debug:', {
+      functionName,
+      callId,
+      sessionId,
+      assistantId,
+      params,
+      toolCallStructure: {
+        hasSessionId: !!sessionId,
+        paramsKeys: Object.keys(params || {}),
+        rawArguments: typeof rawArguments
+      }
+    });
+
+    // Require sessionId for session isolation
+    if (!sessionId) {
+      console.error('[VAPI Function Call] Missing sessionId - session isolation requires sessionId in tool arguments');
+      return new Response(JSON.stringify({ 
+        error: 'Session isolation error: sessionId is required in tool call arguments',
+        debug: {
+          functionName,
+          params,
+          expectedFormat: 'Tool calls must include "sessionId": "{{sessionId}}" parameter'
+        }
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Use session-specific channel for isolation
+    const channelName = `vapi:session:${sessionId}`;
+    console.log('[VAPI Function Call] Broadcasting with session isolation:', { functionName, channelName, sessionId, params });
 
     const functionCallMessage = {
       functionName,
       params, // IMPORTANT: "params" to match client dispatcher
       callId,
+      sessionId,
       assistantId: assistantId || undefined,
       timestamp: new Date().toISOString()
     };
@@ -129,10 +163,10 @@ serve(async (req) => {
       });
     }
 
-    console.log('[VAPI Function Call] Function call broadcasted:', { functionName, channelName });
+    console.log('[VAPI Function Call] Function call broadcasted with session isolation:', { functionName, channelName, sessionId });
 
     return new Response(
-      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId }),
+      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId, sessionId }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
   } catch (error: any) {
