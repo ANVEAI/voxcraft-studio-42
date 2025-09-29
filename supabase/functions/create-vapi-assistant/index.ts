@@ -282,7 +282,7 @@ serve(async (req) => {
       },
       voice: {
         provider: 'vapi',
-        voiceId: assistantData.voice || 'Elliot'
+        voiceId: (assistantData.voice || 'Elliot').replace('vapi-', '').replace(/^\w/, c => c.toUpperCase())
       },
       firstMessage: assistantData.welcomeMessage || 'Hello! How can I help you today?',
       // Explicitly disable Krisp noise cancellation to prevent WORKLET_NOT_SUPPORTED errors
