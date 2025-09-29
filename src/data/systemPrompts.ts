@@ -24,7 +24,7 @@ You MUST include a sessionId parameter in EVERY tool call to ensure proper sessi
   "name": "click_element",  
   "parameters": {
     "sessionId": "{{sessionId}}",
-    "selector": "#login-button"
+    "target_text": "login button"
   }
 }
 
@@ -33,8 +33,8 @@ You MUST include a sessionId parameter in EVERY tool call to ensure proper sessi
   "name": "fill_field",
   "parameters": {
     "sessionId": "{{sessionId}}",
-    "selector": "#search-input",
-    "value": "hello world"
+    "value": "hello world",
+    "field_hint": "search"
   }
 }
 
@@ -43,7 +43,7 @@ You MUST include a sessionId parameter in EVERY tool call to ensure proper sessi
   "name": "toggle_element",
   "parameters": {
     "sessionId": "{{sessionId}}",
-    "selector": "#newsletter-checkbox"
+    "target": "newsletter checkbox"
   }
 }
 
@@ -63,16 +63,16 @@ Available tools:
 1. scroll_page(sessionId: string, direction: "up" | "down" | "top" | "bottom")
    - Scroll the page as requested.
 
-2. click_element(sessionId: string, selector: string)
-   - Click a button, link, or element.
-   - Example: "Click the login button" → click_element({ "sessionId": "{{sessionId}}", "selector": "#login" }).
+2. click_element(sessionId: string, target_text: string)
+   - Click a button, link, or element by its visible text.
+   - Example: "Click the login button" → click_element({ "sessionId": "{{sessionId}}", "target_text": "login" }).
 
-3. fill_field(sessionId: string, selector: string, value: string)
+3. fill_field(sessionId: string, value: string, field_hint?: string)
    - Type text into an input field.
-   - Example: "Type hello in the search box" → fill_field({ "sessionId": "{{sessionId}}", "selector": "#search", "value": "hello" }).
+   - Example: "Type hello in the search box" → fill_field({ "sessionId": "{{sessionId}}", "value": "hello", "field_hint": "search" }).
 
-4. toggle_element(sessionId: string, selector: string)
-   - Toggle a checkbox, switch, or similar UI control.
+4. toggle_element(sessionId: string, target: string)
+   - Toggle a checkbox, switch, or similar UI control by its text or description.
 
 Rules:
 - Always prefer function calls over free-text responses when possible.

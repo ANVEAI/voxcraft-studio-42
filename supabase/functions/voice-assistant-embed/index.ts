@@ -202,6 +202,7 @@ serve(async (req) => {
     async function initializeWithRetry(retries = 3) {
       try {
         await loadVapiSDK();
+        await loadSupabaseSDK();
         initializeRealVapi();
       } catch (error) {
         console.error('[VoiceAI] Failed to initialize, retries left:', retries - 1);
@@ -266,11 +267,24 @@ serve(async (req) => {
           
           console.log('[VoiceAI] Starting conversation with:', config.vapiAssistantId);
           
+          // Generate unique session ID for this conversation
+          const sessionId = 'session_' + Math.random().toString(36).substr(2, 15) + '_' + Date.now();
+          console.log('[VoiceAI] Generated session ID:', sessionId);
+          
           const callOptions = { 
             assistantId: config.vapiAssistantId,
             // Disable Krisp to prevent WORKLET_NOT_SUPPORTED errors
-            backgroundDenoisingEnabled: false
+            backgroundDenoisingEnabled: false,
+            // Pass session ID as variable to assistant
+            assistantOverrides: {
+              variableValues: {
+                sessionId: sessionId
+              }
+            }
           };
+          
+          // Store session ID for real-time communication
+          currentSessionId = sessionId;
           
           // Add conversation memory if available
           if (conversationMemory.length > 0) {
@@ -299,6 +313,9 @@ serve(async (req) => {
       }
     };
     
+    let currentSessionId = null;
+    let supabaseChannel = null;
+
     function setupEventListeners() {
       vapi.on('call-start', () => {
         console.log('[VoiceAI] Conversation started');
@@ -307,6 +324,9 @@ serve(async (req) => {
         button.innerHTML = '🔴';
         button.style.animation = 'pulse 2s infinite';
         button.title = 'Voice conversation active - click to end';
+        
+        // Set up Supabase real-time listener for function calls
+        setupFunctionCallListener();
       });
       
       vapi.on('call-end', () => {
@@ -316,6 +336,13 @@ serve(async (req) => {
         button.innerHTML = '🎤';
         button.style.animation = 'none';
         button.title = 'Click to start voice conversation';
+        
+        // Clean up Supabase listeners
+        if (supabaseChannel && supabaseChannel.cleanup) {
+          supabaseChannel.cleanup();
+          supabaseChannel = null;
+        }
+        currentSessionId = null;
       });
       
       vapi.on('speech-start', () => {
@@ -846,7 +873,203 @@ serve(async (req) => {
         .map(item => item.text)
         .join(', ');
       
-      return \`📊 \${count} elements: \${sample}\`;
+    return \`📊 \${count} elements: \${sample}\`;
+    }
+    
+    // Setup real-time function call listener
+    function setupFunctionCallListener() {
+      if (!window.supabaseClient) {
+        console.warn('[VoiceAI] Supabase client not available for real-time listener');
+        return;
+      }
+      
+      // Set up multiple channel listeners for different session isolation approaches
+      const sessionChannels = [];
+      
+      // Primary channel using generated session ID
+      if (currentSessionId) {
+        const sessionChannelName = \`vapi:session:\${currentSessionId}\`;
+        console.log('[VoiceAI] Setting up primary session listener on channel:', sessionChannelName);
+        
+        const sessionChannel = window.supabaseClient
+          .channel(sessionChannelName)
+          .on('broadcast', { event: 'function_call' }, (payload) => {
+            handleFunctionCall(payload, currentSessionId);
+          })
+          .subscribe((status) => {
+            console.log('[VoiceAI] Primary session channel status:', status, 'for channel:', sessionChannelName);
+          });
+        sessionChannels.push(sessionChannel);
+      }
+      
+      // Fallback channel using call-based isolation (in case VAPI doesn't substitute variables)
+      // We'll need to extract the call ID from VAPI events
+      vapi.on('call-start', (callStartData) => {
+        const callId = callStartData?.callId || callStartData?.id;
+        if (callId) {
+          const callChannelName = \`vapi:session:call_\${callId}\`;
+          console.log('[VoiceAI] Setting up fallback call-based listener on channel:', callChannelName);
+          
+          const callChannel = window.supabaseClient
+            .channel(callChannelName)
+            .on('broadcast', { event: 'function_call' }, (payload) => {
+              handleFunctionCall(payload, \`call_\${callId}\`);
+            })
+            .subscribe((status) => {
+              console.log('[VoiceAI] Call-based channel status:', status, 'for channel:', callChannelName);
+            });
+          sessionChannels.push(callChannel);
+        }
+      });
+      
+      // Store channels for cleanup
+      supabaseChannel = { cleanup: () => sessionChannels.forEach(ch => window.supabaseClient?.removeChannel(ch)) };
+    }
+    
+    // Handle function call execution
+    function handleFunctionCall(payload, expectedSessionId) {
+      console.log('[VoiceAI] Received function call broadcast:', payload);
+      
+      const { functionName, params, callId, sessionId: broadcastSessionId } = payload.payload;
+      
+      // Verify this is for our session (either exact match or call-based fallback)
+      if (broadcastSessionId !== expectedSessionId && broadcastSessionId !== currentSessionId) {
+        console.log('[VoiceAI] Ignoring function call for different session. Expected:', expectedSessionId, 'or', currentSessionId, 'Got:', broadcastSessionId);
+        return;
+      }
+      
+      console.log('[VoiceAI] Executing function call:', functionName, params);
+          
+          // Function to send result back to VAPI
+          function sendResult(result) {
+            try {
+              vapi.send({
+                type: 'add-message',
+                message: {
+                  role: 'system',
+                  content: \`Function \${functionName} completed: \${result}\`
+                }
+              });
+            } catch (error) {
+              console.log('[VoiceAI] Could not send result to VAPI:', error);
+            }
+          }
+          
+      // Execute the function based on the function name
+          try {
+            console.log('[VoiceAI] Executing function:', { functionName, params, sessionId: broadcastSessionId, expectedSessionId });
+            switch (functionName) {
+              case 'scroll_page':
+                const direction = params?.direction || 'down';
+                scrollPage(direction);
+                sendResult(\`Scrolled \${direction}\`);
+                break;
+                
+              case 'click_element':
+                const targetText = params?.target_text;
+                if (targetText) {
+                  const element = findElementByText(targetText);
+                  if (element) {
+                    clickElementWithFeedback(element);
+                    sendResult(\`Clicked element: \${getElementText(element)}\`);
+                  } else {
+                    sendResult(\`Element not found: \${targetText}\`);
+                  }
+                }
+                break;
+                
+              case 'fill_field':
+                const value = params?.value;
+                const fieldHint = params?.field_hint;
+                if (value) {
+                  const field = findInputField(fieldHint);
+                  if (field) {
+                    field.value = value;
+                    field.dispatchEvent(new Event('input', { bubbles: true }));
+                    field.dispatchEvent(new Event('change', { bubbles: true }));
+                    sendResult(\`Filled field with: \${value}\`);
+                  } else {
+                    sendResult(\`Field not found\`);
+                  }
+                }
+                break;
+                
+              case 'toggle_element':
+                const toggleTarget = params?.target;
+                if (toggleTarget) {
+                  const element = findElementByText(toggleTarget);
+                  if (element) {
+                    element.click();
+                    sendResult(\`Toggled: \${getElementText(element)}\`);
+                  } else {
+                    sendResult(\`Toggle element not found: \${toggleTarget}\`);
+                  }
+                }
+                break;
+                
+              default:
+                console.warn('[VoiceAI] Unknown function:', functionName);
+                sendResult(\`Unknown function: \${functionName}\`);
+            }
+          } catch (error) {
+            console.error('[VoiceAI] Error executing function call:', error);
+            sendResult(\`Error: \${error.message}\`);
+          }
+        })
+        .subscribe((status) => {
+          console.log('[VoiceAI] Supabase channel status:', status, 'for channel:', channelName);
+        });
+    }
+    
+    // Helper function to find element by text
+    function findElementByText(targetText) {
+      const searchText = targetText.toLowerCase();
+      const selectors = [
+        'button', 'a', '[role="button"]', '[data-action]',
+        'input[type="button"]', 'input[type="submit"]', '.btn', '[onclick]'
+      ];
+      
+      for (const selector of selectors) {
+        const elements = document.querySelectorAll(selector);
+        for (const element of elements) {
+          const text = getElementText(element).toLowerCase();
+          if (text.includes(searchText)) {
+            return element;
+          }
+        }
+      }
+      return null;
+    }
+    
+    // Helper function to find input field
+    function findInputField(hint) {
+      const selectors = ['input[type="text"]', 'input[type="email"]', 'input[type="search"]', 'textarea'];
+      
+      if (hint) {
+        const hintLower = hint.toLowerCase();
+        for (const selector of selectors) {
+          const elements = document.querySelectorAll(selector);
+          for (const element of elements) {
+            const placeholder = (element.placeholder || '').toLowerCase();
+            const label = (element.getAttribute('aria-label') || '').toLowerCase();
+            const name = (element.name || '').toLowerCase();
+            
+            if (placeholder.includes(hintLower) || label.includes(hintLower) || name.includes(hintLower)) {
+              return element;
+            }
+          }
+        }
+      }
+      
+      // Fallback to first visible input
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element && isElementVisible(element)) {
+          return element;
+        }
+      }
+      
+      return null;
     }
     
     console.log('[VoiceAI] Voice Assistant initialized successfully');
