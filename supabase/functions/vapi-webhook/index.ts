@@ -107,7 +107,7 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('[VAPI Webhook] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -191,7 +191,8 @@ async function handleCallEnd(supabase: any, assistant: any, call: any) {
     console.log('[VAPI Webhook] Call end recorded successfully');
     
     // Update daily analytics in background
-    EdgeRuntime.waitUntil(updateDailyAnalytics(supabase, assistant.user_id));
+    // Update analytics asynchronously
+    updateDailyAnalytics(supabase, assistant.user_id).catch(console.error);
   }
 }
 
@@ -238,17 +239,17 @@ async function updateDailyAnalytics(supabase: any, userId: string) {
 
     // Calculate daily stats
     const totalCalls = calls.length;
-    const successfulCalls = calls.filter(c => 
+    const successfulCalls = calls.filter((c: any) => 
       c.status === 'ended' && 
       c.ended_reason !== 'assistant-error' && 
       c.ended_reason !== 'pipeline-error-voice-provider-playht-audio-too-short'
     ).length;
     const failedCalls = totalCalls - successfulCalls;
     
-    const totalDuration = calls.reduce((sum, call) => sum + (call.duration_seconds || 0), 0);
-    const totalCost = calls.reduce((sum, call) => {
+    const totalDuration = calls.reduce((sum: number, call: any) => sum + (call.duration_seconds || 0), 0);
+    const totalCost = calls.reduce((sum: number, call: any) => {
       if (call.costs && Array.isArray(call.costs)) {
-        return sum + call.costs.reduce((costSum, cost) => costSum + (cost.cost || 0), 0);
+        return sum + call.costs.reduce((costSum: number, cost: any) => costSum + (cost.cost || 0), 0);
       }
       return sum;
     }, 0);
