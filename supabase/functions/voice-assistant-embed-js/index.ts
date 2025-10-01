@@ -234,7 +234,7 @@ if (!window.supabase) {
 
         // Hide default button (we provide our own custom UI)
         const hideStyle = document.createElement('style');
-        hideStyle.textContent = `.vapi-btn{display:none!important}`;
+        hideStyle.textContent = '.vapi-btn{display:none!important}';
         document.head.appendChild(hideStyle);
 
         this.createCustomWidget();
