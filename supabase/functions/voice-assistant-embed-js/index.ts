@@ -177,8 +177,10 @@ serve(async (req) => {
         cursor: pointer;
         font-weight: 600;
         transition: all 0.2s;
+        opacity: 0.5;
       \`;
-      startBtn.textContent = 'Start Call';
+      startBtn.textContent = 'Loading...';
+      startBtn.disabled = true;
 
       const muteBtn = document.createElement('button');
       muteBtn.id = 'mute-btn';
@@ -275,13 +277,38 @@ serve(async (req) => {
     }
 
     initializeVapi() {
+      console.log('[CustomVoiceWidget] Initializing Vapi with key:', this.config.publicKey ? 'Present' : 'Missing');
+      
       try {
+        if (!this.config.publicKey) {
+          throw new Error('Missing API key');
+        }
+        
         this.vapi = new window.Vapi(this.config.publicKey);
+        console.log('[CustomVoiceWidget] Vapi instance created');
+        
         this.setupVapiEvents();
         this.updateState('idle', 'Ready');
+        this.enableStartButton();
+        console.log('[CustomVoiceWidget] Initialization complete');
       } catch (error) {
         console.error('[CustomVoiceWidget] Init error:', error);
         this.updateState('error', 'Initialization failed');
+        const startBtn = document.getElementById('start-call-btn');
+        if (startBtn) {
+          startBtn.textContent = 'Error';
+          startBtn.disabled = true;
+        }
+      }
+    }
+
+    enableStartButton() {
+      const startBtn = document.getElementById('start-call-btn');
+      if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Call';
+        startBtn.style.opacity = '1';
+        startBtn.style.cursor = 'pointer';
       }
     }
 
@@ -326,6 +353,14 @@ serve(async (req) => {
     }
 
     async startCall() {
+      console.log('[CustomVoiceWidget] Starting call...', { vapi: !!this.vapi, assistantId: this.config.assistantId });
+      
+      if (!this.vapi) {
+        console.error('[CustomVoiceWidget] Vapi not initialized');
+        this.updateState('error', 'Voice service not ready');
+        return;
+      }
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach(track => track.stop());
@@ -335,6 +370,7 @@ serve(async (req) => {
           assistantId: this.config.assistantId,
           backgroundDenoisingEnabled: false
         });
+        console.log('[CustomVoiceWidget] Call started successfully');
       } catch (error) {
         console.error('[CustomVoiceWidget] Start call error:', error);
         this.updateState('error', 'Failed to start call');
