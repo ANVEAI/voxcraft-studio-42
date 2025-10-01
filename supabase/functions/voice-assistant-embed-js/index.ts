@@ -198,13 +198,13 @@ if (!window.supabase) {
       }
 
       const script = document.createElement('script');
-      script.src = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/dist/index.js";
+      script.src = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/dist/index.umd.js";
       script.async = true;
 
       script.onload = () => {
         setTimeout(() => {
-          if (window.Vapi) {
-            window.vapiInstance = new window.Vapi(BOT_CONFIG.apiKey);
+          if (window.vapiSDK?.Vapi) {
+            window.vapiInstance = new window.vapiSDK.Vapi(BOT_CONFIG.apiKey);
             this.initializeVapi();
           } else {
             this.updateStatus("❌ Voice SDK failed to load");
