@@ -192,19 +192,19 @@ if (!window.supabase) {
     }
 
     loadVapiSDK() {
-      if (window.vapiInstance) {
+      if (window.vapiSDK) {
         this.initializeVapi();
         return;
       }
 
       const script = document.createElement('script');
-      script.src = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/dist/index.umd.js";
+      script.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
       script.async = true;
+      script.defer = true;
 
       script.onload = () => {
         setTimeout(() => {
-          if (window.vapiSDK?.Vapi) {
-            window.vapiInstance = new window.vapiSDK.Vapi(BOT_CONFIG.apiKey);
+          if (window.vapiSDK) {
             this.initializeVapi();
           } else {
             this.updateStatus("❌ Voice SDK failed to load");
@@ -221,7 +221,22 @@ if (!window.supabase) {
 
     initializeVapi() {
       try {
-        this.vapiWidget = window.vapiInstance;
+        const config = {
+          position: BOT_CONFIG.position,
+          theme: BOT_CONFIG.theme
+        };
+
+        this.vapiWidget = window.vapiSDK.run({
+          apiKey: BOT_CONFIG.apiKey,
+          assistant: BOT_CONFIG.assistantId,
+          config
+        });
+
+        // Hide default button (we provide our own custom UI)
+        const hideStyle = document.createElement('style');
+        hideStyle.textContent = `.vapi-btn{display:none!important}`;
+        document.head.appendChild(hideStyle);
+
         this.createCustomWidget();
         this.setupVapiEventListeners();
         this.isInitialized = true;
@@ -382,8 +397,9 @@ if (!window.supabase) {
       this.widgetBtn.addEventListener('click', () => this.toggleCall());
     }
 
+    // Toggle call state based on vapi SDK instance
     async toggleCall() {
-      if (this.isCallActive) {
+      if (this.isCallActive || this.vapiWidget.started) {
         this.endCall();
       } else {
         await this.startCall();
@@ -395,7 +411,12 @@ if (!window.supabase) {
         this.updateWidgetState('active', 'Connecting...');
         this.visualizer.classList.add('show');
         
-        await this.vapiWidget.start(BOT_CONFIG.assistantId);
+        // Trigger the hidden default widget to start the call
+        const hiddenBtn = document.querySelector('.vapi-btn');
+        if (hiddenBtn) {
+          hiddenBtn.click();
+        }
+        
         this.isCallActive = true;
         this.updateWidgetState('listening', 'Listening...');
       } catch (error) {
@@ -409,7 +430,12 @@ if (!window.supabase) {
 
     endCall() {
       try {
-        this.vapiWidget.stop();
+        // Trigger the hidden default widget to end the call
+        const hiddenBtn = document.querySelector('.vapi-btn');
+        if (hiddenBtn) {
+          hiddenBtn.click();
+        }
+        
         this.isCallActive = false;
         this.updateWidgetState('idle', 'Call ended');
         setTimeout(() => {
