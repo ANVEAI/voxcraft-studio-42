@@ -486,7 +486,7 @@ serve(async (req) => {
       console.log('[CustomVoiceWidget] Starting call...', { 
         vapi: !!this.vapi, 
         assistantId: this.config.assistantId,
-        publicKey: this.config.publicKey ? `${this.config.publicKey.substring(0, 8)}...` : 'Missing'
+        publicKey: this.config.publicKey ? this.config.publicKey.substring(0, 8) + '***' : 'Missing'
       });
       
       if (!this.vapi) {
