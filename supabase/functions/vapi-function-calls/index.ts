@@ -7,6 +7,30 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
 
+// In-memory session mapping cache (callId -> sessionId)
+const sessionMappings = new Map<string, string>();
+
+// Set up session mapping listener
+async function setupSessionMappingListener(supabase: any, assistantId: string) {
+  const mappingChannel = `vapi:session-mapping:${assistantId}`;
+  
+  const channel = supabase.channel(mappingChannel);
+  
+  channel
+    .on('broadcast', { event: 'register_session' }, (payload: any) => {
+      const { callId, sessionId } = payload.payload;
+      if (callId && sessionId) {
+        sessionMappings.set(callId, sessionId);
+        console.log('[Session Mapping] Registered:', { callId, sessionId: sessionId.substr(0, 8) + '...' });
+      }
+    })
+    .subscribe((status: string) => {
+      console.log('[Session Mapping] Channel status:', status);
+    });
+  
+  return channel;
+}
+
 function safeJsonParse(maybeJson: unknown) {
   if (typeof maybeJson !== 'string') return maybeJson ?? {};
   try {
@@ -83,7 +107,7 @@ serve(async (req) => {
       });
     }
 
-    // VAPI-Native Session Isolation: Use call ID for unique channels
+    // VAPI-Native Session Isolation: Use call ID + session ID for unique channels
     if (!vapiCallId) {
       console.error('[VAPI Function Call] Missing VAPI call ID for session isolation');
       return new Response(JSON.stringify({ error: 'Missing VAPI call ID for session isolation' }), {
@@ -92,8 +116,47 @@ serve(async (req) => {
       });
     }
 
-    const channelName = `vapi:call:${vapiCallId}`;
-    console.log('[VAPI Function Call] Broadcasting to session-specific channel:', { functionName, channelName, vapiCallId, params });
+    // Look up session ID for this call
+    const sessionId = sessionMappings.get(vapiCallId);
+    
+    if (!sessionId) {
+      console.warn('[VAPI Function Call] No session mapping found for callId:', vapiCallId);
+      console.warn('[VAPI Function Call] Available mappings:', Array.from(sessionMappings.entries()));
+      
+      // Fallback: broadcast to all sessions for this call (backwards compatibility)
+      const channelName = `vapi:call:${vapiCallId}`;
+      console.log('[VAPI Function Call] Broadcasting to all sessions (no mapping):', { functionName, channelName, vapiCallId, params });
+      
+      const functionCallMessage = {
+        functionName,
+        params,
+        callId,
+        vapiCallId,
+        timestamp: new Date().toISOString()
+      };
+
+      const channel = supabase.channel(channelName);
+      await channel.send({
+        type: 'broadcast',
+        event: 'function_call',
+        payload: functionCallMessage
+      } as any);
+
+      return new Response(
+        JSON.stringify({ ok: true, status: 'broadcasted_no_session', channel: channelName, functionName, callId, vapiCallId }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      );
+    }
+
+    // Include session ID for true per-user isolation
+    const channelName = `vapi:call:${vapiCallId}:${sessionId}`;
+    console.log('[VAPI Function Call] Broadcasting to session-specific channel:', { 
+      functionName, 
+      channelName, 
+      vapiCallId, 
+      sessionId: sessionId.substr(0, 8) + '...', 
+      params 
+    });
 
     const functionCallMessage = {
       functionName,
@@ -133,10 +196,34 @@ serve(async (req) => {
       });
     }
 
-    console.log('[VAPI Function Call] Function call broadcasted to session:', { functionName, channelName, vapiCallId });
+    console.log('[VAPI Function Call] Function call broadcasted to isolated session:', { 
+      functionName, 
+      channelName, 
+      vapiCallId, 
+      sessionId: sessionId.substr(0, 8) + '...' 
+    });
+
+    // Clean up old session mappings (older than 1 hour)
+    const oneHourAgo = Date.now() - 3600000;
+    for (const [callId, _sessionId] of sessionMappings.entries()) {
+      // Simple cleanup - remove if call is likely old (this is approximate)
+      if (sessionMappings.size > 100) { // Only cleanup if we have many mappings
+        sessionMappings.delete(callId);
+        break; // Remove one at a time
+      }
+    }
 
     return new Response(
-      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId, vapiCallId }),
+      JSON.stringify({ 
+        ok: true, 
+        status: 'broadcasted', 
+        channel: channelName, 
+        functionName, 
+        callId, 
+        vapiCallId,
+        sessionId: sessionId.substr(0, 8) + '...',
+        isolated: true
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
   } catch (error: any) {

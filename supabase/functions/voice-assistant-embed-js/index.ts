@@ -61,12 +61,37 @@ if (!window.supabase) {
       this.widgetBtn = null;
       this.visualizer = null;
       this.widgetStatusEl = null;
+      this.sessionId = null; // Unique session identifier
       
       this.init();
     }
 
+    // Generate unique session ID for this browser tab
+    generateSessionId() {
+      // Check if session ID already exists in sessionStorage
+      let sessionId = sessionStorage.getItem('vapi_session_id');
+      
+      if (!sessionId) {
+        // Generate new unique session ID
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+          sessionId = crypto.randomUUID();
+        } else {
+          // Fallback for older browsers
+          sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+        sessionStorage.setItem('vapi_session_id', sessionId);
+      }
+      
+      return sessionId;
+    }
+
     init() {
       console.log('🎤 Initializing VAPI Command Executor...');
+      
+      // Generate unique session ID for this browser tab
+      this.sessionId = this.generateSessionId();
+      console.log('🔑 Session ID:', this.sessionId);
+      
       this.createStatusIndicator();
       this.updateStatus("Loading voice automation...");
       this.analyzePageContent();
@@ -166,29 +191,63 @@ if (!window.supabase) {
         });
     }
 
-    // VAPI-Native Session Isolation: Subscribe to call-specific channel
+    // VAPI-Native Session Isolation: Subscribe to call-specific channel with session ID
     subscribeToCallChannel(callId) {
       if (this.realtimeChannel) {
         this.realtimeChannel.unsubscribe();
       }
 
-      const channelName = 'vapi:call:' + callId;
+      // Include session ID for true per-user isolation
+      const channelName = \`vapi:call:\${callId}:\${this.sessionId}\`;
       console.log('📡 Subscribing to session-specific channel:', channelName);
+      console.log('🔐 Session isolation enabled - this session only:', this.sessionId);
       
       this.realtimeChannel = this.supabaseClient
         .channel(channelName)
         .on('broadcast', { event: 'function_call' }, (payload) => {
-          console.log('📡 Received session-specific function call:', payload);
+          console.log('📡 Received session-specific function call for session:', this.sessionId);
+          console.log('📡 Function call payload:', payload);
           this.executeFunctionCall(payload.payload);
         })
         .subscribe((status) => {
           console.log('Realtime status for', channelName, ':', status);
           if (status === 'SUBSCRIBED') {
-            this.updateStatus('🟢 Connected to voice control');
+            this.updateStatus('🟢 Connected (Session: ' + this.sessionId.substr(0, 8) + '...)');
           }
         });
 
-      console.log('✅ Supabase Realtime setup complete for channels:', [channelName]);
+      // Register this session with the backend by broadcasting session mapping
+      this.registerSessionMapping(callId);
+      
+      console.log('✅ Session-isolated channel setup complete:', channelName);
+    }
+
+    // Register call-to-session mapping for backend routing
+    registerSessionMapping(callId) {
+      const mappingChannel = \`vapi:session-mapping:\${this.assistantId}\`;
+      console.log('📝 Registering session mapping:', { callId, sessionId: this.sessionId });
+      
+      const mappingMessage = {
+        type: 'session_mapping',
+        callId: callId,
+        sessionId: this.sessionId,
+        assistantId: this.assistantId,
+        timestamp: new Date().toISOString()
+      };
+      
+      this.supabaseClient
+        .channel(mappingChannel)
+        .send({
+          type: 'broadcast',
+          event: 'register_session',
+          payload: mappingMessage
+        })
+        .then(() => {
+          console.log('✅ Session mapping registered successfully');
+        })
+        .catch(error => {
+          console.error('❌ Failed to register session mapping:', error);
+        });
     }
 
     loadVapiSDK() {
