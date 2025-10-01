@@ -34,7 +34,9 @@ serve(async (req) => {
     assistantId: "${assistant}",
     publicKey: "${apiKey}",
     position: "${position}",
-    theme: "${theme}"
+    theme: "${theme}",
+    supabaseUrl: "https://mdkcdjltvfpthqudhhmx.supabase.co",
+    supabaseKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ka2Nkamx0dmZwdGhxdWRoaG14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NDU3NTAsImV4cCI6MjA2OTUyMTc1MH0.YJAf_8-6tKTXp00h7liGNLvYC_-vJ4ttonAxP3ySvOg"
   };
 
   class CustomVoiceWidget {
@@ -47,13 +49,39 @@ serve(async (req) => {
       this.transcripts = [];
       this.container = null;
       this.state = 'idle';
+      this.callId = null;
+      this.supabaseClient = null;
+      this.channel = null;
       
       this.init();
     }
 
     init() {
       this.createWidget();
+      this.loadSupabase();
       this.loadVapiSDK();
+    }
+
+    async loadSupabase() {
+      try {
+        // Load Supabase client from CDN
+        if (!window.supabase) {
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+          await new Promise((resolve, reject) => {
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+        }
+        
+        // Initialize Supabase client
+        const { createClient } = window.supabase;
+        this.supabaseClient = createClient(this.config.supabaseUrl, this.config.supabaseKey);
+        console.log('[CustomVoiceWidget] Supabase client initialized');
+      } catch (error) {
+        console.error('[CustomVoiceWidget] Failed to load Supabase:', error);
+      }
     }
 
     createWidget() {
@@ -434,6 +462,7 @@ serve(async (req) => {
         this.isActive = false;
         this.updateState('idle', 'Call ended');
         this.updateControls();
+        this.unsubscribeFromChannel();
       });
 
       this.vapi.on('speech-start', () => {
@@ -445,8 +474,19 @@ serve(async (req) => {
       });
 
       this.vapi.on('message', (message) => {
+        console.log('[CustomVoiceWidget] Vapi message received:', message);
+        
         if (message.type === 'transcript' && message.transcriptType === 'final') {
           this.addTranscript(message.role, message.transcript);
+        }
+        
+        // Capture call-start message to get call ID
+        if (message.type === 'call-start') {
+          this.callId = message.callId || message.call?.id;
+          console.log('[CustomVoiceWidget] Call ID captured:', this.callId);
+          if (this.callId) {
+            this.subscribeToChannel(this.callId);
+          }
         }
       });
 
@@ -654,6 +694,223 @@ serve(async (req) => {
       
       transcriptsDiv.appendChild(messageDiv);
       transcriptsDiv.scrollTop = transcriptsDiv.scrollHeight;
+    }
+
+    // Supabase channel subscription for function calls
+    subscribeToChannel(callId) {
+      if (!this.supabaseClient || !callId) {
+        console.error('[CustomVoiceWidget] Cannot subscribe - missing client or call ID');
+        return;
+      }
+
+      const channelName = \`vapi:call:\${callId}\`;
+      console.log('[CustomVoiceWidget] Subscribing to channel:', channelName);
+
+      this.channel = this.supabaseClient.channel(channelName);
+      
+      this.channel
+        .on('broadcast', { event: 'function_call' }, (payload) => {
+          console.log('[CustomVoiceWidget] Function call received:', payload);
+          this.handleFunctionCall(payload.payload);
+        })
+        .subscribe((status) => {
+          console.log('[CustomVoiceWidget] Channel subscription status:', status);
+        });
+    }
+
+    unsubscribeFromChannel() {
+      if (this.channel) {
+        console.log('[CustomVoiceWidget] Unsubscribing from channel');
+        this.supabaseClient.removeChannel(this.channel);
+        this.channel = null;
+      }
+      this.callId = null;
+    }
+
+    // Handle function calls from VAPI
+    async handleFunctionCall(data) {
+      const { function_name, parameters, call_id } = data;
+      console.log(\`[CustomVoiceWidget] Executing function: \${function_name}\`, parameters);
+
+      let result = { success: false, message: 'Unknown function' };
+
+      try {
+        switch (function_name) {
+          case 'scroll_page':
+            result = await this.scrollPage(parameters.direction);
+            break;
+          case 'navigate_to_section':
+            result = await this.navigateToSection(parameters.section_name);
+            break;
+          case 'click_element':
+            result = await this.clickElement(parameters.element_description);
+            break;
+          case 'search_content':
+            result = await this.searchContent(parameters.query);
+            break;
+          default:
+            result = { success: false, message: \`Function \${function_name} not implemented\` };
+        }
+      } catch (error) {
+        console.error(\`[CustomVoiceWidget] Error executing \${function_name}:\`, error);
+        result = { success: false, message: error.message };
+      }
+
+      // Send result back through channel
+      await this.sendFunctionResult(call_id, function_name, result);
+    }
+
+    // DOM Action: Scroll the page
+    async scrollPage(direction) {
+      const scrollAmount = window.innerHeight * 0.8;
+      const currentScroll = window.scrollY;
+      
+      if (direction === 'down') {
+        window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+        return { 
+          success: true, 
+          message: \`Scrolled down. Position: \${Math.round(currentScroll)} → \${Math.round(currentScroll + scrollAmount)}\` 
+        };
+      } else if (direction === 'up') {
+        window.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
+        return { 
+          success: true, 
+          message: \`Scrolled up. Position: \${Math.round(currentScroll)} → \${Math.round(Math.max(0, currentScroll - scrollAmount))}\` 
+        };
+      } else if (direction === 'top') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return { success: true, message: 'Scrolled to top of page' };
+      } else if (direction === 'bottom') {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        return { success: true, message: 'Scrolled to bottom of page' };
+      }
+      
+      return { success: false, message: 'Invalid scroll direction' };
+    }
+
+    // DOM Action: Navigate to a section
+    async navigateToSection(sectionName) {
+      const searchTerms = sectionName.toLowerCase().split(' ');
+      
+      // Find headings that match the section name
+      const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      
+      for (const heading of headings) {
+        const text = heading.textContent.toLowerCase();
+        const matches = searchTerms.filter(term => text.includes(term));
+        
+        if (matches.length >= Math.ceil(searchTerms.length / 2)) {
+          heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return { 
+            success: true, 
+            message: \`Navigated to section: "\${heading.textContent.trim()}"\` 
+          };
+        }
+      }
+      
+      return { 
+        success: false, 
+        message: \`Could not find section matching "\${sectionName}"\` 
+      };
+    }
+
+    // DOM Action: Click an element
+    async clickElement(description) {
+      const searchTerms = description.toLowerCase();
+      
+      // Find clickable elements (buttons, links, etc.)
+      const clickables = document.querySelectorAll('button, a, [role="button"], [onclick]');
+      
+      for (const element of clickables) {
+        const text = (element.textContent || element.getAttribute('aria-label') || '').toLowerCase();
+        
+        if (text.includes(searchTerms) || searchTerms.includes(text.trim())) {
+          // Check if element is visible
+          const rect = element.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            element.click();
+            return { 
+              success: true, 
+              message: \`Clicked: "\${element.textContent?.trim() || element.getAttribute('aria-label') || 'element'}"\` 
+            };
+          }
+        }
+      }
+      
+      return { 
+        success: false, 
+        message: \`Could not find clickable element matching "\${description}"\` 
+      };
+    }
+
+    // DOM Action: Search for content
+    async searchContent(query) {
+      const searchTerms = query.toLowerCase();
+      const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      
+      let matches = [];
+      let node;
+      
+      while (node = walker.nextNode()) {
+        const text = node.textContent.toLowerCase();
+        if (text.includes(searchTerms)) {
+          const parent = node.parentElement;
+          if (parent && parent.offsetParent !== null) {
+            matches.push({
+              element: parent,
+              text: node.textContent.trim().substring(0, 100)
+            });
+          }
+        }
+      }
+      
+      if (matches.length > 0) {
+        // Scroll to first match
+        matches[0].element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Highlight the match
+        matches[0].element.style.backgroundColor = 'yellow';
+        setTimeout(() => {
+          matches[0].element.style.backgroundColor = '';
+        }, 2000);
+        
+        return { 
+          success: true, 
+          message: \`Found \${matches.length} match(es) for "\${query}". Showing first: "\${matches[0].text}..."\` 
+        };
+      }
+      
+      return { 
+        success: false, 
+        message: \`No content found matching "\${query}"\` 
+      };
+    }
+
+    // Send function result back to channel
+    async sendFunctionResult(callId, functionName, result) {
+      if (!this.channel || !callId) {
+        console.error('[CustomVoiceWidget] Cannot send result - no active channel');
+        return;
+      }
+
+      try {
+        await this.channel.send({
+          type: 'broadcast',
+          event: 'function_result',
+          payload: {
+            call_id: callId,
+            function_name: functionName,
+            result: result
+          }
+        });
+        console.log(\`[CustomVoiceWidget] Result sent for \${functionName}:\`, result);
+      } catch (error) {
+        console.error('[CustomVoiceWidget] Failed to send result:', error);
+      }
     }
   }
 
