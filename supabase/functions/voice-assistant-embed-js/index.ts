@@ -451,8 +451,27 @@ serve(async (req) => {
       });
 
       this.vapi.on('error', (error) => {
-        console.error('[CustomVoiceWidget] Error:', error);
-        this.updateState('error', 'Error occurred');
+        console.error('[CustomVoiceWidget] Vapi Error Event:', error);
+        
+        // Extract detailed error information
+        let errorMessage = 'Error occurred';
+        if (error?.error?.error) {
+          console.error('[CustomVoiceWidget] API Error Details:', error.error.error);
+          errorMessage = error.error.error.message || errorMessage;
+        }
+        
+        // Check for specific error types
+        if (error?.type === 'start-method-error') {
+          if (error?.error?.status === 400) {
+            errorMessage = 'Invalid assistant or API key';
+          } else if (error?.error?.status === 401) {
+            errorMessage = 'Authentication failed';
+          } else if (error?.error?.status === 404) {
+            errorMessage = 'Assistant not found';
+          }
+        }
+        
+        this.updateState('error', errorMessage);
       });
 
       setInterval(() => {
@@ -464,11 +483,23 @@ serve(async (req) => {
     }
 
     async startCall() {
-      console.log('[CustomVoiceWidget] Starting call...', { vapi: !!this.vapi, assistantId: this.config.assistantId });
+      console.log('[CustomVoiceWidget] Starting call...', { 
+        vapi: !!this.vapi, 
+        assistantId: this.config.assistantId,
+        publicKey: this.config.publicKey ? `${this.config.publicKey.substring(0, 8)}...` : 'Missing'
+      });
       
       if (!this.vapi) {
         console.error('[CustomVoiceWidget] Vapi not initialized');
         this.updateState('error', 'Voice service not ready');
+        return;
+      }
+
+      // Validate assistant ID format (should be a UUID)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(this.config.assistantId)) {
+        console.error('[CustomVoiceWidget] Invalid assistant ID format:', this.config.assistantId);
+        this.updateState('error', 'Invalid assistant ID');
         return;
       }
 
@@ -477,14 +508,30 @@ serve(async (req) => {
         stream.getTracks().forEach(track => track.stop());
         
         this.updateState('connecting', 'Connecting...');
-        await this.vapi.start({
+        
+        const callConfig = {
           assistantId: this.config.assistantId,
           backgroundDenoisingEnabled: false
-        });
+        };
+        
+        console.log('[CustomVoiceWidget] Starting Vapi call with config:', callConfig);
+        
+        await this.vapi.start(callConfig);
         console.log('[CustomVoiceWidget] Call started successfully');
       } catch (error) {
         console.error('[CustomVoiceWidget] Start call error:', error);
-        this.updateState('error', 'Failed to start call');
+        console.error('[CustomVoiceWidget] Error details:', {
+          message: error?.message,
+          response: error?.response,
+          status: error?.status
+        });
+        
+        let errorMessage = 'Failed to start call';
+        if (error?.message?.includes('permission')) {
+          errorMessage = 'Microphone permission denied';
+        }
+        
+        this.updateState('error', errorMessage);
       }
     }
 
