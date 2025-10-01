@@ -327,10 +327,23 @@ serve(async (req) => {
         try {
           console.log('[CustomVoiceWidget] Attempting ESM import...');
           const module = await import('https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/+esm');
-          if (module.default) {
-            window.Vapi = module.default;
+          
+          // Try different export patterns
+          let VapiConstructor = null;
+          if (typeof module.default === 'function') {
+            VapiConstructor = module.default;
+          } else if (module.default && typeof module.default.default === 'function') {
+            VapiConstructor = module.default.default;
+          } else if (typeof module.Vapi === 'function') {
+            VapiConstructor = module.Vapi;
+          }
+          
+          if (VapiConstructor) {
+            window.Vapi = VapiConstructor;
             console.log('[CustomVoiceWidget] ✓ Vapi loaded via ESM import');
             return true;
+          } else {
+            console.error('[CustomVoiceWidget] No valid Vapi constructor found in ESM module');
           }
         } catch (error) {
           console.error('[CustomVoiceWidget] ESM import failed:', error);
