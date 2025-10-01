@@ -539,15 +539,11 @@ serve(async (req) => {
         
         this.updateState('connecting', 'Connecting...');
         
-        const callConfig = {
-          assistantId: this.config.assistantId,
-          backgroundDenoisingEnabled: false
-        };
-        
-        console.log('[CustomVoiceWidget] Starting Vapi call with full config:', JSON.stringify(callConfig, null, 2));
+        console.log('[CustomVoiceWidget] Starting Vapi call with assistant ID:', this.config.assistantId);
         console.log('[CustomVoiceWidget] API Key prefix:', this.config.publicKey ? this.config.publicKey.substring(0, 12) + '***' : 'Missing');
         
-        await this.vapi.start(callConfig);
+        // Pass the assistant ID directly as a string parameter
+        await this.vapi.start(this.config.assistantId);
         console.log('[CustomVoiceWidget] Call started successfully');
       } catch (error) {
         console.error('[CustomVoiceWidget] Start call error:', error);
