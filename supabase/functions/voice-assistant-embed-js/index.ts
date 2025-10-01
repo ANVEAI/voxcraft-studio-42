@@ -452,23 +452,53 @@ serve(async (req) => {
 
       this.vapi.on('error', (error) => {
         console.error('[CustomVoiceWidget] Vapi Error Event:', error);
+        console.error('[CustomVoiceWidget] Full Error Object:', JSON.stringify(error, null, 2));
         
         // Extract detailed error information
         let errorMessage = 'Error occurred';
+        let detailedMessages = [];
+        
+        // Try to extract all possible error details
         if (error?.error?.error) {
-          console.error('[CustomVoiceWidget] API Error Details:', error.error.error);
-          errorMessage = error.error.error.message || errorMessage;
+          const apiError = error.error.error;
+          console.error('[CustomVoiceWidget] API Error Object:', JSON.stringify(apiError, null, 2));
+          
+          // If message is an array, log each message
+          if (Array.isArray(apiError.message)) {
+            console.error('[CustomVoiceWidget] API Error Messages:', apiError.message);
+            detailedMessages = apiError.message;
+            errorMessage = apiError.message.join(', ');
+          } else if (apiError.message) {
+            errorMessage = apiError.message;
+            detailedMessages = [apiError.message];
+          }
+          
+          // Also log the error type and status code
+          if (apiError.error) {
+            console.error('[CustomVoiceWidget] Error Type:', apiError.error);
+          }
+          if (apiError.statusCode) {
+            console.error('[CustomVoiceWidget] Status Code:', apiError.statusCode);
+          }
         }
         
         // Check for specific error types
         if (error?.type === 'start-method-error') {
-          if (error?.error?.status === 400) {
-            errorMessage = 'Invalid assistant or API key';
-          } else if (error?.error?.status === 401) {
-            errorMessage = 'Authentication failed';
-          } else if (error?.error?.status === 404) {
+          const status = error?.error?.status || error?.error?.error?.statusCode;
+          console.error('[CustomVoiceWidget] Start method error with status:', status);
+          
+          if (status === 400) {
+            errorMessage = detailedMessages.length > 0 ? detailedMessages.join('; ') : 'Invalid assistant configuration or API key';
+          } else if (status === 401) {
+            errorMessage = 'Authentication failed - Invalid API key';
+          } else if (status === 404) {
             errorMessage = 'Assistant not found';
           }
+        }
+        
+        // Also try to extract from response if present
+        if (error?.error?.response) {
+          console.error('[CustomVoiceWidget] Response Object:', error.error.response);
         }
         
         this.updateState('error', errorMessage);
@@ -514,21 +544,37 @@ serve(async (req) => {
           backgroundDenoisingEnabled: false
         };
         
-        console.log('[CustomVoiceWidget] Starting Vapi call with config:', callConfig);
+        console.log('[CustomVoiceWidget] Starting Vapi call with full config:', JSON.stringify(callConfig, null, 2));
+        console.log('[CustomVoiceWidget] API Key prefix:', this.config.publicKey ? this.config.publicKey.substring(0, 12) + '***' : 'Missing');
         
         await this.vapi.start(callConfig);
         console.log('[CustomVoiceWidget] Call started successfully');
       } catch (error) {
         console.error('[CustomVoiceWidget] Start call error:', error);
+        console.error('[CustomVoiceWidget] Full error object:', JSON.stringify(error, null, 2));
         console.error('[CustomVoiceWidget] Error details:', {
+          name: error?.name,
           message: error?.message,
           response: error?.response,
-          status: error?.status
+          status: error?.status,
+          stack: error?.stack
         });
+        
+        // Try to extract more details from response
+        if (error?.response) {
+          try {
+            const responseText = await error.response.text();
+            console.error('[CustomVoiceWidget] Response body:', responseText);
+          } catch (e) {
+            console.error('[CustomVoiceWidget] Could not read response body');
+          }
+        }
         
         let errorMessage = 'Failed to start call';
         if (error?.message?.includes('permission')) {
           errorMessage = 'Microphone permission denied';
+        } else if (error?.message) {
+          errorMessage = error.message;
         }
         
         this.updateState('error', errorMessage);
