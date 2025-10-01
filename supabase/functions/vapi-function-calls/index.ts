@@ -69,6 +69,20 @@ serve(async (req) => {
     const payload = await req.json();
     console.log('[VAPI Function Call] Payload:', JSON.stringify(payload, null, 2));
 
+    // Extract assistant ID and set up session mapping listener
+    const assistantId = payload?.message?.assistant?.id || payload?.assistant?.id;
+    if (assistantId) {
+      console.log('[VAPI Function Call] Setting up session mapping listener for assistant:', assistantId);
+      try {
+        await setupSessionMappingListener(supabase, assistantId);
+        console.log('[VAPI Function Call] Session mapping listener setup complete');
+      } catch (error) {
+        console.error('[VAPI Function Call] Failed to setup session mapping listener:', error);
+      }
+    } else {
+      console.warn('[VAPI Function Call] No assistant ID found, session mapping may not work');
+    }
+
     // Extract call ID from VAPI webhook payload structure
     const vapiCallId = 
       payload?.message?.call?.id ||                       // VAPI: From nested call object
