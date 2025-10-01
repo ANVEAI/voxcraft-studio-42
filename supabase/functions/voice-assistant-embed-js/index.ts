@@ -272,14 +272,18 @@ serve(async (req) => {
         return;
       }
 
+      // Try multiple CDN URLs and path variants
       const cdnUrls = [
+        'https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/dist/index.umd.js',
+        'https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/dist/index.global.js',
         'https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/dist/index.js',
+        'https://unpkg.com/@vapi-ai/web@2.3.8/dist/index.umd.js',
         'https://unpkg.com/@vapi-ai/web@2.3.8/dist/index.js',
+        'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/index.umd.js',
         'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/index.js'
       ];
 
-      let currentAttempt = 0;
-      const loadTimeout = 10000; // 10 seconds
+      const loadTimeout = 15000; // 15 seconds
 
       const tryLoadScript = (url) => {
         return new Promise((resolve, reject) => {
@@ -287,6 +291,7 @@ serve(async (req) => {
           
           const script = document.createElement('script');
           script.src = url;
+          script.crossOrigin = 'anonymous';
           
           const timeoutId = setTimeout(() => {
             console.error('[CustomVoiceWidget] SDK load timeout for:', url);
@@ -295,9 +300,15 @@ serve(async (req) => {
           }, loadTimeout);
 
           script.onload = () => {
-            console.log('[CustomVoiceWidget] SDK loaded successfully from:', url);
             clearTimeout(timeoutId);
-            resolve();
+            if (window.Vapi) {
+              console.log('[CustomVoiceWidget] ✓ SDK loaded successfully from:', url);
+              resolve(url);
+            } else {
+              console.warn('[CustomVoiceWidget] Script loaded but window.Vapi not found:', url);
+              script.remove();
+              reject(new Error('Vapi not found'));
+            }
           };
 
           script.onerror = (error) => {
@@ -311,30 +322,56 @@ serve(async (req) => {
         });
       };
 
-      const loadWithFallback = async () => {
-        for (const url of cdnUrls) {
-          try {
-            await tryLoadScript(url);
-            if (window.Vapi) {
-              console.log('[CustomVoiceWidget] Vapi SDK loaded and available');
-              this.initializeVapi();
-              return;
-            }
-          } catch (error) {
-            console.warn('[CustomVoiceWidget] Failed to load from:', url, error);
-            currentAttempt++;
-            if (currentAttempt < cdnUrls.length) {
-              console.log('[CustomVoiceWidget] Trying fallback CDN...');
-              continue;
-            }
+      // Try ESM import as fallback
+      const tryESMImport = async () => {
+        try {
+          console.log('[CustomVoiceWidget] Attempting ESM import...');
+          const module = await import('https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.3.8/+esm');
+          if (module.default) {
+            window.Vapi = module.default;
+            console.log('[CustomVoiceWidget] ✓ Vapi loaded via ESM import');
+            return true;
           }
+        } catch (error) {
+          console.error('[CustomVoiceWidget] ESM import failed:', error);
         }
-        
-        console.error('[CustomVoiceWidget] All CDN attempts failed');
-        this.updateState('error', 'Failed to load SDK. Please check your internet connection.');
+        return false;
       };
 
-      loadWithFallback();
+      // Try all script URLs
+      let loaded = false;
+      for (const url of cdnUrls) {
+        try {
+          await tryLoadScript(url);
+          if (window.Vapi) {
+            loaded = true;
+            break;
+          }
+        } catch (error) {
+          console.warn('[CustomVoiceWidget] Failed to load from:', url);
+        }
+      }
+
+      // If script loading failed, try ESM import
+      if (!loaded) {
+        console.log('[CustomVoiceWidget] All script attempts failed, trying ESM import...');
+        loaded = await tryESMImport();
+      }
+
+      // Initialize or show error
+      if (loaded && window.Vapi) {
+        console.log('[CustomVoiceWidget] Vapi SDK ready, initializing...');
+        this.initializeVapi();
+      } else {
+        console.error('[CustomVoiceWidget] ✗ All SDK loading attempts failed');
+        this.updateState('error', 'Failed to load voice SDK');
+        const startBtn = document.getElementById('start-call-btn');
+        if (startBtn) {
+          startBtn.textContent = 'SDK Load Failed';
+          startBtn.disabled = true;
+          startBtn.style.opacity = '0.5';
+        }
+      }
     }
 
     initializeVapi() {
