@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ArrowLeft, Mic, Navigation, MessageSquare, Star, Users, Phone, Mail, MapPin, Check, ArrowRight, Lightbulb, Zap, Shield } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { CustomVoiceWidget } from '@/components/CustomVoiceWidget'
+import VapiVoiceInterface from '@/components/VapiVoiceInterface'
 
 const VoiceAssistantDemo = () => {
   const navigate = useNavigate()
@@ -24,12 +24,14 @@ const VoiceAssistantDemo = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Vapi Voice Interface */}
-      <CustomVoiceWidget
-        assistantId={assistantId || "NEW_ASSISTANT_ID_PLACEHOLDER"}
-        publicKey={import.meta.env.VITE_VAPI_PUBLIC_KEY}
-        position="right"
-        theme="light"
-      />
+        <VapiVoiceInterface
+          assistantId={assistantId || "NEW_ASSISTANT_ID_PLACEHOLDER"}
+          publicKey={import.meta.env.VITE_VAPI_PUBLIC_KEY}
+          position="right"
+          theme="light"
+          onSpeakingChange={(speaking) => console.log('Speaking:', speaking)}
+          onTranscript={(transcript) => console.log('Transcript:', transcript)}
+        />
       
       {/* Header */}
       <header className="bg-white shadow-sm border-b">

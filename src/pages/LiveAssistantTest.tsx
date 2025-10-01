@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Mic, MessageSquare, Navigation, Volume2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
-import { CustomVoiceWidget } from '@/components/CustomVoiceWidget'
+import SimpleVoiceInterface from '@/components/SimpleVoiceInterface'
 
 // TypeScript declarations
 declare global {
@@ -116,11 +116,12 @@ const LiveAssistantTest = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Vapi Voice Interface */}
       {assistantValid && defaultAssistantId && (
-        <CustomVoiceWidget
+        <SimpleVoiceInterface
           assistantId={defaultAssistantId}
-          publicKey={import.meta.env.VITE_VAPI_PUBLIC_KEY}
           position="right"
           theme="light"
+          onSpeakingChange={handleSpeakingChange}
+          onTranscript={handleTranscript}
         />
       )}
       

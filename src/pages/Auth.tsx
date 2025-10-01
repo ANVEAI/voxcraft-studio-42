@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { CustomVoiceWidget } from '@/components/CustomVoiceWidget'
+import VapiVoiceInterface from '@/components/VapiVoiceInterface'
 import { supabase } from '@/integrations/supabase/client'
 
 const Auth = () => {
@@ -55,11 +55,13 @@ const Auth = () => {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       {/* Voice Navigation Interface - Only show if we have a valid assistant */}
       {defaultAssistantId && (
-        <CustomVoiceWidget
+        <VapiVoiceInterface
           assistantId={defaultAssistantId}
           publicKey={import.meta.env.VITE_VAPI_PUBLIC_KEY}
           position="right"
           theme="light"
+          onSpeakingChange={(speaking) => console.log('[Auth] Speaking:', speaking)}
+          onTranscript={(transcript) => console.log('[Auth] Transcript:', transcript)}
         />
       )}
       
