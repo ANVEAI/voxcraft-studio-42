@@ -766,14 +766,17 @@ if (!window.supabase) {
                     this.vapiWidget?._callId ||
                     this.vapiWidget?.id;
         
-        // Strategy 2: Nested objects
+        // Strategy 2: Nested objects - prioritize actual VAPI call ID over client ID
         if (!vapiCallId) {
           vapiCallId = this.vapiWidget?.call?.id ||
+                      this.vapiWidget?.call?.vapiCallId ||
+                      this.vapiWidget?.call?.callId ||
                       this.vapiWidget?.activeCall?.id ||
                       this.vapiWidget?.currentCall?.id ||
                       this.vapiWidget?.session?.callId ||
                       this.vapiWidget?.session?.id ||
-                      this.vapiWidget?.webCall?.id;
+                      this.vapiWidget?.webCall?.id ||
+                      this.vapiWidget?.webCall?.callId;
         }
         
         // Strategy 3: Search through all properties for ID-like values
@@ -785,13 +788,27 @@ if (!window.supabase) {
               const fullPath = path ? \`\${path}.\${key}\` : key;
               
               // Look for properties that might contain call ID
+              // Prioritize actual VAPI call IDs (UUID format) over client IDs (numeric)
               if ((key.toLowerCase().includes('call') && key.toLowerCase().includes('id')) ||
                   key.toLowerCase() === 'id' ||
                   key.toLowerCase() === 'callid') {
                 
                 if (typeof value === 'string' && value.length > 10) {
-                  console.log('🎯 Found potential call ID at', fullPath, ':', value);
-                  return value;
+                  // Check if it's a UUID format (VAPI call ID) vs numeric (client ID)
+                  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+                  const isVAPIFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+                  
+                  console.log('🎯 Found potential call ID at', fullPath, ':', value, isUUID ? '(UUID format - preferred)' : '(other format)');
+                  
+                  // Return immediately if it's a UUID (actual VAPI call ID)
+                  if (isUUID || isVAPIFormat) {
+                    return value;
+                  }
+                  
+                  // Store non-UUID as fallback but continue searching for UUID
+                  if (!this._fallbackCallId) {
+                    this._fallbackCallId = value;
+                  }
                 }
               }
               
@@ -804,7 +821,14 @@ if (!window.supabase) {
             return null;
           };
           
+          this._fallbackCallId = null; // Reset fallback
           vapiCallId = searchForCallId(this.vapiWidget);
+          
+          // If no UUID found but we have a fallback, use it
+          if (!vapiCallId && this._fallbackCallId) {
+            console.log('🔄 No UUID found, using fallback call ID:', this._fallbackCallId);
+            vapiCallId = this._fallbackCallId;
+          }
         }
           
         if (vapiCallId) {
