@@ -52,48 +52,17 @@ if (!window.supabase) {
       this.vapiWidget = null;
       this.supabaseClient = null;
       this.realtimeChannel = null;
-      this.mappingChannel = null; // Channel for session mapping registration
-      this.discoveryChannel = null; // Channel for call ID discovery
       this.isInitialized = false;
       this.currentPageElements = [];
       this.statusEl = null;
       this.assistantId = null;
       this.currentCallId = null;
-      this.isCallActive = false;
-      this.widgetBtn = null;
-      this.visualizer = null;
-      this.widgetStatusEl = null;
-      this.sessionId = null; // Unique session identifier
       
       this.init();
     }
 
-    // Generate unique session ID for this browser tab
-    generateSessionId() {
-      // Check if session ID already exists in sessionStorage
-      let sessionId = sessionStorage.getItem('vapi_session_id');
-      
-      if (!sessionId) {
-        // Generate new unique session ID
-        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-          sessionId = crypto.randomUUID();
-        } else {
-          // Fallback for older browsers
-          sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        }
-        sessionStorage.setItem('vapi_session_id', sessionId);
-      }
-      
-      return sessionId;
-    }
-
     init() {
       console.log('🎤 Initializing VAPI Command Executor...');
-      
-      // Generate unique session ID for this browser tab
-      this.sessionId = this.generateSessionId();
-      console.log('🔑 Session ID:', this.sessionId);
-      
       this.createStatusIndicator();
       this.updateStatus("Loading voice automation...");
       this.analyzePageContent();
@@ -188,353 +157,34 @@ if (!window.supabase) {
             this.updateStatus('🔗 Session isolated - ready for commands!');
           }
         })
-        .on('broadcast', { event: 'session_discovery_request' }, (payload) => {
-          console.log('🔍 Received session discovery request:', payload);
-          const { vapiCallId, functionCall } = payload.payload;
-          
-          // ENHANCED: Check if this matches our current VAPI call using comprehensive matching
-          const checkCallIdMatch = (requestedCallId) => {
-            if (!this.vapiWidget) return false;
-            
-            // Direct property matches
-            if (this.vapiWidget.callId === requestedCallId ||
-                this.vapiWidget._callId === requestedCallId ||
-                this.vapiWidget.id === requestedCallId) {
-              return true;
-            }
-            
-            // Nested object matches
-            const nestedMatches = [
-              this.vapiWidget?.call?.id,
-              this.vapiWidget?.call?.vapiCallId,
-              this.vapiWidget?.call?.callId,
-              this.vapiWidget?.call?.callClientId,
-              this.vapiWidget?.call?._meetingSessionSummary?.id,
-              this.vapiWidget?.activeCall?.id,
-              this.vapiWidget?.currentCall?.id,
-              this.vapiWidget?.session?.callId,
-              this.vapiWidget?.session?.id,
-              this.vapiWidget?.webCall?.id,
-              this.vapiWidget?.webCall?.callId
-            ].filter(Boolean);
-            
-            if (nestedMatches.includes(requestedCallId)) {
-              return true;
-            }
-            
-            // Partial matches for related call IDs (same base, different format)
-            for (const nestedId of nestedMatches) {
-              if (typeof nestedId === 'string' && typeof requestedCallId === 'string') {
-                // Check if they share common parts (for numeric vs UUID formats)
-                if (nestedId.includes(requestedCallId.split('-')[0]) || 
-                    requestedCallId.includes(nestedId.split('-')[0])) {
-                  console.log('🔗 Found related call ID match:', { nested: nestedId, requested: requestedCallId });
-                  return true;
-                }
-              }
-            }
-            
-            return false;
-          };
-          
-          const isMatchingCall = checkCallIdMatch(vapiCallId);
-          
-          if (isMatchingCall) {
-            console.log('✅ Matching call found, registering session mapping for:', vapiCallId);
-            this.currentCallId = vapiCallId;
-            
-            // ENHANCED: Register all found call IDs for maximum compatibility
-            if (this.vapiWidget) {
-              const allCallIds = [
-                this.vapiWidget.callId,
-                this.vapiWidget._callId,
-                this.vapiWidget.id,
-                this.vapiWidget?.call?.id,
-                this.vapiWidget?.call?.vapiCallId,
-                this.vapiWidget?.call?.callId,
-                this.vapiWidget?.call?.callClientId,
-                this.vapiWidget?.call?._meetingSessionSummary?.id,
-                this.vapiWidget?.activeCall?.id,
-                this.vapiWidget?.currentCall?.id,
-                this.vapiWidget?.session?.callId,
-                this.vapiWidget?.session?.id,
-                this.vapiWidget?.webCall?.id,
-                this.vapiWidget?.webCall?.callId,
-                vapiCallId // Include the requested call ID
-              ].filter(id => id && typeof id === 'string' && id.length > 5);
-              
-              this.registerMultipleSessionMappings(allCallIds);
-            } else {
-              // Fallback to single registration
-              this.registerSessionMapping(vapiCallId);
-            }
-            
-            // Set up session-specific channel
-            this.subscribeToCallChannelWithFallback(vapiCallId);
-            this.updateStatus('🔗 Session isolated - ready for commands!');
-            
-            // Execute the pending function call immediately
-            if (functionCall) {
-              console.log('⚡ Executing pending function call:', functionCall);
-              this.executeFunctionCall(functionCall);
-            }
-          } else {
-            console.log('❌ Call ID does not match current session:', vapiCallId);
-            console.log('🔍 Available call IDs for comparison:', this.vapiWidget ? {
-              direct: [this.vapiWidget.callId, this.vapiWidget._callId, this.vapiWidget.id].filter(Boolean),
-              nested: [
-                this.vapiWidget?.call?.id,
-                this.vapiWidget?.call?.callId,
-                this.vapiWidget?.call?.callClientId,
-                this.vapiWidget?.activeCall?.id,
-                this.vapiWidget?.session?.callId
-              ].filter(Boolean)
-            } : 'No VAPI widget available');
-          }
-        })
         .subscribe((status) => {
           console.log('🔍 Discovery channel status:', status);
         });
     }
 
-    // VAPI-Native Session Isolation: Subscribe to both general and isolated channels during grace period
-    subscribeToCallChannelWithFallback(callId) {
-      const isolatedChannelName = \`vapi:call:\${callId}:\${this.sessionId}\`;
-      const generalChannelName = \`vapi:call:\${callId}\`;
-      
-      console.log('📡 Setting up dual-channel subscription for race condition handling');
-      console.log('🔐 Isolated channel:', isolatedChannelName);
-      console.log('🌐 General channel (fallback):', generalChannelName);
-      
-      const processedEvents = new Set(); // Dedupe events
-      let isolatedChannelWorking = false;
-      
-      const handleFunctionCall = (payload, source) => {
-        const eventKey = \`\${payload.payload?.callId}-\${payload.payload?.functionName}-\${payload.payload?.timestamp}\`;
-        
-        if (processedEvents.has(eventKey)) {
-          console.log('⏭️ Skipping duplicate event from', source);
-          return;
-        }
-        
-        processedEvents.add(eventKey);
-        console.log(\`📡 Processing function call from \${source}:\`, payload.payload);
-        
-        if (source === 'isolated') {
-          isolatedChannelWorking = true;
-        }
-        
-        this.executeFunctionCall(payload.payload);
-      };
-      
-      // Subscribe to ISOLATED channel (primary)
+    // VAPI-Native Session Isolation: Subscribe to call-specific channel
+    subscribeToCallChannel(callId) {
       if (this.realtimeChannel) {
         this.realtimeChannel.unsubscribe();
       }
+
+      const channelName = 'vapi:call:' + callId;
+      console.log('📡 Subscribing to session-specific channel:', channelName);
       
       this.realtimeChannel = this.supabaseClient
-        .channel(isolatedChannelName)
+        .channel(channelName)
         .on('broadcast', { event: 'function_call' }, (payload) => {
-          handleFunctionCall(payload, 'isolated');
+          console.log('📡 Received session-specific function call:', payload);
+          this.executeFunctionCall(payload.payload);
         })
         .subscribe((status) => {
-          console.log('📡 Isolated channel status:', status, isolatedChannelName);
+          console.log('Realtime status for', channelName, ':', status);
           if (status === 'SUBSCRIBED') {
-            this.updateStatus('🟢 Connected (Isolated Session: ' + this.sessionId.substr(0, 8) + '...)');
+            this.updateStatus('🟢 Connected to voice control');
           }
         });
-      
-      // Subscribe to GENERAL channel (fallback for grace period)
-      const generalChannel = this.supabaseClient
-        .channel(generalChannelName)
-        .on('broadcast', { event: 'function_call' }, (payload) => {
-          if (!isolatedChannelWorking) {
-            console.log('⚠️ Using general channel fallback');
-            handleFunctionCall(payload, 'general-fallback');
-          }
-        })
-        .subscribe((status) => {
-          console.log('📡 General fallback channel status:', status, generalChannelName);
-        });
-      
-      // Clean up general channel after grace period (3 seconds)
-      setTimeout(() => {
-        if (isolatedChannelWorking) {
-          console.log('✅ Isolated channel working, unsubscribing from general fallback');
-          generalChannel.unsubscribe();
-        } else {
-          console.warn('⚠️ Isolated channel not receiving events, keeping general fallback active');
-        }
-      }, 3000);
-      
-      console.log('✅ Dual-channel setup complete with 3s grace period');
-    }
-    
-    // Legacy method - kept for discovery channel fallback compatibility
-    subscribeToCallChannel(callId) {
-      this.subscribeToCallChannelWithFallback(callId);
-    }
 
-    // Register call-to-session mapping for backend routing
-    registerSessionMapping(callId) {
-      if (!callId || !this.sessionId) {
-        console.warn('📝 Cannot register session mapping - missing callId or sessionId');
-        return;
-      }
-      
-      console.log('📝 Registering session mapping:', {callId: callId, sessionId: this.sessionId.substr(0, 8) + '...'});
-      
-      // Attempt registration with retry mechanism
-      this.attemptRegistration(callId, 1);
-    }
-
-    // Helper method for session mapping registration attempts
-    attemptRegistration(callId, attempt) {
-      const maxRetries = 3;
-      const mappingChannelName = \`vapi:session-mapping:\${this.assistantId}\`;
-      const mappingMessage = { callId, sessionId: this.sessionId };
-      
-      console.log(\`📡 Subscribing to mapping channel (attempt \${attempt})...\`);
-      
-      // Create a new channel and subscribe first
-      const mappingChannel = this.supabaseClient.channel(mappingChannelName);
-      
-      let timeoutHandle;
-      let isComplete = false;
-      
-      // Set subscription timeout
-      timeoutHandle = setTimeout(() => {
-        if (!isComplete) {
-          console.warn('⏰ Subscription timeout - retrying...');
-          mappingChannel.unsubscribe();
-          
-          if (attempt < maxRetries) {
-            setTimeout(() => this.attemptRegistration(callId, attempt + 1), 500);
-          }
-        }
-      }, 5000);
-      
-      mappingChannel
-        .subscribe(async (status) => {
-          console.log('📡 Mapping channel status:', status);
-          
-          if (status === 'SUBSCRIBED' && !isComplete) {
-            isComplete = true;
-            clearTimeout(timeoutHandle);
-            console.log('✅ Mapping channel subscribed, sending session mapping...');
-            
-            try {
-              // Now send the broadcast message
-              await mappingChannel.send({
-                type: 'broadcast',
-                event: 'register_session',
-                payload: mappingMessage
-              });
-              
-              console.log('✅ Session mapping sent successfully!');
-              console.log('🔐 Session isolation active:', { callId, sessionId: this.sessionId.substr(0, 8) + '...' });
-              
-              // Store reference for cleanup
-              this.mappingChannel = mappingChannel;
-              
-              // Send again after 1 second to ensure backend received it
-              setTimeout(async () => {
-                console.log('🔄 Re-sending session mapping for redundancy...');
-                try {
-                  await mappingChannel.send({
-                    type: 'broadcast',
-                    event: 'register_session',
-                    payload: mappingMessage
-                  });
-                  console.log('✅ Redundant session mapping sent');
-                } catch (error) {
-                  console.warn('⚠️ Failed to send redundant mapping:', error);
-                }
-              }, 1000);
-              
-            } catch (error) {
-              console.error('❌ Failed to send session mapping:', error);
-              
-              if (attempt < maxRetries) {
-                mappingChannel.unsubscribe();
-                setTimeout(() => this.attemptRegistration(callId, attempt + 1), 500);
-              }
-            }
-          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            if (!isComplete) {
-              isComplete = true;
-              clearTimeout(timeoutHandle);
-              console.error('❌ Channel error or timeout:', status);
-              
-              if (attempt < maxRetries) {
-                setTimeout(() => this.attemptRegistration(callId, attempt + 1), 500);
-              }
-            }
-          }
-        });
-    }
-
-    // ENHANCED: Register multiple session mappings for maximum compatibility
-    registerMultipleSessionMappings(callIds) {
-      if (!callIds || callIds.length === 0 || !this.sessionId) {
-        console.warn('📝 Cannot register multiple session mappings - missing callIds or sessionId');
-        return;
-      }
-      
-      // Remove duplicates and filter out invalid IDs
-      const uniqueCallIds = [...new Set(callIds)].filter(id => id && typeof id === 'string' && id.length > 5);
-      
-      console.log('📝 Registering multiple session mappings:', {
-        callIds: uniqueCallIds,
-        sessionId: this.sessionId.substr(0, 8) + '...',
-        count: uniqueCallIds.length
-      });
-      
-      // Register the primary call ID first (most likely to be correct)
-      if (uniqueCallIds.length > 0) {
-        this.registerSessionMapping(uniqueCallIds[0]);
-      }
-      
-      // Then register all call IDs in bulk for maximum compatibility
-      if (uniqueCallIds.length > 1) {
-        this.registerBulkSessionMappings(uniqueCallIds);
-      }
-    }
-
-    // Bulk registration method for multiple call IDs
-    registerBulkSessionMappings(callIds) {
-      const mappingChannelName = \`vapi:session-mapping:\${this.assistantId}\`;
-      const mappingMessage = { callIds, sessionId: this.sessionId };
-      
-      console.log('📝 Bulk registering session mappings:', {
-        callIds: callIds.length,
-        sessionId: this.sessionId.substr(0, 8) + '...'
-      });
-      
-      const mappingChannel = this.supabaseClient.channel(mappingChannelName + '-bulk');
-      
-      mappingChannel
-        .subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            try {
-              await mappingChannel.send({
-                type: 'broadcast',
-                event: 'register_multiple_sessions',
-                payload: mappingMessage
-              });
-              
-              console.log('✅ Bulk session mappings sent successfully!');
-              
-              // Clean up the bulk channel after sending
-              setTimeout(() => {
-                mappingChannel.unsubscribe();
-              }, 2000);
-              
-            } catch (error) {
-              console.error('❌ Failed to send bulk session mappings:', error);
-            }
-          }
-        });
+      console.log('✅ Supabase Realtime setup complete for channels:', [channelName]);
     }
 
     loadVapiSDK() {
@@ -546,16 +196,9 @@ if (!window.supabase) {
       const script = document.createElement('script');
       script.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
       script.async = true;
-      script.defer = true;
 
       script.onload = () => {
-        setTimeout(() => {
-          if (window.vapiSDK) {
-            this.initializeVapi();
-          } else {
-            this.updateStatus("❌ Voice SDK failed to load");
-          }
-        }, 100);
+        this.initializeVapi();
       };
 
       script.onerror = () => {
@@ -575,485 +218,33 @@ if (!window.supabase) {
         this.vapiWidget = window.vapiSDK.run({
           apiKey: BOT_CONFIG.apiKey,
           assistant: BOT_CONFIG.assistantId,
-          config
+          config: config
         });
 
-        // Hide default button (we provide our own custom UI)
-        const hideStyle = document.createElement('style');
-        hideStyle.textContent = '.vapi-btn{display:none!important}';
-        document.head.appendChild(hideStyle);
-
-        this.createCustomWidget();
         this.setupVapiEventListeners();
         this.isInitialized = true;
         this.updateStatus("🎤 Click to start voice control!");
+        
       } catch (error) {
         console.error('Vapi initialization error:', error);
         this.updateStatus("❌ Voice setup failed");
       }
     }
 
-    createCustomWidget() {
-      const widget = document.createElement('div');
-      widget.id = 'voxcraft-voice-widget';
-      widget.style.cssText = \`
-        position: fixed;
-        \${BOT_CONFIG.position === 'bottom-left' ? 'left: 24px;' : 'right: 24px;'}
-        bottom: 24px;
-        z-index: 999999;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      \`;
-
-      const isDark = BOT_CONFIG.theme === 'dark';
-      
-      const widgetHTML = \`
-        <style>
-          .voxcraft-widget-btn {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            background: \${isDark 
-              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(139, 92, 246, 0.9))'
-              : 'linear-gradient(135deg, rgb(59, 130, 246), rgb(139, 92, 246))'};
-            backdrop-filter: blur(20px);
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-          }
-          .voxcraft-widget-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 0 8px rgba(59, 130, 246, 0.2);
-          }
-          .voxcraft-widget-btn.active {
-            animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-          }
-          .voxcraft-widget-btn.listening {
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(16, 185, 129, 0.9));
-            animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-          }
-          .voxcraft-widget-btn.speaking {
-            background: linear-gradient(135deg, rgba(249, 115, 22, 0.9), rgba(234, 88, 12, 0.9));
-          }
-          @keyframes pulse-ring {
-            0% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 0 rgba(59, 130, 246, 0.7); }
-            50% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 12px rgba(59, 130, 246, 0); }
-            100% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 0 rgba(59, 130, 246, 0); }
-          }
-          .voxcraft-icon {
-            width: 28px;
-            height: 28px;
-            color: white;
-            position: relative;
-            z-index: 2;
-            transition: transform 0.3s ease;
-          }
-          .voxcraft-widget-btn:hover .voxcraft-icon {
-            transform: scale(1.1);
-          }
-          .voxcraft-visualizer {
-            position: absolute;
-            bottom: 100%;
-            \${BOT_CONFIG.position === 'bottom-left' ? 'left: 0;' : 'right: 0;'}
-            margin-bottom: 12px;
-            background: \${isDark
-              ? 'rgba(30, 30, 46, 0.95)'
-              : 'rgba(255, 255, 255, 0.95)'};
-            backdrop-filter: blur(20px);
-            border: 1px solid \${isDark
-              ? 'rgba(255, 255, 255, 0.1)'
-              : 'rgba(0, 0, 0, 0.1)'};
-            border-radius: 16px;
-            padding: 16px 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            display: none;
-            flex-direction: column;
-            gap: 12px;
-            min-width: 240px;
-            opacity: 0;
-            transform: translateY(8px);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          }
-          .voxcraft-visualizer.show {
-            display: flex;
-            opacity: 1;
-            transform: translateY(0);
-          }
-          .voxcraft-status {
-            font-size: 13px;
-            font-weight: 500;
-            color: \${isDark ? '#e5e7eb' : '#1f2937'};
-            text-align: center;
-          }
-          .voxcraft-bars {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            height: 32px;
-          }
-          .voxcraft-bar {
-            width: 4px;
-            height: 8px;
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-            border-radius: 2px;
-            animation: wave 1s ease-in-out infinite;
-          }
-          .voxcraft-bar:nth-child(2) { animation-delay: 0.1s; }
-          .voxcraft-bar:nth-child(3) { animation-delay: 0.2s; }
-          .voxcraft-bar:nth-child(4) { animation-delay: 0.3s; }
-          .voxcraft-bar:nth-child(5) { animation-delay: 0.4s; }
-          @keyframes wave {
-            0%, 100% { height: 8px; }
-            50% { height: 24px; }
-          }
-          
-          .voxcraft-branding {
-            position: fixed;
-            \${BOT_CONFIG.position === 'bottom-left' ? 'left: 24px;' : 'right: 24px;'}
-            bottom: 4px;
-            background: \${isDark 
-              ? 'rgba(30, 30, 46, 0.9)' 
-              : 'rgba(255, 255, 255, 0.9)'};
-            backdrop-filter: blur(8px);
-            border: 1px solid \${isDark 
-              ? 'rgba(255, 255, 255, 0.08)' 
-              : 'rgba(0, 0, 0, 0.08)'};
-            border-radius: 6px;
-            padding: 4px 8px;
-            font-size: 9px;
-            font-weight: 500;
-            color: \${isDark ? '#9ca3af' : '#6b7280'};
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-            z-index: 999998;
-            transition: all 0.3s ease;
-            white-space: nowrap;
-          }
-          
-          .voxcraft-branding-link {
-            color: \${isDark ? '#60a5fa' : '#3b82f6'};
-            text-decoration: none;
-            font-weight: 600;
-            transition: color 0.2s ease;
-          }
-          
-          .voxcraft-branding-link:hover {
-            color: \${isDark ? '#93c5fd' : '#2563eb'};
-            text-decoration: underline;
-          }
-        </style>
-        
-        <button class="voxcraft-widget-btn" id="voxcraft-btn" aria-label="Voice Assistant">
-          <svg class="voxcraft-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-          </svg>
-        </button>
-        
-        <div class="voxcraft-visualizer" id="voxcraft-visualizer">
-          <div class="voxcraft-status" id="voxcraft-status">Ready to assist</div>
-          <div class="voxcraft-bars">
-            <div class="voxcraft-bar"></div>
-            <div class="voxcraft-bar"></div>
-            <div class="voxcraft-bar"></div>
-            <div class="voxcraft-bar"></div>
-            <div class="voxcraft-bar"></div>
-          </div>
-        </div>
-      \`;
-
-      widget.innerHTML = widgetHTML;
-      document.body.appendChild(widget);
-      
-      // Create and append branding
-      const branding = document.createElement('div');
-      branding.className = 'voxcraft-branding';
-      branding.innerHTML = \`
-        Powered by <a href="https://anvevoice.app/" 
-                       target="_blank" 
-                       rel="noopener noreferrer" 
-                       class="voxcraft-branding-link">AnveVoice</a>
-      \`;
-      document.body.appendChild(branding);
-
-      this.widgetBtn = document.getElementById('voxcraft-btn');
-      this.visualizer = document.getElementById('voxcraft-visualizer');
-      this.widgetStatusEl = document.getElementById('voxcraft-status');
-
-      this.widgetBtn.addEventListener('click', () => this.toggleCall());
-    }
-
-    // Toggle call state based on vapi SDK instance
-    async toggleCall() {
-      if (this.isCallActive || this.vapiWidget.started) {
-        this.endCall();
-      } else {
-        await this.startCall();
-      }
-    }
-
-    async startCall() {
-      try {
-        this.updateWidgetState('active', 'Connecting...');
-        this.visualizer.classList.add('show');
-        
-        // Trigger the hidden default widget to start the call
-        const hiddenBtn = document.querySelector('.vapi-btn');
-        if (hiddenBtn) {
-          hiddenBtn.click();
-        }
-        
-        this.isCallActive = true;
-        this.updateWidgetState('listening', 'Listening...');
-      } catch (error) {
-        console.error('Start call failed:', error);
-        this.updateWidgetState('idle', 'Failed to start');
-        setTimeout(() => {
-          this.visualizer.classList.remove('show');
-        }, 2000);
-      }
-    }
-
-    endCall() {
-      try {
-        // Trigger the hidden default widget to end the call
-        const hiddenBtn = document.querySelector('.vapi-btn');
-        if (hiddenBtn) {
-          hiddenBtn.click();
-        }
-        
-        this.isCallActive = false;
-        this.updateWidgetState('idle', 'Call ended');
-        setTimeout(() => {
-          this.visualizer.classList.remove('show');
-        }, 2000);
-      } catch (error) {
-        console.error('End call failed:', error);
-      }
-    }
-
-    updateWidgetState(state, statusText) {
-      if (this.widgetBtn) {
-        this.widgetBtn.className = \`voxcraft-widget-btn \${state}\`;
-      }
-      if (this.widgetStatusEl) {
-        this.widgetStatusEl.textContent = statusText;
-      }
-    }
-
-    // Enhanced call ID extraction with comprehensive VAPI widget inspection and multi-ID registration
-    async handleCallIdExtracted(vapiCallId) {
-      if (!vapiCallId || this.currentCallId === vapiCallId) {
-        console.log('⏭️ Skipping - call ID already registered or invalid:', vapiCallId);
-        return;
-      }
-      
-      console.log('✅ Valid VAPI Call ID extracted:', vapiCallId);
-      this.currentCallId = vapiCallId;
-      
-      // Clean up discovery channel since we have the call ID
-      if (this.discoveryChannel) {
-        this.discoveryChannel.unsubscribe();
-        this.discoveryChannel = null;
-      }
-      
-      // Register session mapping with backend
-      await this.registerSessionMapping([vapiCallId]);
-      
-      // Subscribe to isolated channel
-      this.subscribeToCallChannelWithFallback(vapiCallId);
-      this.updateStatus('🔗 Session isolated - ready for commands!');
-    }
-
-    attemptCallIdExtraction(attempt = 0) {
-      // Skip if we already have a registered call ID
-      if (this.currentCallId) {
-        console.log('⏭️ Skipping extraction - already registered:', this.currentCallId);
-        return;
-      }
-      
-      const maxAttempts = 8;
-      const delays = [500, 1000, 2000, 3000, 4000, 5000, 6000, 8000]; // Longer delays to wait for call.id
-      
-      console.log('🔍 Attempting call ID extraction (attempt ' + (attempt + 1) + '/' + maxAttempts + ')');
-      
-      // Helper function to validate UUID format
-      const isValidUUID = (id) => {
-        if (!id || typeof id !== 'string') return false;
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-      };
-      
-      try {
-        let vapiCallId = null;
-        
-        // Strategy 1: PRIORITIZE call.id (the actual VAPI call ID) - UUID format only
-        const primaryIds = [
-          this.vapiWidget?.call?.id,        // ← This is the real VAPI call ID!
-          this.vapiWidget?.callId,
-          this.vapiWidget?._callId,
-        ].filter(id => isValidUUID(id));
-        
-        if (primaryIds.length > 0) {
-          vapiCallId = primaryIds[0];
-          console.log('🎯 Found UUID call ID from primary sources:', vapiCallId);
-        }
-        
-        // Strategy 2: Nested objects - UUID format only
-        if (!vapiCallId) {
-          const nestedIds = [
-            this.vapiWidget?.call?.vapiCallId,
-            this.vapiWidget?.activeCall?.id,
-            this.vapiWidget?.activeCall?.callId,
-            this.vapiWidget?.currentCall?.id,
-            this.vapiWidget?.currentCall?.callId,
-          ].filter(id => isValidUUID(id));
-          
-          if (nestedIds.length > 0) {
-            vapiCallId = nestedIds[0];
-            console.log('🎯 Found UUID call ID from nested objects:', vapiCallId);
-          }
-        }
-        
-        // Strategy 3: Deep search for UUID-format IDs only
-        if (!vapiCallId && this.vapiWidget) {
-          const searchForCallId = (obj, path = '', depth = 0, maxDepth = 4) => {
-            if (depth > maxDepth || !obj || typeof obj !== 'object') return [];
-            
-            const results = [];
-            
-            for (const key in obj) {
-              try {
-                const value = obj[key];
-                const currentPath = path ? path + '.' + key : key;
-                
-                if (typeof value === 'string' && isValidUUID(value)) {
-                  results.push({
-                    id: value,
-                    path: currentPath,
-                    isUUID: true
-                  });
-                } else if (typeof value === 'object' && value !== null) {
-                  results.push(...searchForCallId(value, currentPath, depth + 1, maxDepth));
-                }
-              } catch (e) {
-                // Skip properties that throw errors
-              }
-            }
-            
-            return results;
-          };
-          
-          const searchResults = searchForCallId(this.vapiWidget);
-          
-          if (searchResults.length > 0) {
-            vapiCallId = searchResults[0].id;
-            console.log('🎯 Found UUID call ID via deep search:', vapiCallId, 'from', searchResults[0].path);
-          }
-        }
-        
-        // CRITICAL: Validate UUID format before accepting
-        if (vapiCallId && !isValidUUID(vapiCallId)) {
-          console.warn('⚠️ Ignoring non-UUID call ID:', vapiCallId);
-          vapiCallId = null;
-        }
-        
-        // If we found a valid UUID call ID, register the session
-        if (vapiCallId) {
-          console.log('✅ Valid UUID Call ID extracted:', vapiCallId);
-          this.handleCallIdExtracted(vapiCallId);
-          return; // Stop attempting extraction
-        }
-        
-        // If we haven't found a UUID call ID yet, retry with delay
-        if (attempt < maxAttempts - 1) {
-          console.warn('⚠️ No UUID call ID found yet, will retry in ' + delays[attempt] + 'ms...');
-          setTimeout(() => this.attemptCallIdExtraction(attempt + 1), delays[attempt]);
-        } else {
-          console.error('❌ Failed to extract UUID call ID after all attempts - call.id may not be available');
-          this.updateStatus('⚠️ Session setup incomplete - try restarting call');
-        }
-        
-      } catch (error) {
-        console.error('❌ Error in call ID extraction attempt', attempt + 1, ':', error);
-        
-        // Try again if we have attempts left
-        if (attempt < maxAttempts - 1) {
-          setTimeout(() => {
-            this.attemptCallIdExtraction(attempt + 1);
-          }, delays[attempt]);
-        }
-      }
-    }
-
     setupVapiEventListeners() {
-      console.log('🔧 Setting up VAPI event listeners...');
-      
-      // Call started - Extract callId immediately from Vapi SDK
+      // Call started - Wait for backend discovery
       this.vapiWidget.on("call-start", (event) => {
-        console.log('📞 VAPI call-start event fired!', event);
-        this.updateStatus("🎤 Voice active - setting up session...");
-        this.updateWidgetState('listening', 'Listening...');
+        console.log('📞 VAPI call started, waiting for backend call ID discovery...');
+        this.updateStatus("🎤 Voice active - discovering session...");
         
-        // CRITICAL FIX: Extract call ID directly from event payload
-        if (event && (event.id || event.call?.id)) {
-          const vapiCallId = event.id || event.call?.id;
-          console.log('🎯 Extracted VAPI Call ID from event:', vapiCallId);
-          this.handleCallIdExtracted(vapiCallId);
-        } else {
-          console.warn('⚠️ No call ID in event, falling back to widget inspection');
-          this.attemptCallIdExtraction(0);
-        }
+        // The backend will send us the call ID via discovery channel
+        // No need to extract it here since frontend can't reliably access it
       });
-
-      // CRITICAL FIX: Alternative triggers for session registration
-      this.vapiWidget.on("call-started", (event) => {
-        console.log('📞 VAPI call-started event fired!', event);
-        if (event && (event.id || event.call?.id)) {
-          const vapiCallId = event.id || event.call?.id;
-          this.handleCallIdExtracted(vapiCallId);
-        } else {
-          this.attemptCallIdExtraction(0);
-        }
-      });
-
-      this.vapiWidget.on("connected", (event) => {
-        console.log('📞 VAPI connected event fired!', event);
-        if (event && (event.id || event.call?.id)) {
-          const vapiCallId = event.id || event.call?.id;
-          this.handleCallIdExtracted(vapiCallId);
-        } else {
-          this.attemptCallIdExtraction(0);
-        }
-      });
-
-      // Fallback: Monitor VAPI widget state changes
-      const monitorVapiState = () => {
-        if (this.vapiWidget && (this.vapiWidget.started || this.vapiWidget.callId)) {
-          console.log('📞 VAPI state detected as started, triggering extraction');
-          this.attemptCallIdExtraction(0);
-        }
-      };
-
-      // Check state every 500ms for first 10 seconds after widget creation
-      let stateCheckCount = 0;
-      const stateMonitor = setInterval(() => {
-        monitorVapiState();
-        stateCheckCount++;
-        if (stateCheckCount >= 20) { // 10 seconds
-          clearInterval(stateMonitor);
-        }
-      }, 500);
 
       // Call ended - Clean up session
       this.vapiWidget.on("call-end", () => {
         console.log('📞 VAPI call ended');
         this.currentCallId = null;
-        this.isCallActive = false;
         
         if (this.realtimeChannel) {
           this.realtimeChannel.unsubscribe();
@@ -1065,54 +256,27 @@ if (!window.supabase) {
           this.discoveryChannel = null;
         }
         
-        if (this.mappingChannel) {
-          this.mappingChannel.unsubscribe();
-          this.mappingChannel = null;
-        }
-        
         this.updateStatus("🔄 Voice ended");
-        this.updateWidgetState('idle', 'Call ended');
-        setTimeout(() => {
-          if (this.visualizer) {
-            this.visualizer.classList.remove('show');
-          }
-        }, 2000);
-      });
-
-      // User speaking
-      this.vapiWidget.on("speech-start", () => {
-        console.log('🎤 User speaking');
-        this.updateStatus("🎤 Listening...");
-        this.updateWidgetState('listening', 'Listening...');
-      });
-
-      // User stopped speaking
-      this.vapiWidget.on("speech-end", () => {
-        console.log('🎤 User stopped speaking');
-        this.updateStatus("🤖 Processing...");
-        this.updateWidgetState('active', 'Processing...');
       });
 
       // Assistant speaking
-      this.vapiWidget.on("message", (message) => {
-        if (message?.type === 'transcript' && message?.transcriptType === 'partial') {
-          console.log('🤖 Assistant speaking');
-          this.updateStatus("🤖 Assistant responding...");
-          this.updateWidgetState('speaking', 'Speaking...');
-        }
+      this.vapiWidget.on("speech-start", () => {
+        console.log('🤖 Assistant speaking');
+        this.updateStatus("🤖 Assistant responding...");
+      });
+
+      this.vapiWidget.on("speech-end", () => {
+        console.log('🤖 Assistant finished');
+        this.updateStatus("🎤 Ready for commands");
       });
 
       // Error handling
       this.vapiWidget.on("error", (error) => {
         console.error('❌ VAPI error:', error);
         this.updateStatus("❌ Voice error");
-        this.updateWidgetState('idle', 'Error occurred');
-        setTimeout(() => {
-          if (this.visualizer) {
-            this.visualizer.classList.remove('show');
-          }
-        }, 3000);
       });
+
+      // NOTE: Removed transcript parsing - all commands come via realtime now
     }
 
     // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime
@@ -2152,12 +1316,6 @@ if (!window.supabase) {
     destroy() {
       if (this.realtimeChannel) {
         this.realtimeChannel.unsubscribe();
-      }
-      if (this.discoveryChannel) {
-        this.discoveryChannel.unsubscribe();
-      }
-      if (this.mappingChannel) {
-        this.mappingChannel.unsubscribe();
       }
       if (this.vapiWidget) {
         // VAPI cleanup if needed
