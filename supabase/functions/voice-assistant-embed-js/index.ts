@@ -57,6 +57,10 @@ if (!window.supabase) {
       this.statusEl = null;
       this.assistantId = null;
       this.currentCallId = null;
+      this.isCallActive = false;
+      this.widgetBtn = null;
+      this.visualizer = null;
+      this.widgetStatusEl = null;
       
       this.init();
     }
@@ -196,9 +200,16 @@ if (!window.supabase) {
       const script = document.createElement('script');
       script.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
       script.async = true;
+      script.defer = true;
 
       script.onload = () => {
-        this.initializeVapi();
+        setTimeout(() => {
+          if (window.vapiSDK) {
+            this.initializeVapi();
+          } else {
+            this.updateStatus("❌ Voice SDK failed to load");
+          }
+        }, 100);
       };
 
       script.onerror = () => {
@@ -218,16 +229,229 @@ if (!window.supabase) {
         this.vapiWidget = window.vapiSDK.run({
           apiKey: BOT_CONFIG.apiKey,
           assistant: BOT_CONFIG.assistantId,
-          config: config
+          config
         });
 
+        // Hide default button (we provide our own custom UI)
+        const hideStyle = document.createElement('style');
+        hideStyle.textContent = '.vapi-btn{display:none!important}';
+        document.head.appendChild(hideStyle);
+
+        this.createCustomWidget();
         this.setupVapiEventListeners();
         this.isInitialized = true;
         this.updateStatus("🎤 Click to start voice control!");
-        
       } catch (error) {
         console.error('Vapi initialization error:', error);
         this.updateStatus("❌ Voice setup failed");
+      }
+    }
+
+    createCustomWidget() {
+      const widget = document.createElement('div');
+      widget.id = 'voxcraft-voice-widget';
+      widget.style.cssText = \`
+        position: fixed;
+        \${BOT_CONFIG.position === 'bottom-left' ? 'left: 24px;' : 'right: 24px;'}
+        bottom: 24px;
+        z-index: 999999;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      \`;
+
+      const isDark = BOT_CONFIG.theme === 'dark';
+      
+      const widgetHTML = \`
+        <style>
+          .voxcraft-widget-btn {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: \${isDark 
+              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(139, 92, 246, 0.9))'
+              : 'linear-gradient(135deg, rgb(59, 130, 246), rgb(139, 92, 246))'};
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+          }
+          .voxcraft-widget-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 0 8px rgba(59, 130, 246, 0.2);
+          }
+          .voxcraft-widget-btn.active {
+            animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+          .voxcraft-widget-btn.listening {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(16, 185, 129, 0.9));
+            animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+          .voxcraft-widget-btn.speaking {
+            background: linear-gradient(135deg, rgba(249, 115, 22, 0.9), rgba(234, 88, 12, 0.9));
+          }
+          @keyframes pulse-ring {
+            0% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            50% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 12px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 0 rgba(59, 130, 246, 0); }
+          }
+          .voxcraft-icon {
+            width: 28px;
+            height: 28px;
+            color: white;
+            position: relative;
+            z-index: 2;
+            transition: transform 0.3s ease;
+          }
+          .voxcraft-widget-btn:hover .voxcraft-icon {
+            transform: scale(1.1);
+          }
+          .voxcraft-visualizer {
+            position: absolute;
+            bottom: 100%;
+            \${BOT_CONFIG.position === 'bottom-left' ? 'left: 0;' : 'right: 0;'}
+            margin-bottom: 12px;
+            background: \${isDark
+              ? 'rgba(30, 30, 46, 0.95)'
+              : 'rgba(255, 255, 255, 0.95)'};
+            backdrop-filter: blur(20px);
+            border: 1px solid \${isDark
+              ? 'rgba(255, 255, 255, 0.1)'
+              : 'rgba(0, 0, 0, 0.1)'};
+            border-radius: 16px;
+            padding: 16px 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+            min-width: 240px;
+            opacity: 0;
+            transform: translateY(8px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          }
+          .voxcraft-visualizer.show {
+            display: flex;
+            opacity: 1;
+            transform: translateY(0);
+          }
+          .voxcraft-status {
+            font-size: 13px;
+            font-weight: 500;
+            color: \${isDark ? '#e5e7eb' : '#1f2937'};
+            text-align: center;
+          }
+          .voxcraft-bars {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 32px;
+          }
+          .voxcraft-bar {
+            width: 4px;
+            height: 8px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border-radius: 2px;
+            animation: wave 1s ease-in-out infinite;
+          }
+          .voxcraft-bar:nth-child(2) { animation-delay: 0.1s; }
+          .voxcraft-bar:nth-child(3) { animation-delay: 0.2s; }
+          .voxcraft-bar:nth-child(4) { animation-delay: 0.3s; }
+          .voxcraft-bar:nth-child(5) { animation-delay: 0.4s; }
+          @keyframes wave {
+            0%, 100% { height: 8px; }
+            50% { height: 24px; }
+          }
+        </style>
+        
+        <button class="voxcraft-widget-btn" id="voxcraft-btn" aria-label="Voice Assistant">
+          <svg class="voxcraft-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+        </button>
+        
+        <div class="voxcraft-visualizer" id="voxcraft-visualizer">
+          <div class="voxcraft-status" id="voxcraft-status">Ready to assist</div>
+          <div class="voxcraft-bars">
+            <div class="voxcraft-bar"></div>
+            <div class="voxcraft-bar"></div>
+            <div class="voxcraft-bar"></div>
+            <div class="voxcraft-bar"></div>
+            <div class="voxcraft-bar"></div>
+          </div>
+        </div>
+      \`;
+
+      widget.innerHTML = widgetHTML;
+      document.body.appendChild(widget);
+
+      this.widgetBtn = document.getElementById('voxcraft-btn');
+      this.visualizer = document.getElementById('voxcraft-visualizer');
+      this.widgetStatusEl = document.getElementById('voxcraft-status');
+
+      this.widgetBtn.addEventListener('click', () => this.toggleCall());
+    }
+
+    // Toggle call state based on vapi SDK instance
+    async toggleCall() {
+      if (this.isCallActive || this.vapiWidget.started) {
+        this.endCall();
+      } else {
+        await this.startCall();
+      }
+    }
+
+    async startCall() {
+      try {
+        this.updateWidgetState('active', 'Connecting...');
+        this.visualizer.classList.add('show');
+        
+        // Trigger the hidden default widget to start the call
+        const hiddenBtn = document.querySelector('.vapi-btn');
+        if (hiddenBtn) {
+          hiddenBtn.click();
+        }
+        
+        this.isCallActive = true;
+        this.updateWidgetState('listening', 'Listening...');
+      } catch (error) {
+        console.error('Start call failed:', error);
+        this.updateWidgetState('idle', 'Failed to start');
+        setTimeout(() => {
+          this.visualizer.classList.remove('show');
+        }, 2000);
+      }
+    }
+
+    endCall() {
+      try {
+        // Trigger the hidden default widget to end the call
+        const hiddenBtn = document.querySelector('.vapi-btn');
+        if (hiddenBtn) {
+          hiddenBtn.click();
+        }
+        
+        this.isCallActive = false;
+        this.updateWidgetState('idle', 'Call ended');
+        setTimeout(() => {
+          this.visualizer.classList.remove('show');
+        }, 2000);
+      } catch (error) {
+        console.error('End call failed:', error);
+      }
+    }
+
+    updateWidgetState(state, statusText) {
+      if (this.widgetBtn) {
+        this.widgetBtn.className = \`voxcraft-widget-btn \${state}\`;
+      }
+      if (this.widgetStatusEl) {
+        this.widgetStatusEl.textContent = statusText;
       }
     }
 
@@ -236,15 +460,14 @@ if (!window.supabase) {
       this.vapiWidget.on("call-start", (event) => {
         console.log('📞 VAPI call started, waiting for backend call ID discovery...');
         this.updateStatus("🎤 Voice active - discovering session...");
-        
-        // The backend will send us the call ID via discovery channel
-        // No need to extract it here since frontend can't reliably access it
+        this.updateWidgetState('listening', 'Listening...');
       });
 
       // Call ended - Clean up session
       this.vapiWidget.on("call-end", () => {
         console.log('📞 VAPI call ended');
         this.currentCallId = null;
+        this.isCallActive = false;
         
         if (this.realtimeChannel) {
           this.realtimeChannel.unsubscribe();
@@ -257,26 +480,48 @@ if (!window.supabase) {
         }
         
         this.updateStatus("🔄 Voice ended");
+        this.updateWidgetState('idle', 'Call ended');
+        setTimeout(() => {
+          if (this.visualizer) {
+            this.visualizer.classList.remove('show');
+          }
+        }, 2000);
+      });
+
+      // User speaking
+      this.vapiWidget.on("speech-start", () => {
+        console.log('🎤 User speaking');
+        this.updateStatus("🎤 Listening...");
+        this.updateWidgetState('listening', 'Listening...');
+      });
+
+      // User stopped speaking
+      this.vapiWidget.on("speech-end", () => {
+        console.log('🎤 User stopped speaking');
+        this.updateStatus("🤖 Processing...");
+        this.updateWidgetState('active', 'Processing...');
       });
 
       // Assistant speaking
-      this.vapiWidget.on("speech-start", () => {
-        console.log('🤖 Assistant speaking');
-        this.updateStatus("🤖 Assistant responding...");
-      });
-
-      this.vapiWidget.on("speech-end", () => {
-        console.log('🤖 Assistant finished');
-        this.updateStatus("🎤 Ready for commands");
+      this.vapiWidget.on("message", (message) => {
+        if (message?.type === 'transcript' && message?.transcriptType === 'partial') {
+          console.log('🤖 Assistant speaking');
+          this.updateStatus("🤖 Assistant responding...");
+          this.updateWidgetState('speaking', 'Speaking...');
+        }
       });
 
       // Error handling
       this.vapiWidget.on("error", (error) => {
         console.error('❌ VAPI error:', error);
         this.updateStatus("❌ Voice error");
+        this.updateWidgetState('idle', 'Error occurred');
+        setTimeout(() => {
+          if (this.visualizer) {
+            this.visualizer.classList.remove('show');
+          }
+        }, 3000);
       });
-
-      // NOTE: Removed transcript parsing - all commands come via realtime now
     }
 
     // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime
