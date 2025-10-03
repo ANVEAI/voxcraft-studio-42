@@ -188,6 +188,41 @@ if (!window.supabase) {
             this.updateStatus('🔗 Session isolated - ready for commands!');
           }
         })
+        .on('broadcast', { event: 'session_discovery_request' }, (payload) => {
+          console.log('🔍 Received session discovery request:', payload);
+          const { vapiCallId, functionCall } = payload.payload;
+          
+          // Check if this matches our current VAPI call
+          const isMatchingCall = this.vapiWidget && (
+            this.vapiWidget.callId === vapiCallId ||
+            this.vapiWidget._callId === vapiCallId ||
+            this.vapiWidget?.call?.id === vapiCallId ||
+            this.vapiWidget?.activeCall?.id === vapiCallId ||
+            this.vapiWidget?.currentCall?.id === vapiCallId ||
+            this.vapiWidget?.session?.callId === vapiCallId ||
+            this.vapiWidget?.webCall?.id === vapiCallId
+          );
+          
+          if (isMatchingCall) {
+            console.log('✅ Matching call found, registering session mapping for:', vapiCallId);
+            this.currentCallId = vapiCallId;
+            
+            // Register session mapping immediately
+            this.registerSessionMapping(vapiCallId);
+            
+            // Set up session-specific channel
+            this.subscribeToCallChannelWithFallback(vapiCallId);
+            this.updateStatus('🔗 Session isolated - ready for commands!');
+            
+            // Execute the pending function call immediately
+            if (functionCall) {
+              console.log('⚡ Executing pending function call:', functionCall);
+              this.executeFunctionCall(functionCall);
+            }
+          } else {
+            console.log('❌ Call ID does not match current session:', vapiCallId);
+          }
+        })
         .subscribe((status) => {
           console.log('🔍 Discovery channel status:', status);
         });
@@ -747,15 +782,46 @@ if (!window.supabase) {
     }
 
     setupVapiEventListeners() {
+      console.log('🔧 Setting up VAPI event listeners...');
+      
       // Call started - Extract callId immediately from Vapi SDK
       this.vapiWidget.on("call-start", (event) => {
-        console.log('📞 VAPI call started');
+        console.log('📞 VAPI call-start event fired!');
         this.updateStatus("🎤 Voice active - setting up session...");
         this.updateWidgetState('listening', 'Listening...');
         
         // ENHANCED: Multi-attempt call ID extraction with progressive delays
         this.attemptCallIdExtraction(0);
       });
+
+      // CRITICAL FIX: Alternative triggers for session registration
+      this.vapiWidget.on("call-started", (event) => {
+        console.log('📞 VAPI call-started event fired!');
+        this.attemptCallIdExtraction(0);
+      });
+
+      this.vapiWidget.on("connected", (event) => {
+        console.log('📞 VAPI connected event fired!');
+        this.attemptCallIdExtraction(0);
+      });
+
+      // Fallback: Monitor VAPI widget state changes
+      const monitorVapiState = () => {
+        if (this.vapiWidget && (this.vapiWidget.started || this.vapiWidget.callId)) {
+          console.log('📞 VAPI state detected as started, triggering extraction');
+          this.attemptCallIdExtraction(0);
+        }
+      };
+
+      // Check state every 500ms for first 10 seconds after widget creation
+      let stateCheckCount = 0;
+      const stateMonitor = setInterval(() => {
+        monitorVapiState();
+        stateCheckCount++;
+        if (stateCheckCount >= 20) { // 10 seconds
+          clearInterval(stateMonitor);
+        }
+      }, 500);
 
       // Call ended - Clean up session
       this.vapiWidget.on("call-end", () => {

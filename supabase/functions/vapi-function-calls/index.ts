@@ -185,29 +185,68 @@ serve(async (req) => {
       console.warn('[VAPI Function Call] Total mappings:', sessionMappings.size);
       console.warn('[VAPI Function Call] Active listeners:', Array.from(activeListeners.keys()));
       
-      // Fallback: broadcast to all sessions for this call (backwards compatibility)
-      const channelName = `vapi:call:${vapiCallId}`;
-      console.log('[VAPI Function Call] ⚠️ Using fallback broadcast to all sessions:', { functionName, channelName, vapiCallId, params });
+      // ENHANCED FALLBACK: Try session discovery via assistant-wide broadcast
+      console.log('[VAPI Function Call] 🔍 Attempting session discovery via assistant broadcast...');
       
-      const functionCallMessage = {
-        functionName,
-        params,
-        callId,
+      const discoveryMessage = {
+        type: 'session_discovery_request',
         vapiCallId,
-        timestamp: new Date().toISOString()
+        functionCall: {
+          functionName,
+          params,
+          callId,
+          timestamp: new Date().toISOString()
+        }
       };
 
-      const channel = supabase.channel(channelName);
-      await channel.send({
-        type: 'broadcast',
-        event: 'function_call',
-        payload: functionCallMessage
-      } as any);
+      // Broadcast discovery request to all sessions for this assistant
+      const assistantId = payload?.message?.assistant?.id || payload?.assistant?.id;
+      if (assistantId) {
+        const discoveryChannel = `vapi:discovery:${assistantId}`;
+        console.log('[VAPI Function Call] 📡 Broadcasting session discovery request:', discoveryChannel);
+        
+        const discoveryChannelInstance = supabase.channel(discoveryChannel);
+        await discoveryChannelInstance.send({
+          type: 'broadcast',
+          event: 'session_discovery_request',
+          payload: discoveryMessage
+        } as any);
 
-      return new Response(
-        JSON.stringify({ ok: true, status: 'broadcasted_no_session', channel: channelName, functionName, callId, vapiCallId }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-      );
+        // Wait briefly for potential session response
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Check if a session was discovered and registered
+        sessionId = sessionMappings.get(vapiCallId);
+        if (sessionId) {
+          console.log('[VAPI Function Call] ✅ Session discovered via broadcast:', sessionId.substr(0, 8) + '...');
+        }
+      }
+
+      // If still no session, fall back to call-wide broadcast
+      if (!sessionId) {
+        const channelName = `vapi:call:${vapiCallId}`;
+        console.log('[VAPI Function Call] ⚠️ Using final fallback broadcast to all sessions:', { functionName, channelName, vapiCallId, params });
+        
+        const functionCallMessage = {
+          functionName,
+          params,
+          callId,
+          vapiCallId,
+          timestamp: new Date().toISOString()
+        };
+
+        const channel = supabase.channel(channelName);
+        await channel.send({
+          type: 'broadcast',
+          event: 'function_call',
+          payload: functionCallMessage
+        } as any);
+
+        return new Response(
+          JSON.stringify({ ok: true, status: 'broadcasted_no_session', channel: channelName, functionName, callId, vapiCallId }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        );
+      }
     }
 
     // Include session ID for true per-user isolation
