@@ -557,22 +557,23 @@ if (!window.supabase) {
           .voxcraft-branding {
             position: fixed;
             \${BOT_CONFIG.position === 'bottom-left' ? 'left: 24px;' : 'right: 24px;'}
-            bottom: 100px;
+            bottom: 4px;
             background: \${isDark 
-              ? 'rgba(30, 30, 46, 0.95)' 
-              : 'rgba(255, 255, 255, 0.95)'};
-            backdrop-filter: blur(10px);
+              ? 'rgba(30, 30, 46, 0.9)' 
+              : 'rgba(255, 255, 255, 0.9)'};
+            backdrop-filter: blur(8px);
             border: 1px solid \${isDark 
-              ? 'rgba(255, 255, 255, 0.1)' 
-              : 'rgba(0, 0, 0, 0.1)'};
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 11px;
+              ? 'rgba(255, 255, 255, 0.08)' 
+              : 'rgba(0, 0, 0, 0.08)'};
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 9px;
             font-weight: 500;
             color: \${isDark ? '#9ca3af' : '#6b7280'};
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
             z-index: 999998;
             transition: all 0.3s ease;
+            white-space: nowrap;
           }
           
           .voxcraft-branding-link {
