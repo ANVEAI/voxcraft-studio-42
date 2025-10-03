@@ -193,35 +193,82 @@ if (!window.supabase) {
         });
     }
 
-    // VAPI-Native Session Isolation: Subscribe to call-specific channel with session ID
-    subscribeToCallChannel(callId) {
+    // VAPI-Native Session Isolation: Subscribe to both general and isolated channels during grace period
+    subscribeToCallChannelWithFallback(callId) {
+      const isolatedChannelName = \`vapi:call:\${callId}:\${this.sessionId}\`;
+      const generalChannelName = \`vapi:call:\${callId}\`;
+      
+      console.log('📡 Setting up dual-channel subscription for race condition handling');
+      console.log('🔐 Isolated channel:', isolatedChannelName);
+      console.log('🌐 General channel (fallback):', generalChannelName);
+      
+      const processedEvents = new Set(); // Dedupe events
+      let isolatedChannelWorking = false;
+      
+      const handleFunctionCall = (payload, source) => {
+        const eventKey = \`\${payload.payload?.callId}-\${payload.payload?.functionName}-\${payload.payload?.timestamp}\`;
+        
+        if (processedEvents.has(eventKey)) {
+          console.log('⏭️ Skipping duplicate event from', source);
+          return;
+        }
+        
+        processedEvents.add(eventKey);
+        console.log(\`📡 Processing function call from \${source}:\`, payload.payload);
+        
+        if (source === 'isolated') {
+          isolatedChannelWorking = true;
+        }
+        
+        this.executeFunctionCall(payload.payload);
+      };
+      
+      // Subscribe to ISOLATED channel (primary)
       if (this.realtimeChannel) {
         this.realtimeChannel.unsubscribe();
       }
-
-      // Include session ID for true per-user isolation
-      const channelName = \`vapi:call:\${callId}:\${this.sessionId}\`;
-      console.log('📡 Subscribing to session-specific channel:', channelName);
-      console.log('🔐 Session isolation enabled - this session only:', this.sessionId);
       
       this.realtimeChannel = this.supabaseClient
-        .channel(channelName)
+        .channel(isolatedChannelName)
         .on('broadcast', { event: 'function_call' }, (payload) => {
-          console.log('📡 Received session-specific function call for session:', this.sessionId);
-          console.log('📡 Function call payload:', payload);
-          this.executeFunctionCall(payload.payload);
+          handleFunctionCall(payload, 'isolated');
         })
         .subscribe((status) => {
-          console.log('Realtime status for', channelName, ':', status);
+          console.log('📡 Isolated channel status:', status, isolatedChannelName);
           if (status === 'SUBSCRIBED') {
-            this.updateStatus('🟢 Connected (Session: ' + this.sessionId.substr(0, 8) + '...)');
+            this.updateStatus('🟢 Connected (Isolated Session: ' + this.sessionId.substr(0, 8) + '...)');
           }
         });
-
-      // Register this session with the backend by broadcasting session mapping
-      this.registerSessionMapping(callId);
       
-      console.log('✅ Session-isolated channel setup complete:', channelName);
+      // Subscribe to GENERAL channel (fallback for grace period)
+      const generalChannel = this.supabaseClient
+        .channel(generalChannelName)
+        .on('broadcast', { event: 'function_call' }, (payload) => {
+          if (!isolatedChannelWorking) {
+            console.log('⚠️ Using general channel fallback');
+            handleFunctionCall(payload, 'general-fallback');
+          }
+        })
+        .subscribe((status) => {
+          console.log('📡 General fallback channel status:', status, generalChannelName);
+        });
+      
+      // Clean up general channel after grace period (3 seconds)
+      setTimeout(() => {
+        if (isolatedChannelWorking) {
+          console.log('✅ Isolated channel working, unsubscribing from general fallback');
+          generalChannel.unsubscribe();
+        } else {
+          console.warn('⚠️ Isolated channel not receiving events, keeping general fallback active');
+        }
+      }, 3000);
+      
+      console.log('✅ Dual-channel setup complete with 3s grace period');
+    }
+    
+    // Legacy method - kept for discovery channel fallback compatibility
+    subscribeToCallChannel(callId) {
+      this.subscribeToCallChannelWithFallback(callId);
     }
 
     // Register call-to-session mapping for backend routing with proper subscription
@@ -596,11 +643,39 @@ if (!window.supabase) {
     }
 
     setupVapiEventListeners() {
-      // Call started - Wait for backend discovery
+      // Call started - Extract callId immediately from Vapi SDK
       this.vapiWidget.on("call-start", (event) => {
-        console.log('📞 VAPI call started, waiting for backend call ID discovery...');
-        this.updateStatus("🎤 Voice active - discovering session...");
+        console.log('📞 VAPI call started');
+        this.updateStatus("🎤 Voice active - setting up session...");
         this.updateWidgetState('listening', 'Listening...');
+        
+        // CRITICAL: Extract callId immediately from Vapi widget to eliminate race condition
+        setTimeout(() => {
+          try {
+            const vapiCallId = this.vapiWidget?.callId || this.vapiWidget?._callId || this.vapiWidget?.call?.id;
+            if (vapiCallId) {
+              console.log('🎯 Call ID extracted from Vapi SDK:', vapiCallId);
+              this.currentCallId = vapiCallId;
+              
+              // Clean up discovery channel since we have the call ID
+              if (this.discoveryChannel) {
+                this.discoveryChannel.unsubscribe();
+                this.discoveryChannel = null;
+              }
+              
+              // Register session mapping IMMEDIATELY
+              this.registerSessionMapping(vapiCallId);
+              
+              // Subscribe to BOTH channels for grace period
+              this.subscribeToCallChannelWithFallback(vapiCallId);
+              this.updateStatus('🔗 Session isolated - ready for commands!');
+            } else {
+              console.warn('⚠️ Could not extract callId from Vapi SDK, waiting for backend discovery');
+            }
+          } catch (error) {
+            console.error('❌ Error extracting callId:', error);
+          }
+        }, 500); // Small delay to allow Vapi SDK to fully initialize
       });
 
       // Call ended - Clean up session

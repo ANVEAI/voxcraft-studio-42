@@ -149,11 +149,38 @@ serve(async (req) => {
       });
     }
 
-    // Look up session ID for this call
-    const sessionId = sessionMappings.get(vapiCallId);
+    // Wait for session mapping with timeout (handles race condition)
+    const waitForMapping = async (callId: string, timeoutMs = 1500): Promise<string | null> => {
+      const startTime = Date.now();
+      const checkInterval = 100; // Check every 100ms
+      
+      while (Date.now() - startTime < timeoutMs) {
+        const sessionId = sessionMappings.get(callId);
+        if (sessionId) {
+          console.log('[VAPI Function Call] ✅ Session mapping found:', {
+            callId,
+            sessionId: sessionId.substr(0, 8) + '...',
+            waitedMs: Date.now() - startTime
+          });
+          return sessionId;
+        }
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      }
+      
+      console.warn('[VAPI Function Call] ⏰ Session mapping timeout after', timeoutMs, 'ms for callId:', callId);
+      return null;
+    };
+    
+    // Look up session ID for this call (with wait)
+    let sessionId = sessionMappings.get(vapiCallId);
     
     if (!sessionId) {
-      console.warn('[VAPI Function Call] ⚠️ No session mapping found for callId:', vapiCallId);
+      console.log('[VAPI Function Call] 🔍 Waiting for session mapping...', vapiCallId);
+      sessionId = await waitForMapping(vapiCallId, 1500);
+    }
+    
+    if (!sessionId) {
+      console.warn('[VAPI Function Call] ⚠️ No session mapping found after wait for callId:', vapiCallId);
       console.warn('[VAPI Function Call] Available mappings:', Array.from(sessionMappings.entries()).map(([k, v]) => [k, v.substr(0, 8) + '...']));
       console.warn('[VAPI Function Call] Total mappings:', sessionMappings.size);
       console.warn('[VAPI Function Call] Active listeners:', Array.from(activeListeners.keys()));
