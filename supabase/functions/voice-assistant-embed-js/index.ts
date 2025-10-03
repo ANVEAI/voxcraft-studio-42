@@ -553,40 +553,6 @@ if (!window.supabase) {
             0%, 100% { height: 8px; }
             50% { height: 24px; }
           }
-          .voxcraft-branding {
-            position: absolute;
-            bottom: -40px;
-            ${BOT_CONFIG.position === 'bottom-left' ? 'left: 0;' : 'right: 0;'}
-            background: ${isDark
-              ? 'rgba(30, 30, 46, 0.95)'
-              : 'rgba(255, 255, 255, 0.95)'};
-            backdrop-filter: blur(10px);
-            border: 1px solid ${isDark
-              ? 'rgba(255, 255, 255, 0.1)'
-              : 'rgba(0, 0, 0, 0.1)'};
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 12px;
-            font-weight: 500;
-            color: ${isDark ? '#9ca3af' : '#6b7280'};
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            white-space: nowrap;
-            transition: all 0.2s ease;
-          }
-          .voxcraft-branding:hover {
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-            transform: translateY(-1px);
-          }
-          .voxcraft-branding-link {
-            color: #3b82f6;
-            text-decoration: none;
-            font-weight: 600;
-            transition: color 0.2s ease;
-          }
-          .voxcraft-branding-link:hover {
-            color: #2563eb;
-            text-decoration: underline;
-          }
         </style>
         
         <button class="voxcraft-widget-btn" id="voxcraft-btn" aria-label="Voice Assistant">
@@ -605,10 +571,6 @@ if (!window.supabase) {
             <div class="voxcraft-bar"></div>
             <div class="voxcraft-bar"></div>
           </div>
-        </div>
-        
-        <div class="voxcraft-branding">
-          Powered by <a href="https://anvevoice.app/" target="_blank" rel="noopener noreferrer" class="voxcraft-branding-link">AnveVoice</a>
         </div>
       \`;
 
