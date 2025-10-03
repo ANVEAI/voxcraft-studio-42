@@ -553,6 +553,39 @@ if (!window.supabase) {
             0%, 100% { height: 8px; }
             50% { height: 24px; }
           }
+          
+          .voxcraft-branding {
+            position: fixed;
+            \${BOT_CONFIG.position === 'bottom-left' ? 'left: 24px;' : 'right: 24px;'}
+            bottom: 100px;
+            background: \${isDark 
+              ? 'rgba(30, 30, 46, 0.95)' 
+              : 'rgba(255, 255, 255, 0.95)'};
+            backdrop-filter: blur(10px);
+            border: 1px solid \${isDark 
+              ? 'rgba(255, 255, 255, 0.1)' 
+              : 'rgba(0, 0, 0, 0.1)'};
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 11px;
+            font-weight: 500;
+            color: \${isDark ? '#9ca3af' : '#6b7280'};
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            z-index: 999998;
+            transition: all 0.3s ease;
+          }
+          
+          .voxcraft-branding-link {
+            color: \${isDark ? '#60a5fa' : '#3b82f6'};
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s ease;
+          }
+          
+          .voxcraft-branding-link:hover {
+            color: \${isDark ? '#93c5fd' : '#2563eb'};
+            text-decoration: underline;
+          }
         </style>
         
         <button class="voxcraft-widget-btn" id="voxcraft-btn" aria-label="Voice Assistant">
@@ -576,6 +609,17 @@ if (!window.supabase) {
 
       widget.innerHTML = widgetHTML;
       document.body.appendChild(widget);
+      
+      // Create and append branding
+      const branding = document.createElement('div');
+      branding.className = 'voxcraft-branding';
+      branding.innerHTML = \`
+        Powered by <a href="https://anvevoice.app/" 
+                       target="_blank" 
+                       rel="noopener noreferrer" 
+                       class="voxcraft-branding-link">AnveVoice</a>
+      \`;
+      document.body.appendChild(branding);
 
       this.widgetBtn = document.getElementById('voxcraft-btn');
       this.visualizer = document.getElementById('voxcraft-visualizer');
