@@ -847,7 +847,36 @@ if (!window.supabase) {
     }
 
     // Enhanced call ID extraction with comprehensive VAPI widget inspection and multi-ID registration
+    async handleCallIdExtracted(vapiCallId) {
+      if (!vapiCallId || this.currentCallId === vapiCallId) {
+        console.log('⏭️ Skipping - call ID already registered or invalid:', vapiCallId);
+        return;
+      }
+      
+      console.log('✅ Valid VAPI Call ID extracted:', vapiCallId);
+      this.currentCallId = vapiCallId;
+      
+      // Clean up discovery channel since we have the call ID
+      if (this.discoveryChannel) {
+        this.discoveryChannel.unsubscribe();
+        this.discoveryChannel = null;
+      }
+      
+      // Register session mapping with backend
+      await this.registerSessionMapping([vapiCallId]);
+      
+      // Subscribe to isolated channel
+      this.subscribeToCallChannelWithFallback(vapiCallId);
+      this.updateStatus('🔗 Session isolated - ready for commands!');
+    }
+
     attemptCallIdExtraction(attempt = 0) {
+      // Skip if we already have a registered call ID
+      if (this.currentCallId) {
+        console.log('⏭️ Skipping extraction - already registered:', this.currentCallId);
+        return;
+      }
+      
       const maxAttempts = 8;
       const delays = [100, 200, 500, 800, 1200, 1800, 2500, 3500]; // Progressive delays
       
@@ -1011,23 +1040,40 @@ if (!window.supabase) {
       
       // Call started - Extract callId immediately from Vapi SDK
       this.vapiWidget.on("call-start", (event) => {
-        console.log('📞 VAPI call-start event fired!');
+        console.log('📞 VAPI call-start event fired!', event);
         this.updateStatus("🎤 Voice active - setting up session...");
         this.updateWidgetState('listening', 'Listening...');
         
-        // ENHANCED: Multi-attempt call ID extraction with progressive delays
-        this.attemptCallIdExtraction(0);
+        // CRITICAL FIX: Extract call ID directly from event payload
+        if (event && (event.id || event.call?.id)) {
+          const vapiCallId = event.id || event.call?.id;
+          console.log('🎯 Extracted VAPI Call ID from event:', vapiCallId);
+          this.handleCallIdExtracted(vapiCallId);
+        } else {
+          console.warn('⚠️ No call ID in event, falling back to widget inspection');
+          this.attemptCallIdExtraction(0);
+        }
       });
 
       // CRITICAL FIX: Alternative triggers for session registration
       this.vapiWidget.on("call-started", (event) => {
-        console.log('📞 VAPI call-started event fired!');
-        this.attemptCallIdExtraction(0);
+        console.log('📞 VAPI call-started event fired!', event);
+        if (event && (event.id || event.call?.id)) {
+          const vapiCallId = event.id || event.call?.id;
+          this.handleCallIdExtracted(vapiCallId);
+        } else {
+          this.attemptCallIdExtraction(0);
+        }
       });
 
       this.vapiWidget.on("connected", (event) => {
-        console.log('📞 VAPI connected event fired!');
-        this.attemptCallIdExtraction(0);
+        console.log('📞 VAPI connected event fired!', event);
+        if (event && (event.id || event.call?.id)) {
+          const vapiCallId = event.id || event.call?.id;
+          this.handleCallIdExtracted(vapiCallId);
+        } else {
+          this.attemptCallIdExtraction(0);
+        }
       });
 
       // Fallback: Monitor VAPI widget state changes
