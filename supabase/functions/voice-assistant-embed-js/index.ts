@@ -722,7 +722,7 @@ if (!window.supabase) {
       }
     }
 
-    // Enhanced call ID extraction with multiple attempts and progressive delays
+    // Enhanced call ID extraction with comprehensive VAPI widget inspection
     attemptCallIdExtraction(attempt = 0) {
       const maxAttempts = 8;
       const delays = [100, 200, 500, 800, 1200, 1800, 2500, 3500]; // Progressive delays
@@ -730,15 +730,82 @@ if (!window.supabase) {
       console.log('🔍 Attempting call ID extraction (attempt ' + (attempt + 1) + '/' + maxAttempts + ')');
       
       try {
-        // Multiple extraction strategies
-        const vapiCallId = 
-          this.vapiWidget?.callId ||
-          this.vapiWidget?._callId ||
-          this.vapiWidget?.call?.id ||
-          this.vapiWidget?.activeCall?.id ||
-          this.vapiWidget?.currentCall?.id ||
-          this.vapiWidget?.session?.callId ||
-          this.vapiWidget?.webCall?.id;
+        // COMPREHENSIVE VAPI WIDGET INSPECTION
+        if (this.vapiWidget) {
+          console.log('🔍 VAPI Widget Full Inspection:', {
+            // Direct properties
+            callId: this.vapiWidget.callId,
+            _callId: this.vapiWidget._callId,
+            started: this.vapiWidget.started,
+            
+            // Nested objects
+            call: this.vapiWidget.call,
+            activeCall: this.vapiWidget.activeCall,
+            currentCall: this.vapiWidget.currentCall,
+            session: this.vapiWidget.session,
+            webCall: this.vapiWidget.webCall,
+            
+            // Check all enumerable properties
+            allKeys: Object.keys(this.vapiWidget),
+            
+            // Check prototype chain
+            prototypeKeys: this.vapiWidget.constructor ? Object.getOwnPropertyNames(this.vapiWidget.constructor.prototype) : [],
+            
+            // Deep inspection of nested objects
+            callKeys: this.vapiWidget.call ? Object.keys(this.vapiWidget.call) : null,
+            sessionKeys: this.vapiWidget.session ? Object.keys(this.vapiWidget.session) : null,
+            webCallKeys: this.vapiWidget.webCall ? Object.keys(this.vapiWidget.webCall) : null
+          });
+        }
+        
+        // Multiple extraction strategies with comprehensive property checking
+        let vapiCallId = null;
+        
+        // Strategy 1: Direct properties
+        vapiCallId = this.vapiWidget?.callId ||
+                    this.vapiWidget?._callId ||
+                    this.vapiWidget?.id;
+        
+        // Strategy 2: Nested objects
+        if (!vapiCallId) {
+          vapiCallId = this.vapiWidget?.call?.id ||
+                      this.vapiWidget?.activeCall?.id ||
+                      this.vapiWidget?.currentCall?.id ||
+                      this.vapiWidget?.session?.callId ||
+                      this.vapiWidget?.session?.id ||
+                      this.vapiWidget?.webCall?.id;
+        }
+        
+        // Strategy 3: Search through all properties for ID-like values
+        if (!vapiCallId && this.vapiWidget) {
+          const searchForCallId = (obj, path = '') => {
+            if (!obj || typeof obj !== 'object') return null;
+            
+            for (const [key, value] of Object.entries(obj)) {
+              const fullPath = path ? \`\${path}.\${key}\` : key;
+              
+              // Look for properties that might contain call ID
+              if ((key.toLowerCase().includes('call') && key.toLowerCase().includes('id')) ||
+                  key.toLowerCase() === 'id' ||
+                  key.toLowerCase() === 'callid') {
+                
+                if (typeof value === 'string' && value.length > 10) {
+                  console.log('🎯 Found potential call ID at', fullPath, ':', value);
+                  return value;
+                }
+              }
+              
+              // Recursively search nested objects (max depth 3)
+              if (typeof value === 'object' && value !== null && path.split('.').length < 3) {
+                const found = searchForCallId(value, fullPath);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+          
+          vapiCallId = searchForCallId(this.vapiWidget);
+        }
           
         if (vapiCallId) {
           console.log('🎯 Call ID extracted successfully:', vapiCallId);
