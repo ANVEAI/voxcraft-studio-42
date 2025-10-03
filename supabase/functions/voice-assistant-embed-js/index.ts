@@ -192,23 +192,82 @@ if (!window.supabase) {
           console.log('🔍 Received session discovery request:', payload);
           const { vapiCallId, functionCall } = payload.payload;
           
-          // Check if this matches our current VAPI call
-          const isMatchingCall = this.vapiWidget && (
-            this.vapiWidget.callId === vapiCallId ||
-            this.vapiWidget._callId === vapiCallId ||
-            this.vapiWidget?.call?.id === vapiCallId ||
-            this.vapiWidget?.activeCall?.id === vapiCallId ||
-            this.vapiWidget?.currentCall?.id === vapiCallId ||
-            this.vapiWidget?.session?.callId === vapiCallId ||
-            this.vapiWidget?.webCall?.id === vapiCallId
-          );
+          // ENHANCED: Check if this matches our current VAPI call using comprehensive matching
+          const checkCallIdMatch = (requestedCallId) => {
+            if (!this.vapiWidget) return false;
+            
+            // Direct property matches
+            if (this.vapiWidget.callId === requestedCallId ||
+                this.vapiWidget._callId === requestedCallId ||
+                this.vapiWidget.id === requestedCallId) {
+              return true;
+            }
+            
+            // Nested object matches
+            const nestedMatches = [
+              this.vapiWidget?.call?.id,
+              this.vapiWidget?.call?.vapiCallId,
+              this.vapiWidget?.call?.callId,
+              this.vapiWidget?.call?.callClientId,
+              this.vapiWidget?.call?._meetingSessionSummary?.id,
+              this.vapiWidget?.activeCall?.id,
+              this.vapiWidget?.currentCall?.id,
+              this.vapiWidget?.session?.callId,
+              this.vapiWidget?.session?.id,
+              this.vapiWidget?.webCall?.id,
+              this.vapiWidget?.webCall?.callId
+            ].filter(Boolean);
+            
+            if (nestedMatches.includes(requestedCallId)) {
+              return true;
+            }
+            
+            // Partial matches for related call IDs (same base, different format)
+            for (const nestedId of nestedMatches) {
+              if (typeof nestedId === 'string' && typeof requestedCallId === 'string') {
+                // Check if they share common parts (for numeric vs UUID formats)
+                if (nestedId.includes(requestedCallId.split('-')[0]) || 
+                    requestedCallId.includes(nestedId.split('-')[0])) {
+                  console.log('🔗 Found related call ID match:', { nested: nestedId, requested: requestedCallId });
+                  return true;
+                }
+              }
+            }
+            
+            return false;
+          };
+          
+          const isMatchingCall = checkCallIdMatch(vapiCallId);
           
           if (isMatchingCall) {
             console.log('✅ Matching call found, registering session mapping for:', vapiCallId);
             this.currentCallId = vapiCallId;
             
-            // Register session mapping immediately
-            this.registerSessionMapping(vapiCallId);
+            // ENHANCED: Register all found call IDs for maximum compatibility
+            if (this.vapiWidget) {
+              const allCallIds = [
+                this.vapiWidget.callId,
+                this.vapiWidget._callId,
+                this.vapiWidget.id,
+                this.vapiWidget?.call?.id,
+                this.vapiWidget?.call?.vapiCallId,
+                this.vapiWidget?.call?.callId,
+                this.vapiWidget?.call?.callClientId,
+                this.vapiWidget?.call?._meetingSessionSummary?.id,
+                this.vapiWidget?.activeCall?.id,
+                this.vapiWidget?.currentCall?.id,
+                this.vapiWidget?.session?.callId,
+                this.vapiWidget?.session?.id,
+                this.vapiWidget?.webCall?.id,
+                this.vapiWidget?.webCall?.callId,
+                vapiCallId // Include the requested call ID
+              ].filter(id => id && typeof id === 'string' && id.length > 5);
+              
+              this.registerMultipleSessionMappings(allCallIds);
+            } else {
+              // Fallback to single registration
+              this.registerSessionMapping(vapiCallId);
+            }
             
             // Set up session-specific channel
             this.subscribeToCallChannelWithFallback(vapiCallId);
@@ -221,6 +280,16 @@ if (!window.supabase) {
             }
           } else {
             console.log('❌ Call ID does not match current session:', vapiCallId);
+            console.log('🔍 Available call IDs for comparison:', this.vapiWidget ? {
+              direct: [this.vapiWidget.callId, this.vapiWidget._callId, this.vapiWidget.id].filter(Boolean),
+              nested: [
+                this.vapiWidget?.call?.id,
+                this.vapiWidget?.call?.callId,
+                this.vapiWidget?.call?.callClientId,
+                this.vapiWidget?.activeCall?.id,
+                this.vapiWidget?.session?.callId
+              ].filter(Boolean)
+            } : 'No VAPI widget available');
           }
         })
         .subscribe((status) => {
@@ -306,54 +375,52 @@ if (!window.supabase) {
       this.subscribeToCallChannelWithFallback(callId);
     }
 
-    // Register call-to-session mapping for backend routing with proper subscription
+    // Register call-to-session mapping for backend routing
     registerSessionMapping(callId) {
-      const mappingChannelName = \`vapi:session-mapping:\${this.assistantId}\`;
-      console.log('📝 Registering session mapping:', { callId, sessionId: this.sessionId.substr(0, 8) + '...' });
+      if (!callId || !this.sessionId) {
+        console.warn('📝 Cannot register session mapping - missing callId or sessionId');
+        return;
+      }
       
-      const mappingMessage = {
-        type: 'session_mapping',
-        callId: callId,
-        sessionId: this.sessionId,
-        assistantId: this.assistantId,
-        timestamp: new Date().toISOString()
-      };
+      console.log('📝 Registering session mapping:', {callId: callId, sessionId: this.sessionId.substr(0, 8) + '...'});
       
-      let retryCount = 0;
+      // Attempt registration with retry mechanism
+      this.attemptRegistration(callId, 1);
+    }
+
+    // Helper method for session mapping registration attempts
+    attemptRegistration(callId, attempt) {
       const maxRetries = 3;
-      const subscriptionTimeout = 5000; // 5 seconds
+      const mappingChannelName = \`vapi:session-mapping:\${this.assistantId}\`;
+      const mappingMessage = { callId, sessionId: this.sessionId };
       
-      const attemptRegistration = () => {
-        console.log(\`📡 Subscribing to mapping channel (attempt \${retryCount + 1})...\`);
-        
-        // Create a new channel and subscribe first
-        const mappingChannel = this.supabaseClient.channel(mappingChannelName);
-        
-        let timeoutHandle;
-        let isComplete = false;
-        
-        // Set subscription timeout
-        timeoutHandle = setTimeout(() => {
-          if (!isComplete) {
-            console.warn('⏰ Subscription timeout - retrying...');
-            mappingChannel.unsubscribe();
-            
-            if (retryCount < maxRetries) {
-              retryCount++;
-              setTimeout(attemptRegistration, 500);
-            } else {
-              console.error('❌ Session mapping registration failed after', maxRetries, 'attempts');
-            }
+      console.log(\`📡 Subscribing to mapping channel (attempt \${attempt})...\`);
+      
+      // Create a new channel and subscribe first
+      const mappingChannel = this.supabaseClient.channel(mappingChannelName);
+      
+      let timeoutHandle;
+      let isComplete = false;
+      
+      // Set subscription timeout
+      timeoutHandle = setTimeout(() => {
+        if (!isComplete) {
+          console.warn('⏰ Subscription timeout - retrying...');
+          mappingChannel.unsubscribe();
+          
+          if (attempt < maxRetries) {
+            setTimeout(() => this.attemptRegistration(callId, attempt + 1), 500);
           }
-        }, subscriptionTimeout);
-        
-        mappingChannel.subscribe(async (status) => {
+        }
+      }, 5000);
+      
+      mappingChannel
+        .subscribe(async (status) => {
           console.log('📡 Mapping channel status:', status);
           
           if (status === 'SUBSCRIBED' && !isComplete) {
             isComplete = true;
             clearTimeout(timeoutHandle);
-            
             console.log('✅ Mapping channel subscribed, sending session mapping...');
             
             try {
@@ -388,10 +455,9 @@ if (!window.supabase) {
             } catch (error) {
               console.error('❌ Failed to send session mapping:', error);
               
-              if (retryCount < maxRetries) {
-                retryCount++;
+              if (attempt < maxRetries) {
                 mappingChannel.unsubscribe();
-                setTimeout(attemptRegistration, 500);
+                setTimeout(() => this.attemptRegistration(callId, attempt + 1), 500);
               }
             }
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -400,17 +466,75 @@ if (!window.supabase) {
               clearTimeout(timeoutHandle);
               console.error('❌ Channel error or timeout:', status);
               
-              if (retryCount < maxRetries) {
-                retryCount++;
-                setTimeout(attemptRegistration, 500);
+              if (attempt < maxRetries) {
+                setTimeout(() => this.attemptRegistration(callId, attempt + 1), 500);
               }
             }
           }
         });
-      };
+    }
+
+    // ENHANCED: Register multiple session mappings for maximum compatibility
+    registerMultipleSessionMappings(callIds) {
+      if (!callIds || callIds.length === 0 || !this.sessionId) {
+        console.warn('📝 Cannot register multiple session mappings - missing callIds or sessionId');
+        return;
+      }
       
-      // Start registration attempt
-      attemptRegistration();
+      // Remove duplicates and filter out invalid IDs
+      const uniqueCallIds = [...new Set(callIds)].filter(id => id && typeof id === 'string' && id.length > 5);
+      
+      console.log('📝 Registering multiple session mappings:', {
+        callIds: uniqueCallIds,
+        sessionId: this.sessionId.substr(0, 8) + '...',
+        count: uniqueCallIds.length
+      });
+      
+      // Register the primary call ID first (most likely to be correct)
+      if (uniqueCallIds.length > 0) {
+        this.registerSessionMapping(uniqueCallIds[0]);
+      }
+      
+      // Then register all call IDs in bulk for maximum compatibility
+      if (uniqueCallIds.length > 1) {
+        this.registerBulkSessionMappings(uniqueCallIds);
+      }
+    }
+
+    // Bulk registration method for multiple call IDs
+    registerBulkSessionMappings(callIds) {
+      const mappingChannelName = \`vapi:session-mapping:\${this.assistantId}\`;
+      const mappingMessage = { callIds, sessionId: this.sessionId };
+      
+      console.log('📝 Bulk registering session mappings:', {
+        callIds: callIds.length,
+        sessionId: this.sessionId.substr(0, 8) + '...'
+      });
+      
+      const mappingChannel = this.supabaseClient.channel(mappingChannelName + '-bulk');
+      
+      mappingChannel
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            try {
+              await mappingChannel.send({
+                type: 'broadcast',
+                event: 'register_multiple_sessions',
+                payload: mappingMessage
+              });
+              
+              console.log('✅ Bulk session mappings sent successfully!');
+              
+              // Clean up the bulk channel after sending
+              setTimeout(() => {
+                mappingChannel.unsubscribe();
+              }, 2000);
+              
+            } catch (error) {
+              console.error('❌ Failed to send bulk session mappings:', error);
+            }
+          }
+        });
     }
 
     loadVapiSDK() {
@@ -722,7 +846,7 @@ if (!window.supabase) {
       }
     }
 
-    // Enhanced call ID extraction with comprehensive VAPI widget inspection
+    // Enhanced call ID extraction with comprehensive VAPI widget inspection and multi-ID registration
     attemptCallIdExtraction(attempt = 0) {
       const maxAttempts = 8;
       const delays = [100, 200, 500, 800, 1200, 1800, 2500, 3500]; // Progressive delays
@@ -760,29 +884,38 @@ if (!window.supabase) {
         
         // Multiple extraction strategies with comprehensive property checking
         let vapiCallId = null;
+        const allFoundCallIds = []; // Collect all potential call IDs
         
         // Strategy 1: Direct properties
         vapiCallId = this.vapiWidget?.callId ||
                     this.vapiWidget?._callId ||
                     this.vapiWidget?.id;
         
+        if (vapiCallId) allFoundCallIds.push({ source: 'direct', id: vapiCallId });
+        
         // Strategy 2: Nested objects - prioritize actual VAPI call ID over client ID
         if (!vapiCallId) {
-          vapiCallId = this.vapiWidget?.call?.id ||
-                      this.vapiWidget?.call?.vapiCallId ||
-                      this.vapiWidget?.call?.callId ||
-                      this.vapiWidget?.activeCall?.id ||
-                      this.vapiWidget?.currentCall?.id ||
-                      this.vapiWidget?.session?.callId ||
-                      this.vapiWidget?.session?.id ||
-                      this.vapiWidget?.webCall?.id ||
-                      this.vapiWidget?.webCall?.callId;
+          const nestedIds = [
+            this.vapiWidget?.call?.id,
+            this.vapiWidget?.call?.vapiCallId,
+            this.vapiWidget?.call?.callId,
+            this.vapiWidget?.activeCall?.id,
+            this.vapiWidget?.currentCall?.id,
+            this.vapiWidget?.session?.callId,
+            this.vapiWidget?.session?.id,
+            this.vapiWidget?.webCall?.id,
+            this.vapiWidget?.webCall?.callId
+          ].filter(Boolean);
+          
+          nestedIds.forEach(id => allFoundCallIds.push({ source: 'nested', id }));
+          vapiCallId = nestedIds[0]; // Take first found
         }
         
         // Strategy 3: Search through all properties for ID-like values
-        if (!vapiCallId && this.vapiWidget) {
+        if (this.vapiWidget) {
           const searchForCallId = (obj, path = '') => {
-            if (!obj || typeof obj !== 'object') return null;
+            if (!obj || typeof obj !== 'object') return [];
+            const foundIds = [];
             
             for (const [key, value] of Object.entries(obj)) {
               const fullPath = path ? \`\${path}.\${key}\` : key;
@@ -800,39 +933,40 @@ if (!window.supabase) {
                   
                   console.log('🎯 Found potential call ID at', fullPath, ':', value, isUUID ? '(UUID format - preferred)' : '(other format)');
                   
-                  // Return immediately if it's a UUID (actual VAPI call ID)
-                  if (isUUID || isVAPIFormat) {
-                    return value;
-                  }
-                  
-                  // Store non-UUID as fallback but continue searching for UUID
-                  if (!this._fallbackCallId) {
-                    this._fallbackCallId = value;
-                  }
+                  foundIds.push({
+                    source: fullPath,
+                    id: value,
+                    isUUID: isUUID || isVAPIFormat,
+                    priority: (isUUID || isVAPIFormat) ? 1 : 2
+                  });
                 }
               }
               
               // Recursively search nested objects (max depth 3)
               if (typeof value === 'object' && value !== null && path.split('.').length < 3) {
-                const found = searchForCallId(value, fullPath);
-                if (found) return found;
+                foundIds.push(...searchForCallId(value, fullPath));
               }
             }
-            return null;
+            return foundIds;
           };
           
-          this._fallbackCallId = null; // Reset fallback
-          vapiCallId = searchForCallId(this.vapiWidget);
+          const searchResults = searchForCallId(this.vapiWidget);
+          allFoundCallIds.push(...searchResults);
           
-          // If no UUID found but we have a fallback, use it
-          if (!vapiCallId && this._fallbackCallId) {
-            console.log('🔄 No UUID found, using fallback call ID:', this._fallbackCallId);
-            vapiCallId = this._fallbackCallId;
+          // Prioritize UUID format call IDs
+          const uuidCallIds = searchResults.filter(result => result.isUUID);
+          if (uuidCallIds.length > 0 && !vapiCallId) {
+            vapiCallId = uuidCallIds[0].id;
+            console.log('🎯 Using UUID call ID:', vapiCallId, 'from', uuidCallIds[0].source);
+          } else if (!vapiCallId && searchResults.length > 0) {
+            vapiCallId = searchResults[0].id;
+            console.log('🔄 Using fallback call ID:', vapiCallId, 'from', searchResults[0].source);
           }
         }
           
         if (vapiCallId) {
           console.log('🎯 Call ID extracted successfully:', vapiCallId);
+          console.log('📋 All found call IDs:', allFoundCallIds);
           this.currentCallId = vapiCallId;
           
           // Clean up discovery channel since we have the call ID
@@ -841,8 +975,8 @@ if (!window.supabase) {
             this.discoveryChannel = null;
           }
           
-          // Register session mapping IMMEDIATELY
-          this.registerSessionMapping(vapiCallId);
+          // ENHANCED: Register session mapping with ALL found call IDs for maximum compatibility
+          this.registerMultipleSessionMappings(allFoundCallIds.map(item => item.id).filter(Boolean));
           
           // Subscribe to BOTH channels for grace period
           this.subscribeToCallChannelWithFallback(vapiCallId);

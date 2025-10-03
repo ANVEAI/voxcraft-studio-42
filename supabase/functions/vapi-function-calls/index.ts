@@ -47,6 +47,24 @@ async function initializeSessionListener(assistantId: string) {
         });
       }
     })
+    .on('broadcast', { event: 'register_multiple_sessions' }, (payload: any) => {
+      const { callIds, sessionId } = payload.payload;
+      if (callIds && Array.isArray(callIds) && sessionId) {
+        let registeredCount = 0;
+        callIds.forEach(callId => {
+          if (callId && typeof callId === 'string') {
+            sessionMappings.set(callId, sessionId);
+            registeredCount++;
+          }
+        });
+        console.log('[Session Mapping] ✅ Registered multiple call IDs:', { 
+          callIds: callIds.length,
+          registered: registeredCount,
+          sessionId: sessionId.substr(0, 8) + '...',
+          totalMappings: sessionMappings.size 
+        });
+      }
+    })
     .subscribe((status: string) => {
       console.log('[Session Mapping] Channel status for', assistantId + ':', status);
     });
@@ -102,12 +120,55 @@ serve(async (req) => {
       console.warn('[VAPI Function Call] No assistant ID found, session mapping may not work');
     }
 
-    // Extract call ID from VAPI webhook payload structure
-    const vapiCallId = 
-      payload?.message?.call?.id ||                       // VAPI: From nested call object
-      payload?.call?.id ||                                // From call object
-      payload?.callId ||                                  // Direct callId field
-      payload?.message?.callId;                           // From message object
+    // Enhanced call ID extraction from VAPI webhook payload
+    const extractCallIdFromPayload = (payload: any): string | null => {
+      // Strategy 1: Direct call ID fields
+      let callId = payload?.message?.call?.id ||           // VAPI: From nested call object
+                   payload?.call?.id ||                    // From call object
+                   payload?.callId ||                      // Direct callId field
+                   payload?.message?.callId;               // From message object
+      
+      if (callId) {
+        console.log('[VAPI Function Call] 🎯 Found call ID via direct extraction:', callId);
+        return callId;
+      }
+      
+      // Strategy 2: Search through all payload properties for UUID-format call IDs
+      const searchForCallId = (obj: any, path = ''): string | null => {
+        if (!obj || typeof obj !== 'object') return null;
+        
+        for (const [key, value] of Object.entries(obj)) {
+          const fullPath = path ? `${path}.${key}` : key;
+          
+          // Look for UUID format call IDs (VAPI standard)
+          if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+            // Prioritize properties that likely contain call IDs
+            if (key.toLowerCase().includes('call') || key.toLowerCase().includes('id')) {
+              console.log('[VAPI Function Call] 🎯 Found UUID call ID at', fullPath, ':', value);
+              return value;
+            }
+          }
+          
+          // Recursively search nested objects (max depth 3)
+          if (typeof value === 'object' && value !== null && path.split('.').length < 3) {
+            const found = searchForCallId(value, fullPath);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      
+      callId = searchForCallId(payload);
+      if (callId) {
+        console.log('[VAPI Function Call] 🎯 Found call ID via deep search:', callId);
+        return callId;
+      }
+      
+      console.warn('[VAPI Function Call] ⚠️ No call ID found in payload');
+      return null;
+    };
+    
+    const vapiCallId = extractCallIdFromPayload(payload);
 
     // Enhanced logging to debug call ID extraction
     console.log('[VAPI Function Call] Call ID extraction:', {
@@ -170,13 +231,44 @@ serve(async (req) => {
       console.warn('[VAPI Function Call] ⏰ Session mapping timeout after', timeoutMs, 'ms for callId:', callId);
       return null;
     };
+
+    // Enhanced session mapping lookup with multiple call ID formats
+    const findSessionMapping = async (primaryCallId: string): Promise<string | null> => {
+      // First try exact match
+      let sessionId = sessionMappings.get(primaryCallId);
+      if (sessionId) {
+        console.log('[VAPI Function Call] ✅ Found exact session mapping for:', primaryCallId);
+        return sessionId;
+      }
+      
+      // Try to find mapping with similar call IDs (handles ID format variations)
+      for (const [mappedCallId, mappedSessionId] of sessionMappings.entries()) {
+        // Check if call IDs are related (same base, different format)
+        if (mappedCallId.includes(primaryCallId.split('-')[0]) || 
+            primaryCallId.includes(mappedCallId.split('-')[0])) {
+          console.log('[VAPI Function Call] ✅ Found related session mapping:', {
+            requested: primaryCallId,
+            found: mappedCallId,
+            sessionId: mappedSessionId.substr(0, 8) + '...'
+          });
+          return mappedSessionId;
+        }
+      }
+      
+      return null;
+    };
     
-    // Look up session ID for this call (with wait)
-    let sessionId = sessionMappings.get(vapiCallId);
+    // Look up session ID for this call (with enhanced matching)
+    let sessionId = await findSessionMapping(vapiCallId);
     
     if (!sessionId) {
       console.log('[VAPI Function Call] 🔍 Waiting for session mapping...', vapiCallId);
       sessionId = await waitForMapping(vapiCallId, 4000);
+      
+      // Try enhanced matching again after waiting
+      if (!sessionId) {
+        sessionId = await findSessionMapping(vapiCallId);
+      }
     }
     
     if (!sessionId) {
@@ -215,8 +307,8 @@ serve(async (req) => {
         // Wait briefly for potential session response
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        // Check if a session was discovered and registered
-        sessionId = sessionMappings.get(vapiCallId);
+        // Check if a session was discovered and registered (try enhanced matching)
+        sessionId = await findSessionMapping(vapiCallId);
         if (sessionId) {
           console.log('[VAPI Function Call] ✅ Session discovered via broadcast:', sessionId.substr(0, 8) + '...');
         }
