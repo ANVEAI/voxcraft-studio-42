@@ -52,6 +52,7 @@ if (!window.supabase) {
       this.vapiWidget = null;
       this.supabaseClient = null;
       this.realtimeChannel = null;
+      this.discoveryChannel = null;
       this.isInitialized = false;
       this.currentPageElements = [];
       this.statusEl = null;
@@ -62,6 +63,9 @@ if (!window.supabase) {
       this.visualizer = null;
       this.widgetStatusEl = null;
       this.isCallInitiator = false; // Flag to track if this tab initiated the call
+      this.isSessionChannelReady = false; // Track if session channel is ready
+      this.queuedCommands = []; // Queue for commands received before channel is ready
+      this.discoveryCleanupTimeout = null; // Timeout for cleaning up discovery channel
       
       this.init();
     }
@@ -124,11 +128,10 @@ if (!window.supabase) {
         this.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         this.assistantId = BOT_CONFIG.assistantId;
         
-        console.log('✅ Supabase client initialized, setting up discovery mechanism...');
-        this.updateStatus('🟡 Waiting for voice session...');
+        console.log('[LIFECYCLE] ✅ Supabase client initialized');
+        this.updateStatus('🟡 Ready for voice session...');
         
-        // Set up discovery channel
-        this.setupDiscoveryChannel();
+        // Discovery channel will be created on call start
         
       } catch (error) {
         console.error('❌ Supabase Realtime setup failed:', error);
@@ -138,61 +141,100 @@ if (!window.supabase) {
 
     // Call ID Discovery Mechanism
     setupDiscoveryChannel() {
+      // Clean up existing discovery channel if any
+      if (this.discoveryChannel) {
+        console.log('[LIFECYCLE] 🧹 Cleaning up old discovery channel');
+        this.discoveryChannel.unsubscribe();
+        this.discoveryChannel = null;
+      }
+
+      // Clear any pending cleanup timeout
+      if (this.discoveryCleanupTimeout) {
+        clearTimeout(this.discoveryCleanupTimeout);
+        this.discoveryCleanupTimeout = null;
+      }
+      
       const discoveryChannelName = \`vapi:discovery:\${this.assistantId}\`;
-      console.log('🔍 Setting up discovery channel:', discoveryChannelName);
+      console.log('[LIFECYCLE] 🔍 Creating fresh discovery channel:', discoveryChannelName);
       
       this.discoveryChannel = this.supabaseClient
         .channel(discoveryChannelName)
         .on('broadcast', { event: 'call_discovery' }, (payload) => {
-          console.log('📡 Received call discovery:', payload);
+          console.log('[LIFECYCLE] 📡 Received call discovery:', payload);
           const { vapiCallId } = payload.payload;
           
           // Only accept vapiCallId if this tab is the initiator
           if (vapiCallId && !this.currentCallId && this.isCallInitiator) {
-            console.log('🎯 Call ID discovered via backend:', vapiCallId);
+            console.log('[LIFECYCLE] 🎯 Call ID discovered via backend:', vapiCallId);
             this.currentCallId = vapiCallId;
             
-            // Clean up discovery channel
-            if (this.discoveryChannel) {
-              this.discoveryChannel.unsubscribe();
-              this.discoveryChannel = null;
-            }
-            
-            // Set up session-specific channel
+            // Set up session-specific channel immediately
             this.subscribeToCallChannel(vapiCallId);
             this.updateStatus('🔗 Session isolated - ready for commands!');
+            
+            // Clean up discovery channel after a short delay (to ensure session channel is ready)
+            this.discoveryCleanupTimeout = setTimeout(() => {
+              if (this.discoveryChannel) {
+                console.log('[LIFECYCLE] 🧹 Cleaning up discovery channel after successful setup');
+                this.discoveryChannel.unsubscribe();
+                this.discoveryChannel = null;
+              }
+            }, 2000);
           } else if (vapiCallId && !this.isCallInitiator) {
-            console.log('⏭️ Ignoring call discovery - not the initiator of this call');
+            console.log('[LIFECYCLE] ⏭️ Ignoring call discovery - not the initiator of this call');
           }
         })
         .subscribe((status) => {
-          console.log('🔍 Discovery channel status:', status);
+          console.log('[LIFECYCLE] 🔍 Discovery channel status:', status);
         });
     }
 
     // VAPI-Native Session Isolation: Subscribe to call-specific channel
     subscribeToCallChannel(callId) {
       if (this.realtimeChannel) {
+        console.log('[LIFECYCLE] 🧹 Unsubscribing from old session channel');
         this.realtimeChannel.unsubscribe();
       }
 
+      // Reset channel ready state
+      this.isSessionChannelReady = false;
+      this.queuedCommands = [];
+
       const channelName = 'vapi:call:' + callId;
-      console.log('📡 Subscribing to session-specific channel:', channelName);
+      console.log('[LIFECYCLE] 📡 Subscribing to session-specific channel:', channelName);
       
       this.realtimeChannel = this.supabaseClient
         .channel(channelName)
         .on('broadcast', { event: 'function_call' }, (payload) => {
-          console.log('📡 Received session-specific function call:', payload);
-          this.executeFunctionCall(payload.payload);
+          console.log('[LIFECYCLE] 📡 Received session-specific function call:', payload);
+          
+          // If channel is ready, execute immediately
+          if (this.isSessionChannelReady) {
+            this.executeFunctionCall(payload.payload);
+          } else {
+            // Queue the command if channel isn't fully ready
+            console.log('[LIFECYCLE] ⏳ Channel not ready, queueing command:', payload.payload.functionName);
+            this.queuedCommands.push(payload.payload);
+          }
         })
         .subscribe((status) => {
-          console.log('Realtime status for', channelName, ':', status);
+          console.log('[LIFECYCLE] Realtime status for', channelName, ':', status);
+          
           if (status === 'SUBSCRIBED') {
+            this.isSessionChannelReady = true;
             this.updateStatus('🟢 Connected to voice control');
+            console.log('[LIFECYCLE] ✅ Session channel ready, processing queued commands:', this.queuedCommands.length);
+            
+            // Process any queued commands
+            while (this.queuedCommands.length > 0) {
+              const command = this.queuedCommands.shift();
+              console.log('[LIFECYCLE] 🔄 Processing queued command:', command.functionName);
+              this.executeFunctionCall(command);
+            }
           }
         });
 
-      console.log('✅ Supabase Realtime setup complete for channels:', [channelName]);
+      console.log('[LIFECYCLE] ✅ Supabase Realtime setup initiated for channel:', channelName);
     }
 
     loadVapiSDK() {
@@ -412,11 +454,17 @@ if (!window.supabase) {
 
     async startCall() {
       try {
+        console.log('[LIFECYCLE] 🚀 Starting new call...');
         this.updateWidgetState('active', 'Connecting...');
         this.visualizer.classList.add('show');
         
         // Mark this tab as the call initiator
         this.isCallInitiator = true;
+        console.log('[LIFECYCLE] ✅ Marked as call initiator');
+        
+        // Set up discovery channel for this call
+        this.setupDiscoveryChannel();
+        console.log('[LIFECYCLE] ✅ Discovery channel created');
         
         // Trigger the hidden default widget to start the call
         const hiddenBtn = document.querySelector('.vapi-btn');
@@ -427,7 +475,7 @@ if (!window.supabase) {
         this.isCallActive = true;
         this.updateWidgetState('listening', 'Listening...');
       } catch (error) {
-        console.error('Start call failed:', error);
+        console.error('[LIFECYCLE] ❌ Start call failed:', error);
         this.isCallInitiator = false;
         this.updateWidgetState('idle', 'Failed to start');
         setTimeout(() => {
@@ -475,19 +523,30 @@ if (!window.supabase) {
 
       // Call ended - Clean up session
       this.vapiWidget.on("call-end", () => {
-        console.log('📞 VAPI call ended');
+        console.log('[LIFECYCLE] 📞 VAPI call ended - cleaning up...');
         this.currentCallId = null;
         this.isCallActive = false;
+        this.isSessionChannelReady = false;
+        this.queuedCommands = [];
         
         if (this.realtimeChannel) {
+          console.log('[LIFECYCLE] 🧹 Unsubscribing session channel');
           this.realtimeChannel.unsubscribe();
           this.realtimeChannel = null;
         }
         
         if (this.discoveryChannel) {
+          console.log('[LIFECYCLE] 🧹 Unsubscribing discovery channel');
           this.discoveryChannel.unsubscribe();
           this.discoveryChannel = null;
         }
+
+        if (this.discoveryCleanupTimeout) {
+          clearTimeout(this.discoveryCleanupTimeout);
+          this.discoveryCleanupTimeout = null;
+        }
+        
+        console.log('[LIFECYCLE] ✅ Call cleanup complete - ready for next call');
         
         this.updateStatus("🔄 Voice ended");
         this.updateWidgetState('idle', 'Call ended');
