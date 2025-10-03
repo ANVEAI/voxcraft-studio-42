@@ -149,8 +149,8 @@ serve(async (req) => {
       });
     }
 
-    // Wait for session mapping with timeout (handles race condition)
-    const waitForMapping = async (callId: string, timeoutMs = 1500): Promise<string | null> => {
+    // Wait for session mapping with timeout (handles race condition) - EXTENDED TIMEOUT
+    const waitForMapping = async (callId: string, timeoutMs = 4000): Promise<string | null> => {
       const startTime = Date.now();
       const checkInterval = 100; // Check every 100ms
       
@@ -176,7 +176,7 @@ serve(async (req) => {
     
     if (!sessionId) {
       console.log('[VAPI Function Call] 🔍 Waiting for session mapping...', vapiCallId);
-      sessionId = await waitForMapping(vapiCallId, 1500);
+      sessionId = await waitForMapping(vapiCallId, 4000);
     }
     
     if (!sessionId) {

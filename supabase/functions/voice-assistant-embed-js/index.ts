@@ -686,6 +686,65 @@ if (!window.supabase) {
       }
     }
 
+    // Enhanced call ID extraction with multiple attempts and progressive delays
+    attemptCallIdExtraction(attempt = 0) {
+      const maxAttempts = 8;
+      const delays = [100, 200, 500, 800, 1200, 1800, 2500, 3500]; // Progressive delays
+      
+      console.log('🔍 Attempting call ID extraction (attempt ' + (attempt + 1) + '/' + maxAttempts + ')');
+      
+      try {
+        // Multiple extraction strategies
+        const vapiCallId = 
+          this.vapiWidget?.callId ||
+          this.vapiWidget?._callId ||
+          this.vapiWidget?.call?.id ||
+          this.vapiWidget?.activeCall?.id ||
+          this.vapiWidget?.currentCall?.id ||
+          this.vapiWidget?.session?.callId ||
+          this.vapiWidget?.webCall?.id;
+          
+        if (vapiCallId) {
+          console.log('🎯 Call ID extracted successfully:', vapiCallId);
+          this.currentCallId = vapiCallId;
+          
+          // Clean up discovery channel since we have the call ID
+          if (this.discoveryChannel) {
+            this.discoveryChannel.unsubscribe();
+            this.discoveryChannel = null;
+          }
+          
+          // Register session mapping IMMEDIATELY
+          this.registerSessionMapping(vapiCallId);
+          
+          // Subscribe to BOTH channels for grace period
+          this.subscribeToCallChannelWithFallback(vapiCallId);
+          this.updateStatus('🔗 Session isolated - ready for commands!');
+          return;
+        }
+        
+        // If not found and we have more attempts, try again with progressive delay
+        if (attempt < maxAttempts - 1) {
+          setTimeout(() => {
+            this.attemptCallIdExtraction(attempt + 1);
+          }, delays[attempt]);
+        } else {
+          console.warn('⚠️ Could not extract callId after', maxAttempts, 'attempts, relying on backend discovery');
+          this.updateStatus('🟡 Waiting for session discovery...');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error in call ID extraction attempt', attempt + 1, ':', error);
+        
+        // Try again if we have attempts left
+        if (attempt < maxAttempts - 1) {
+          setTimeout(() => {
+            this.attemptCallIdExtraction(attempt + 1);
+          }, delays[attempt]);
+        }
+      }
+    }
+
     setupVapiEventListeners() {
       // Call started - Extract callId immediately from Vapi SDK
       this.vapiWidget.on("call-start", (event) => {
@@ -693,33 +752,8 @@ if (!window.supabase) {
         this.updateStatus("🎤 Voice active - setting up session...");
         this.updateWidgetState('listening', 'Listening...');
         
-        // CRITICAL: Extract callId immediately from Vapi widget to eliminate race condition
-        setTimeout(() => {
-          try {
-            const vapiCallId = this.vapiWidget?.callId || this.vapiWidget?._callId || this.vapiWidget?.call?.id;
-            if (vapiCallId) {
-              console.log('🎯 Call ID extracted from Vapi SDK:', vapiCallId);
-              this.currentCallId = vapiCallId;
-              
-              // Clean up discovery channel since we have the call ID
-              if (this.discoveryChannel) {
-                this.discoveryChannel.unsubscribe();
-                this.discoveryChannel = null;
-              }
-              
-              // Register session mapping IMMEDIATELY
-              this.registerSessionMapping(vapiCallId);
-              
-              // Subscribe to BOTH channels for grace period
-              this.subscribeToCallChannelWithFallback(vapiCallId);
-              this.updateStatus('🔗 Session isolated - ready for commands!');
-            } else {
-              console.warn('⚠️ Could not extract callId from Vapi SDK, waiting for backend discovery');
-            }
-          } catch (error) {
-            console.error('❌ Error extracting callId:', error);
-          }
-        }, 500); // Small delay to allow Vapi SDK to fully initialize
+        // ENHANCED: Multi-attempt call ID extraction with progressive delays
+        this.attemptCallIdExtraction(0);
       });
 
       // Call ended - Clean up session
