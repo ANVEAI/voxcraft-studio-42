@@ -61,6 +61,7 @@ if (!window.supabase) {
       this.widgetBtn = null;
       this.visualizer = null;
       this.widgetStatusEl = null;
+      this.isCallInitiator = false; // Flag to track if this tab initiated the call
       
       this.init();
     }
@@ -146,7 +147,8 @@ if (!window.supabase) {
           console.log('📡 Received call discovery:', payload);
           const { vapiCallId } = payload.payload;
           
-          if (vapiCallId && !this.currentCallId) {
+          // Only accept vapiCallId if this tab is the initiator
+          if (vapiCallId && !this.currentCallId && this.isCallInitiator) {
             console.log('🎯 Call ID discovered via backend:', vapiCallId);
             this.currentCallId = vapiCallId;
             
@@ -159,6 +161,8 @@ if (!window.supabase) {
             // Set up session-specific channel
             this.subscribeToCallChannel(vapiCallId);
             this.updateStatus('🔗 Session isolated - ready for commands!');
+          } else if (vapiCallId && !this.isCallInitiator) {
+            console.log('⏭️ Ignoring call discovery - not the initiator of this call');
           }
         })
         .subscribe((status) => {
@@ -411,6 +415,9 @@ if (!window.supabase) {
         this.updateWidgetState('active', 'Connecting...');
         this.visualizer.classList.add('show');
         
+        // Mark this tab as the call initiator
+        this.isCallInitiator = true;
+        
         // Trigger the hidden default widget to start the call
         const hiddenBtn = document.querySelector('.vapi-btn');
         if (hiddenBtn) {
@@ -421,6 +428,7 @@ if (!window.supabase) {
         this.updateWidgetState('listening', 'Listening...');
       } catch (error) {
         console.error('Start call failed:', error);
+        this.isCallInitiator = false;
         this.updateWidgetState('idle', 'Failed to start');
         setTimeout(() => {
           this.visualizer.classList.remove('show');
@@ -436,6 +444,8 @@ if (!window.supabase) {
           hiddenBtn.click();
         }
         
+        // Reset initiator flag when call ends
+        this.isCallInitiator = false;
         this.isCallActive = false;
         this.updateWidgetState('idle', 'Call ended');
         setTimeout(() => {
