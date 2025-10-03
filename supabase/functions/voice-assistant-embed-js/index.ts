@@ -878,149 +878,104 @@ if (!window.supabase) {
       }
       
       const maxAttempts = 8;
-      const delays = [100, 200, 500, 800, 1200, 1800, 2500, 3500]; // Progressive delays
+      const delays = [500, 1000, 2000, 3000, 4000, 5000, 6000, 8000]; // Longer delays to wait for call.id
       
       console.log('🔍 Attempting call ID extraction (attempt ' + (attempt + 1) + '/' + maxAttempts + ')');
       
+      // Helper function to validate UUID format
+      const isValidUUID = (id) => {
+        if (!id || typeof id !== 'string') return false;
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      };
+      
       try {
-        // COMPREHENSIVE VAPI WIDGET INSPECTION
-        if (this.vapiWidget) {
-          console.log('🔍 VAPI Widget Full Inspection:', {
-            // Direct properties
-            callId: this.vapiWidget.callId,
-            _callId: this.vapiWidget._callId,
-            started: this.vapiWidget.started,
-            
-            // Nested objects
-            call: this.vapiWidget.call,
-            activeCall: this.vapiWidget.activeCall,
-            currentCall: this.vapiWidget.currentCall,
-            session: this.vapiWidget.session,
-            webCall: this.vapiWidget.webCall,
-            
-            // Check all enumerable properties
-            allKeys: Object.keys(this.vapiWidget),
-            
-            // Check prototype chain
-            prototypeKeys: this.vapiWidget.constructor ? Object.getOwnPropertyNames(this.vapiWidget.constructor.prototype) : [],
-            
-            // Deep inspection of nested objects
-            callKeys: this.vapiWidget.call ? Object.keys(this.vapiWidget.call) : null,
-            sessionKeys: this.vapiWidget.session ? Object.keys(this.vapiWidget.session) : null,
-            webCallKeys: this.vapiWidget.webCall ? Object.keys(this.vapiWidget.webCall) : null
-          });
+        let vapiCallId = null;
+        
+        // Strategy 1: PRIORITIZE call.id (the actual VAPI call ID) - UUID format only
+        const primaryIds = [
+          this.vapiWidget?.call?.id,        // ← This is the real VAPI call ID!
+          this.vapiWidget?.callId,
+          this.vapiWidget?._callId,
+        ].filter(id => isValidUUID(id));
+        
+        if (primaryIds.length > 0) {
+          vapiCallId = primaryIds[0];
+          console.log('🎯 Found UUID call ID from primary sources:', vapiCallId);
         }
         
-        // Multiple extraction strategies with comprehensive property checking
-        let vapiCallId = null;
-        const allFoundCallIds = []; // Collect all potential call IDs
-        
-        // Strategy 1: Direct properties
-        vapiCallId = this.vapiWidget?.callId ||
-                    this.vapiWidget?._callId ||
-                    this.vapiWidget?.id;
-        
-        if (vapiCallId) allFoundCallIds.push({ source: 'direct', id: vapiCallId });
-        
-        // Strategy 2: Nested objects - prioritize actual VAPI call ID over client ID
+        // Strategy 2: Nested objects - UUID format only
         if (!vapiCallId) {
           const nestedIds = [
-            this.vapiWidget?.call?.id,
             this.vapiWidget?.call?.vapiCallId,
-            this.vapiWidget?.call?.callId,
             this.vapiWidget?.activeCall?.id,
+            this.vapiWidget?.activeCall?.callId,
             this.vapiWidget?.currentCall?.id,
-            this.vapiWidget?.session?.callId,
-            this.vapiWidget?.session?.id,
-            this.vapiWidget?.webCall?.id,
-            this.vapiWidget?.webCall?.callId
-          ].filter(Boolean);
+            this.vapiWidget?.currentCall?.callId,
+          ].filter(id => isValidUUID(id));
           
-          nestedIds.forEach(id => allFoundCallIds.push({ source: 'nested', id }));
-          vapiCallId = nestedIds[0]; // Take first found
+          if (nestedIds.length > 0) {
+            vapiCallId = nestedIds[0];
+            console.log('🎯 Found UUID call ID from nested objects:', vapiCallId);
+          }
         }
         
-        // Strategy 3: Search through all properties for ID-like values
-        if (this.vapiWidget) {
-          const searchForCallId = (obj, path = '') => {
-            if (!obj || typeof obj !== 'object') return [];
-            const foundIds = [];
+        // Strategy 3: Deep search for UUID-format IDs only
+        if (!vapiCallId && this.vapiWidget) {
+          const searchForCallId = (obj, path = '', depth = 0, maxDepth = 4) => {
+            if (depth > maxDepth || !obj || typeof obj !== 'object') return [];
             
-            for (const [key, value] of Object.entries(obj)) {
-              const fullPath = path ? \`\${path}.\${key}\` : key;
-              
-              // Look for properties that might contain call ID
-              // Prioritize actual VAPI call IDs (UUID format) over client IDs (numeric)
-              if ((key.toLowerCase().includes('call') && key.toLowerCase().includes('id')) ||
-                  key.toLowerCase() === 'id' ||
-                  key.toLowerCase() === 'callid') {
+            const results = [];
+            
+            for (const key in obj) {
+              try {
+                const value = obj[key];
+                const currentPath = path ? path + '.' + key : key;
                 
-                if (typeof value === 'string' && value.length > 10) {
-                  // Check if it's a UUID format (VAPI call ID) vs numeric (client ID)
-                  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-                  const isVAPIFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-                  
-                  console.log('🎯 Found potential call ID at', fullPath, ':', value, isUUID ? '(UUID format - preferred)' : '(other format)');
-                  
-                  foundIds.push({
-                    source: fullPath,
+                if (typeof value === 'string' && isValidUUID(value)) {
+                  results.push({
                     id: value,
-                    isUUID: isUUID || isVAPIFormat,
-                    priority: (isUUID || isVAPIFormat) ? 1 : 2
+                    path: currentPath,
+                    isUUID: true
                   });
+                } else if (typeof value === 'object' && value !== null) {
+                  results.push(...searchForCallId(value, currentPath, depth + 1, maxDepth));
                 }
-              }
-              
-              // Recursively search nested objects (max depth 3)
-              if (typeof value === 'object' && value !== null && path.split('.').length < 3) {
-                foundIds.push(...searchForCallId(value, fullPath));
+              } catch (e) {
+                // Skip properties that throw errors
               }
             }
-            return foundIds;
+            
+            return results;
           };
           
           const searchResults = searchForCallId(this.vapiWidget);
-          allFoundCallIds.push(...searchResults);
           
-          // Prioritize UUID format call IDs
-          const uuidCallIds = searchResults.filter(result => result.isUUID);
-          if (uuidCallIds.length > 0 && !vapiCallId) {
-            vapiCallId = uuidCallIds[0].id;
-            console.log('🎯 Using UUID call ID:', vapiCallId, 'from', uuidCallIds[0].source);
-          } else if (!vapiCallId && searchResults.length > 0) {
+          if (searchResults.length > 0) {
             vapiCallId = searchResults[0].id;
-            console.log('🔄 Using fallback call ID:', vapiCallId, 'from', searchResults[0].source);
+            console.log('🎯 Found UUID call ID via deep search:', vapiCallId, 'from', searchResults[0].path);
           }
-        }
-          
-        if (vapiCallId) {
-          console.log('🎯 Call ID extracted successfully:', vapiCallId);
-          console.log('📋 All found call IDs:', allFoundCallIds);
-          this.currentCallId = vapiCallId;
-          
-          // Clean up discovery channel since we have the call ID
-          if (this.discoveryChannel) {
-            this.discoveryChannel.unsubscribe();
-            this.discoveryChannel = null;
-          }
-          
-          // ENHANCED: Register session mapping with ALL found call IDs for maximum compatibility
-          this.registerMultipleSessionMappings(allFoundCallIds.map(item => item.id).filter(Boolean));
-          
-          // Subscribe to BOTH channels for grace period
-          this.subscribeToCallChannelWithFallback(vapiCallId);
-          this.updateStatus('🔗 Session isolated - ready for commands!');
-          return;
         }
         
-        // If not found and we have more attempts, try again with progressive delay
+        // CRITICAL: Validate UUID format before accepting
+        if (vapiCallId && !isValidUUID(vapiCallId)) {
+          console.warn('⚠️ Ignoring non-UUID call ID:', vapiCallId);
+          vapiCallId = null;
+        }
+        
+        // If we found a valid UUID call ID, register the session
+        if (vapiCallId) {
+          console.log('✅ Valid UUID Call ID extracted:', vapiCallId);
+          this.handleCallIdExtracted(vapiCallId);
+          return; // Stop attempting extraction
+        }
+        
+        // If we haven't found a UUID call ID yet, retry with delay
         if (attempt < maxAttempts - 1) {
-          setTimeout(() => {
-            this.attemptCallIdExtraction(attempt + 1);
-          }, delays[attempt]);
+          console.warn('⚠️ No UUID call ID found yet, will retry in ' + delays[attempt] + 'ms...');
+          setTimeout(() => this.attemptCallIdExtraction(attempt + 1), delays[attempt]);
         } else {
-          console.warn('⚠️ Could not extract callId after', maxAttempts, 'attempts, relying on backend discovery');
-          this.updateStatus('🟡 Waiting for session discovery...');
+          console.error('❌ Failed to extract UUID call ID after all attempts - call.id may not be available');
+          this.updateStatus('⚠️ Session setup incomplete - try restarting call');
         }
         
       } catch (error) {
