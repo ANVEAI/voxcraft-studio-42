@@ -222,10 +222,10 @@ if (!window.supabase) {
       console.log('✅ Session-isolated channel setup complete:', channelName);
     }
 
-    // Register call-to-session mapping for backend routing
+    // Register call-to-session mapping for backend routing with retry logic
     registerSessionMapping(callId) {
       const mappingChannel = \`vapi:session-mapping:\${this.assistantId}\`;
-      console.log('📝 Registering session mapping:', { callId, sessionId: this.sessionId });
+      console.log('📝 Registering session mapping:', { callId, sessionId: this.sessionId.substr(0, 8) + '...' });
       
       const mappingMessage = {
         type: 'session_mapping',
@@ -235,19 +235,48 @@ if (!window.supabase) {
         timestamp: new Date().toISOString()
       };
       
-      this.supabaseClient
-        .channel(mappingChannel)
-        .send({
-          type: 'broadcast',
-          event: 'register_session',
-          payload: mappingMessage
-        })
-        .then(() => {
-          console.log('✅ Session mapping registered successfully');
-        })
-        .catch(error => {
-          console.error('❌ Failed to register session mapping:', error);
-        });
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      const attemptRegistration = () => {
+        this.supabaseClient
+          .channel(mappingChannel)
+          .send({
+            type: 'broadcast',
+            event: 'register_session',
+            payload: mappingMessage
+          })
+          .then(() => {
+            console.log('✅ Session mapping registered successfully on attempt', retryCount + 1);
+            console.log('🔐 Session isolation active:', { callId, sessionId: this.sessionId.substr(0, 8) + '...' });
+          })
+          .catch(error => {
+            console.error('❌ Failed to register session mapping (attempt ' + (retryCount + 1) + '):', error);
+            
+            if (retryCount < maxRetries) {
+              retryCount++;
+              console.log('🔄 Retrying session mapping registration in 500ms...');
+              setTimeout(attemptRegistration, 500);
+            } else {
+              console.error('❌ Session mapping registration failed after', maxRetries, 'attempts');
+            }
+          });
+      };
+      
+      // Send immediately
+      attemptRegistration();
+      
+      // Also send again after a short delay to ensure backend listener is ready
+      setTimeout(() => {
+        console.log('🔄 Re-sending session mapping to ensure backend received it...');
+        this.supabaseClient
+          .channel(mappingChannel)
+          .send({
+            type: 'broadcast',
+            event: 'register_session',
+            payload: mappingMessage
+          });
+      }, 1000);
     }
 
     loadVapiSDK() {
