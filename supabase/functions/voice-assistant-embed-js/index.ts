@@ -52,6 +52,8 @@ if (!window.supabase) {
       this.vapiWidget = null;
       this.supabaseClient = null;
       this.realtimeChannel = null;
+      this.mappingChannel = null; // Channel for session mapping registration
+      this.discoveryChannel = null; // Channel for call ID discovery
       this.isInitialized = false;
       this.currentPageElements = [];
       this.statusEl = null;
@@ -222,9 +224,9 @@ if (!window.supabase) {
       console.log('✅ Session-isolated channel setup complete:', channelName);
     }
 
-    // Register call-to-session mapping for backend routing with retry logic
+    // Register call-to-session mapping for backend routing with proper subscription
     registerSessionMapping(callId) {
-      const mappingChannel = \`vapi:session-mapping:\${this.assistantId}\`;
+      const mappingChannelName = \`vapi:session-mapping:\${this.assistantId}\`;
       console.log('📝 Registering session mapping:', { callId, sessionId: this.sessionId.substr(0, 8) + '...' });
       
       const mappingMessage = {
@@ -237,46 +239,96 @@ if (!window.supabase) {
       
       let retryCount = 0;
       const maxRetries = 3;
+      const subscriptionTimeout = 5000; // 5 seconds
       
       const attemptRegistration = () => {
-        this.supabaseClient
-          .channel(mappingChannel)
-          .send({
-            type: 'broadcast',
-            event: 'register_session',
-            payload: mappingMessage
-          })
-          .then(() => {
-            console.log('✅ Session mapping registered successfully on attempt', retryCount + 1);
-            console.log('🔐 Session isolation active:', { callId, sessionId: this.sessionId.substr(0, 8) + '...' });
-          })
-          .catch(error => {
-            console.error('❌ Failed to register session mapping (attempt ' + (retryCount + 1) + '):', error);
+        console.log(\`📡 Subscribing to mapping channel (attempt \${retryCount + 1})...\`);
+        
+        // Create a new channel and subscribe first
+        const mappingChannel = this.supabaseClient.channel(mappingChannelName);
+        
+        let timeoutHandle;
+        let isComplete = false;
+        
+        // Set subscription timeout
+        timeoutHandle = setTimeout(() => {
+          if (!isComplete) {
+            console.warn('⏰ Subscription timeout - retrying...');
+            mappingChannel.unsubscribe();
             
             if (retryCount < maxRetries) {
               retryCount++;
-              console.log('🔄 Retrying session mapping registration in 500ms...');
               setTimeout(attemptRegistration, 500);
             } else {
               console.error('❌ Session mapping registration failed after', maxRetries, 'attempts');
             }
-          });
+          }
+        }, subscriptionTimeout);
+        
+        mappingChannel.subscribe(async (status) => {
+          console.log('📡 Mapping channel status:', status);
+          
+          if (status === 'SUBSCRIBED' && !isComplete) {
+            isComplete = true;
+            clearTimeout(timeoutHandle);
+            
+            console.log('✅ Mapping channel subscribed, sending session mapping...');
+            
+            try {
+              // Now send the broadcast message
+              await mappingChannel.send({
+                type: 'broadcast',
+                event: 'register_session',
+                payload: mappingMessage
+              });
+              
+              console.log('✅ Session mapping sent successfully!');
+              console.log('🔐 Session isolation active:', { callId, sessionId: this.sessionId.substr(0, 8) + '...' });
+              
+              // Store reference for cleanup
+              this.mappingChannel = mappingChannel;
+              
+              // Send again after 1 second to ensure backend received it
+              setTimeout(async () => {
+                console.log('🔄 Re-sending session mapping for redundancy...');
+                try {
+                  await mappingChannel.send({
+                    type: 'broadcast',
+                    event: 'register_session',
+                    payload: mappingMessage
+                  });
+                  console.log('✅ Redundant session mapping sent');
+                } catch (error) {
+                  console.warn('⚠️ Failed to send redundant mapping:', error);
+                }
+              }, 1000);
+              
+            } catch (error) {
+              console.error('❌ Failed to send session mapping:', error);
+              
+              if (retryCount < maxRetries) {
+                retryCount++;
+                mappingChannel.unsubscribe();
+                setTimeout(attemptRegistration, 500);
+              }
+            }
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            if (!isComplete) {
+              isComplete = true;
+              clearTimeout(timeoutHandle);
+              console.error('❌ Channel error or timeout:', status);
+              
+              if (retryCount < maxRetries) {
+                retryCount++;
+                setTimeout(attemptRegistration, 500);
+              }
+            }
+          }
+        });
       };
       
-      // Send immediately
+      // Start registration attempt
       attemptRegistration();
-      
-      // Also send again after a short delay to ensure backend listener is ready
-      setTimeout(() => {
-        console.log('🔄 Re-sending session mapping to ensure backend received it...');
-        this.supabaseClient
-          .channel(mappingChannel)
-          .send({
-            type: 'broadcast',
-            event: 'register_session',
-            payload: mappingMessage
-          });
-      }, 1000);
     }
 
     loadVapiSDK() {
@@ -565,6 +617,11 @@ if (!window.supabase) {
         if (this.discoveryChannel) {
           this.discoveryChannel.unsubscribe();
           this.discoveryChannel = null;
+        }
+        
+        if (this.mappingChannel) {
+          this.mappingChannel.unsubscribe();
+          this.mappingChannel = null;
         }
         
         this.updateStatus("🔄 Voice ended");
@@ -1649,6 +1706,12 @@ if (!window.supabase) {
     destroy() {
       if (this.realtimeChannel) {
         this.realtimeChannel.unsubscribe();
+      }
+      if (this.discoveryChannel) {
+        this.discoveryChannel.unsubscribe();
+      }
+      if (this.mappingChannel) {
+        this.mappingChannel.unsubscribe();
       }
       if (this.vapiWidget) {
         // VAPI cleanup if needed
