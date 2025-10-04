@@ -67,13 +67,6 @@ if (!window.supabase) {
       this.queuedCommands = []; // Queue for commands received before channel is ready
       this.discoveryCleanupTimeout = null; // Timeout for cleaning up discovery channel
       
-      // Generate unique tab session ID (persists only for this tab)
-      if (!sessionStorage.getItem('vapi-tab-session-id')) {
-        sessionStorage.setItem('vapi-tab-session-id', \`tab-\${Date.now()}-\${Math.random().toString(36).substr(2, 9)}\`);
-      }
-      this.tabSessionId = sessionStorage.getItem('vapi-tab-session-id');
-      console.log('[TAB-ISOLATION] Tab Session ID:', this.tabSessionId);
-      
       this.init();
     }
 
@@ -207,21 +200,13 @@ if (!window.supabase) {
       this.isSessionChannelReady = false;
       this.queuedCommands = [];
 
-      const channelName = \`vapi:call:\${callId}:\${this.tabSessionId}\`;
+      const channelName = 'vapi:call:' + callId;
       console.log('[LIFECYCLE] 📡 Subscribing to session-specific channel:', channelName);
       
       this.realtimeChannel = this.supabaseClient
         .channel(channelName)
         .on('broadcast', { event: 'function_call' }, (payload) => {
-          console.log('[LIFECYCLE] 📡 Received function call:', payload);
-          console.log('[TAB-ISOLATION] Payload tabSessionId:', payload.payload?.tabSessionId);
-          console.log('[TAB-ISOLATION] Current tabSessionId:', this.tabSessionId);
-          
-          // Filter: Only execute if tabSessionId matches
-          if (payload.payload?.tabSessionId && payload.payload.tabSessionId !== this.tabSessionId) {
-            console.log('[TAB-ISOLATION] ⏭️ Ignoring command - different tab session');
-            return;
-          }
+          console.log('[LIFECYCLE] 📡 Received session-specific function call:', payload);
           
           // If channel is ready, execute immediately
           if (this.isSessionChannelReady) {
@@ -284,10 +269,7 @@ if (!window.supabase) {
       try {
         const config = {
           position: BOT_CONFIG.position,
-          theme: BOT_CONFIG.theme,
-          metadata: {
-            tabSessionId: this.tabSessionId
-          }
+          theme: BOT_CONFIG.theme
         };
 
         this.vapiWidget = window.vapiSDK.run({
@@ -473,8 +455,6 @@ if (!window.supabase) {
     async startCall() {
       try {
         console.log('[LIFECYCLE] 🚀 Starting new call...');
-        console.log('[TAB-ISOLATION] Tab Session ID:', this.tabSessionId);
-        
         this.updateWidgetState('active', 'Connecting...');
         this.visualizer.classList.add('show');
         
@@ -511,8 +491,6 @@ if (!window.supabase) {
         if (hiddenBtn) {
           hiddenBtn.click();
         }
-        
-        console.log('[TAB-ISOLATION] Call ended for tab:', this.tabSessionId);
         
         // Reset initiator flag when call ends
         this.isCallInitiator = false;
