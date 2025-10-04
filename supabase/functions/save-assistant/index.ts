@@ -103,7 +103,8 @@ serve(async (req) => {
         vapi_assistant_id: assistantData.vapi_assistant_id,
         api_key: assistantData.api_key,
         name: assistantData.name,
-        is_active: true
+        is_active: true,
+        assistant_id: assistantRecord.id
       })
       .select()
       .single();
