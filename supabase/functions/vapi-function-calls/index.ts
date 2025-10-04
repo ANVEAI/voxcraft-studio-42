@@ -110,12 +110,12 @@ serve(async (req) => {
       payload: functionCallMessage
     } as any);
 
-    // Extract sessionId from call metadata or variableValues (trying both locations)
+    // Extract sessionId from call metadata or assistantOverrides.variableValues
     const sessionId = payload?.message?.call?.metadata?.sessionId || 
-                     payload?.message?.call?.variableValues?.sessionId;
+                     payload?.message?.call?.assistantOverrides?.variableValues?.sessionId;
     console.log('[VAPI Function Call] Session ID from payload:', sessionId, 
                 'metadata:', payload?.message?.call?.metadata?.sessionId,
-                'variableValues:', payload?.message?.call?.variableValues?.sessionId);
+                'assistantOverrides.variableValues:', payload?.message?.call?.assistantOverrides?.variableValues?.sessionId);
 
     // Also broadcast to discovery channel for call ID sharing + first command
     // Use session-specific channel if sessionId is available, otherwise fallback to assistant-only
