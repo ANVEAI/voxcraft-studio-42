@@ -161,8 +161,18 @@ if (!window.supabase) {
       this.queuedCommands = []; // Queue for commands received before channel is ready
       this.discoveryCleanupTimeout = null; // Timeout for cleaning up discovery channel
       this.pendingFirstCommand = null; // Store first command for replay after session setup
+      this.sessionId = this.generateSessionId(); // Unique session ID for this tab instance
       
       this.init();
+    }
+
+    generateSessionId() {
+      // Generate a unique session ID for this browser tab
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
     }
 
     init() {
@@ -249,18 +259,18 @@ if (!window.supabase) {
         this.discoveryCleanupTimeout = null;
       }
       
-      const discoveryChannelName = \`vapi:discovery:\${this.assistantId}\`;
+      const discoveryChannelName = \`vapi:discovery:\${this.assistantId}:\${this.sessionId}\`;
       console.log('[LIFECYCLE] 🔍 Creating fresh discovery channel:', discoveryChannelName);
       
       this.discoveryChannel = this.supabaseClient
         .channel(discoveryChannelName)
         .on('broadcast', { event: 'call_discovery' }, (payload) => {
           console.log('[LIFECYCLE] 📡 Received call discovery:', payload);
-          const { vapiCallId, firstCommand } = payload.payload;
+          const { vapiCallId, firstCommand, sessionId } = payload.payload;
           
-          // Only accept vapiCallId if this tab is the initiator
-          if (vapiCallId && !this.currentCallId && this.isCallInitiator) {
-            console.log('[LIFECYCLE] 🎯 Call ID discovered via backend:', vapiCallId);
+          // Only accept vapiCallId if this tab is the initiator AND sessionId matches
+          if (vapiCallId && !this.currentCallId && this.isCallInitiator && sessionId === this.sessionId) {
+            console.log('[LIFECYCLE] 🎯 Call ID discovered via backend for our session:', vapiCallId, 'sessionId:', sessionId);
             this.currentCallId = vapiCallId;
             
             // Store first command for replay after session channel is ready
@@ -281,6 +291,8 @@ if (!window.supabase) {
                 this.discoveryChannel = null;
               }
             }, 2000);
+          } else if (vapiCallId && sessionId !== this.sessionId) {
+            console.log('[LIFECYCLE] ⏭️ Ignoring call discovery - different session (ours:', this.sessionId, 'theirs:', sessionId, ')');
           } else if (vapiCallId && !this.isCallInitiator) {
             console.log('[LIFECYCLE] ⏭️ Ignoring call discovery - not the initiator of this call');
           }
@@ -378,7 +390,10 @@ if (!window.supabase) {
       try {
         const config = {
           position: BOT_CONFIG.position,
-          theme: BOT_CONFIG.theme
+          theme: BOT_CONFIG.theme,
+          metadata: {
+            sessionId: this.sessionId // Pass session ID to VAPI
+          }
         };
 
         this.vapiWidget = window.vapiSDK.run({

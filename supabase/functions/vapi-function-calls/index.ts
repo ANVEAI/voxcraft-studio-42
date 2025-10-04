@@ -110,12 +110,24 @@ serve(async (req) => {
       payload: functionCallMessage
     } as any);
 
+    // Extract sessionId from call metadata (if available)
+    const sessionId = payload?.message?.call?.metadata?.sessionId;
+    console.log('[VAPI Function Call] Session ID from metadata:', sessionId);
+
     // Also broadcast to discovery channel for call ID sharing + first command
-    const discoveryChannel = `vapi:discovery:${payload?.message?.assistant?.id || 'unknown'}`;
+    // Use session-specific channel if sessionId is available, otherwise fallback to assistant-only
+    const assistantId = payload?.message?.assistant?.id || 'unknown';
+    const discoveryChannel = sessionId 
+      ? `vapi:discovery:${assistantId}:${sessionId}`
+      : `vapi:discovery:${assistantId}`;
+    
+    console.log('[VAPI Function Call] Broadcasting to discovery channel:', discoveryChannel);
+    
     const discoveryMessage = {
       type: 'call_id_discovery',
       vapiCallId,
-      assistantId: payload?.message?.assistant?.id,
+      assistantId,
+      sessionId, // Include sessionId for client validation
       timestamp: new Date().toISOString(),
       // Include first command data for replay after session setup
       firstCommand: {
