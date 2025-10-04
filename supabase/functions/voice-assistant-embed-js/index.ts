@@ -399,7 +399,12 @@ if (!window.supabase) {
         this.vapiWidget = window.vapiSDK.run({
           apiKey: BOT_CONFIG.apiKey,
           assistant: BOT_CONFIG.assistantId,
-          config
+          config,
+          assistantOverrides: {
+            variableValues: {
+              sessionId: this.sessionId // Also pass via variableValues
+            }
+          }
         });
 
         // Hide default button (we provide our own custom UI)
