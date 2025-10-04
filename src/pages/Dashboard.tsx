@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, FileText, Settings, BarChart3, Bot, Trash2, Mic } from 'lucide-react'
+import { Plus, FileText, Settings, BarChart3, Bot, Trash2, Mic, Code2 } from 'lucide-react'
 import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 
@@ -112,24 +112,14 @@ const Dashboard = () => {
   }
 
   const generateEmbedCode = (assistant: any) => {
-    if (!assistant.embed_id) {
-      return '<!-- Error: No embed ID found for this assistant. Please contact support. -->';
-    }
-    return `<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+    return `<!-- Load Supabase JS -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 
-<!-- Load Voice Assistant (Persistent Embed - Never needs updating) -->
-<script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?embedId=${assistant.embed_id}&position=${assistant.position === 'left' ? 'bottom-left' : 'bottom-right'}&theme=${assistant.theme}"></script>`;
+<!-- Load Voice Assistant -->
+<script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?assistant=${assistant.vapi_assistant_id}&apiKey=${import.meta.env.VITE_VAPI_PUBLIC_KEY}&position=${assistant.position === 'left' ? 'bottom-left' : 'bottom-right'}&theme=${assistant.theme}"></script>`;
   }
 
   const copyEmbedCode = (assistant: any) => {
-    if (!assistant.embed_id) {
-      toast({
-        title: "Error",
-        description: "No embed ID found for this assistant. Please contact support.",
-        variant: "destructive",
-      });
-      return;
-    }
     const embedCode = generateEmbedCode(assistant);
     navigator.clipboard.writeText(embedCode);
     toast({
@@ -199,6 +189,20 @@ const Dashboard = () => {
               <CardContent>
                 <div className="text-2xl font-bold">{assistants.length}</div>
                 <p className="text-xs text-muted-foreground">Created assistants</p>
+              </CardContent>
+            </Card>
+
+            <Card 
+              className="hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => navigate('/embed-management')}
+            >
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Embed Manager</CardTitle>
+                <Code2 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">Manage</div>
+                <p className="text-xs text-muted-foreground">Control embed mappings</p>
               </CardContent>
             </Card>
 
