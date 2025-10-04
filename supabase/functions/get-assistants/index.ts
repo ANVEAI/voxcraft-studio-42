@@ -77,13 +77,10 @@ serve(async (req) => {
 
     console.log('Fetching assistants for user:', userId);
 
-    // Fetch assistants for the user with embed_id from embed_mappings
+    // Fetch assistants for the user
     const { data: assistants, error } = await supabase
       .from('assistants')
-      .select(`
-        *,
-        embed_mappings!left(embed_id)
-      `)
+      .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
@@ -94,17 +91,10 @@ serve(async (req) => {
 
     console.log(`Found ${assistants?.length || 0} assistants for user`);
 
-    // Flatten embed_mappings to add embed_id directly to assistant object
-    const formattedAssistants = assistants?.map(assistant => ({
-      ...assistant,
-      embed_id: assistant.embed_mappings?.[0]?.embed_id || null,
-      embed_mappings: undefined // Remove the nested object
-    })) || [];
-
     return new Response(
       JSON.stringify({
         success: true,
-        assistants: formattedAssistants
+        assistants: assistants || []
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

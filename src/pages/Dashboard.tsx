@@ -115,19 +115,11 @@ const Dashboard = () => {
     return `<!-- Load Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 
-<!-- Load Voice Assistant (Persistent Embed - Never needs updating) -->
-<script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?embedId=${assistant.embed_id}&position=${assistant.position === 'left' ? 'bottom-left' : 'bottom-right'}&theme=${assistant.theme}"></script>`;
+<!-- Load Voice Assistant -->
+<script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?assistant=${assistant.vapi_assistant_id}&apiKey=${import.meta.env.VITE_VAPI_PUBLIC_KEY}&position=${assistant.position === 'left' ? 'bottom-left' : 'bottom-right'}&theme=${assistant.theme}"></script>`;
   }
 
   const copyEmbedCode = (assistant: any) => {
-    if (!assistant.embed_id) {
-      toast({
-        title: "Error",
-        description: "This assistant doesn't have an embed ID yet. Please recreate it.",
-        variant: "destructive",
-      });
-      return;
-    }
     const embedCode = generateEmbedCode(assistant);
     navigator.clipboard.writeText(embedCode);
     toast({

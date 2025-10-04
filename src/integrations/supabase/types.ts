@@ -278,7 +278,6 @@ export type Database = {
       embed_mappings: {
         Row: {
           api_key: string
-          assistant_id: string | null
           created_at: string
           domain_whitelist: string[] | null
           embed_id: string
@@ -291,7 +290,6 @@ export type Database = {
         }
         Insert: {
           api_key: string
-          assistant_id?: string | null
           created_at?: string
           domain_whitelist?: string[] | null
           embed_id: string
@@ -304,7 +302,6 @@ export type Database = {
         }
         Update: {
           api_key?: string
-          assistant_id?: string | null
           created_at?: string
           domain_whitelist?: string[] | null
           embed_id?: string
@@ -315,15 +312,7 @@ export type Database = {
           user_id?: string
           vapi_assistant_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "embed_mappings_assistant_id_fkey"
-            columns: ["assistant_id"]
-            isOneToOne: false
-            referencedRelation: "assistants"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
     }
     Views: {
