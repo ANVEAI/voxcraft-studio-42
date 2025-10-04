@@ -91,8 +91,45 @@ serve(async (req) => {
 
     console.log('Assistant saved successfully:', assistantRecord?.id);
 
+    // Create embed mapping
+    const embedId = `emb_${crypto.randomUUID().substring(0, 12)}`;
+    console.log('Creating embed mapping with ID:', embedId);
+
+    const { data: embedMapping, error: embedError } = await supabase
+      .from('embed_mappings')
+      .insert({
+        embed_id: embedId,
+        user_id: userId,
+        vapi_assistant_id: assistantData.vapi_assistant_id,
+        api_key: assistantData.api_key,
+        name: assistantData.name,
+        is_active: true
+      })
+      .select()
+      .single();
+
+    if (embedError) {
+      console.error('Embed mapping error:', embedError);
+      // Return success with warning if embed mapping fails
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          assistant: assistantRecord,
+          embedId: null,
+          warning: 'Assistant saved but embed mapping failed'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Embed mapping created successfully:', embedId);
+
     return new Response(
-      JSON.stringify({ success: true, assistant: assistantRecord }),
+      JSON.stringify({ 
+        success: true, 
+        assistant: assistantRecord,
+        embedId: embedId
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
