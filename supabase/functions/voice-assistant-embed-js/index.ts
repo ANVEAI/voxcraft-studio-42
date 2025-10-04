@@ -67,6 +67,13 @@ if (!window.supabase) {
       this.queuedCommands = []; // Queue for commands received before channel is ready
       this.discoveryCleanupTimeout = null; // Timeout for cleaning up discovery channel
       
+      // Generate unique tab session ID (persists only for this tab)
+      if (!sessionStorage.getItem('vapi-tab-session-id')) {
+        sessionStorage.setItem('vapi-tab-session-id', \`tab-\${Date.now()}-\${Math.random().toString(36).substr(2, 9)}\`);
+      }
+      this.tabSessionId = sessionStorage.getItem('vapi-tab-session-id');
+      console.log('[TAB-ISOLATION] Tab Session ID:', this.tabSessionId);
+      
       this.init();
     }
 
@@ -455,6 +462,30 @@ if (!window.supabase) {
     async startCall() {
       try {
         console.log('[LIFECYCLE] 🚀 Starting new call...');
+        
+        // Check if another tab has an active call
+        const activeCall = localStorage.getItem('vapi-active-call');
+        if (activeCall) {
+          const callData = JSON.parse(activeCall);
+          if (callData.tabSessionId !== this.tabSessionId) {
+            console.warn('[TAB-ISOLATION] ⚠️ Another tab has an active microphone');
+            this.updateWidgetState('blocked', 'Another tab is active');
+            this.visualizer.classList.add('show');
+            setTimeout(() => {
+              this.visualizer.classList.remove('show');
+              this.updateWidgetState('idle', 'Ready to assist');
+            }, 3000);
+            return;
+          }
+        }
+        
+        // Claim the active call for this tab
+        localStorage.setItem('vapi-active-call', JSON.stringify({
+          tabSessionId: this.tabSessionId,
+          timestamp: Date.now()
+        }));
+        console.log('[TAB-ISOLATION] ✅ Claimed active call for this tab');
+        
         this.updateWidgetState('active', 'Connecting...');
         this.visualizer.classList.add('show');
         
@@ -477,6 +508,14 @@ if (!window.supabase) {
       } catch (error) {
         console.error('[LIFECYCLE] ❌ Start call failed:', error);
         this.isCallInitiator = false;
+        // Clear the active call flag on error
+        const activeCall = localStorage.getItem('vapi-active-call');
+        if (activeCall) {
+          const callData = JSON.parse(activeCall);
+          if (callData.tabSessionId === this.tabSessionId) {
+            localStorage.removeItem('vapi-active-call');
+          }
+        }
         this.updateWidgetState('idle', 'Failed to start');
         setTimeout(() => {
           this.visualizer.classList.remove('show');
@@ -490,6 +529,16 @@ if (!window.supabase) {
         const hiddenBtn = document.querySelector('.vapi-btn');
         if (hiddenBtn) {
           hiddenBtn.click();
+        }
+        
+        // Clear the active call flag for this tab
+        const activeCall = localStorage.getItem('vapi-active-call');
+        if (activeCall) {
+          const callData = JSON.parse(activeCall);
+          if (callData.tabSessionId === this.tabSessionId) {
+            localStorage.removeItem('vapi-active-call');
+            console.log('[TAB-ISOLATION] ✅ Released active call for this tab');
+          }
         }
         
         // Reset initiator flag when call ends
@@ -510,6 +559,11 @@ if (!window.supabase) {
       }
       if (this.widgetStatusEl) {
         this.widgetStatusEl.textContent = statusText;
+      }
+      
+      // Add visual feedback for blocked state
+      if (state === 'blocked' && this.widgetBtn) {
+        this.widgetBtn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
       }
     }
 
