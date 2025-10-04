@@ -198,8 +198,9 @@ const CreateAssistant = () => {
 
       const vapiAssistant = response.assistant;
 
-      // Step 5: Save assistant data to Supabase database
+      // Step 5: Save assistant data to Supabase database and create embed mapping
       console.log('Saving assistant to Supabase database...');
+      let embedId = '';
       try {
         // Get Clerk token for authentication
         const token = await getToken();
@@ -236,6 +237,30 @@ const CreateAssistant = () => {
         } else {
           console.log('Assistant saved to database:', saveResponse.assistant);
         }
+
+        // Generate unique embed ID
+        embedId = `emb_${crypto.randomUUID().substring(0, 12)}`;
+        
+        // Create embed mapping
+        const { error: embedError } = await supabase
+          .from('embed_mappings')
+          .insert({
+            embed_id: embedId,
+            user_id: user.id,
+            vapi_assistant_id: vapiAssistant.id,
+            api_key: import.meta.env.VITE_VAPI_PUBLIC_KEY,
+            name: assistantData.botName,
+            is_active: true
+          });
+
+        if (embedError) {
+          console.error('Embed mapping creation error:', embedError);
+          // Fallback to old format if embed mapping fails
+          embedId = '';
+        } else {
+          console.log('Embed mapping created:', embedId);
+        }
+
       } catch (dbError) {
         console.error('Database operation failed:', dbError);
         toast({
@@ -254,8 +279,14 @@ const CreateAssistant = () => {
         description: successMessage,
       })
 
-      // Generate simple embed code that loads from Edge Function
-      const embedCodeContent = `<!-- Load Supabase JS -->
+      // Generate embed code using embedId if available, otherwise fallback to old format
+      const embedCodeContent = embedId 
+        ? `<!-- Load Supabase JS -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+
+<!-- Load Voice Assistant (Persistent Embed - Fully Controlled) -->
+<script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?embedId=${embedId}&position=${assistantData.position === 'left' ? 'bottom-left' : 'bottom-right'}&theme=${assistantData.theme}"></script>`
+        : `<!-- Load Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 
 <!-- Load Voice Assistant -->

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, FileText, Settings, BarChart3, Bot, Trash2, Mic } from 'lucide-react'
+import { Plus, FileText, Settings, BarChart3, Bot, Trash2, Mic, Code2 } from 'lucide-react'
 import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 
@@ -189,6 +189,20 @@ const Dashboard = () => {
               <CardContent>
                 <div className="text-2xl font-bold">{assistants.length}</div>
                 <p className="text-xs text-muted-foreground">Created assistants</p>
+              </CardContent>
+            </Card>
+
+            <Card 
+              className="hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => navigate('/embed-management')}
+            >
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Embed Manager</CardTitle>
+                <Code2 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">Manage</div>
+                <p className="text-xs text-muted-foreground">Control embed mappings</p>
               </CardContent>
             </Card>
 

@@ -16,12 +16,106 @@ serve(async (req) => {
   
   // Extract parameters from URL
   const url = new URL(req.url);
-  const assistant = url.searchParams.get('assistant') || 'default-assistant';
-  const apiKey = url.searchParams.get('apiKey') || 'default-key';
+  const embedId = url.searchParams.get('embedId');
   const position = url.searchParams.get('position') || 'bottom-right';
   const theme = url.searchParams.get('theme') || 'light';
   
-  console.log('[EMBED JS] Parameters:', { assistant, position, theme });
+  // For backward compatibility, support old format
+  let assistant = url.searchParams.get('assistant');
+  let apiKey = url.searchParams.get('apiKey');
+  
+  // If embedId is provided, fetch mapping from database
+  if (embedId) {
+    try {
+      const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+      const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      
+      const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2.57.4');
+      const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+      
+      const { data: mapping, error } = await supabase
+        .from('embed_mappings')
+        .select('vapi_assistant_id, api_key, is_active, domain_whitelist')
+        .eq('embed_id', embedId)
+        .single();
+      
+      if (error || !mapping) {
+        console.error('[EMBED JS] Failed to fetch embed mapping:', error);
+        return new Response(
+          `console.error('Invalid embed ID: ${embedId}');`,
+          {
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/javascript',
+            },
+          }
+        );
+      }
+      
+      if (!mapping.is_active) {
+        console.log('[EMBED JS] Embed is inactive:', embedId);
+        return new Response(
+          `console.warn('This embed has been disabled');`,
+          {
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/javascript',
+            },
+          }
+        );
+      }
+      
+      // Domain whitelist check (optional)
+      const referer = req.headers.get('Referer');
+      if (mapping.domain_whitelist && mapping.domain_whitelist.length > 0 && referer) {
+        const refererDomain = new URL(referer).hostname;
+        const isAllowed = mapping.domain_whitelist.some(domain => 
+          refererDomain === domain || refererDomain.endsWith(`.${domain}`)
+        );
+        
+        if (!isAllowed) {
+          console.warn('[EMBED JS] Domain not whitelisted:', refererDomain);
+          return new Response(
+            `console.error('Domain not authorized for this embed');`,
+            {
+              headers: {
+                ...corsHeaders,
+                'Content-Type': 'application/javascript',
+              },
+            }
+          );
+        }
+      }
+      
+      assistant = mapping.vapi_assistant_id;
+      apiKey = mapping.api_key;
+      console.log('[EMBED JS] Embed mapping loaded:', { embedId, assistant });
+    } catch (err) {
+      console.error('[EMBED JS] Database lookup failed:', err);
+      return new Response(
+        `console.error('Failed to load embed configuration');`,
+        {
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/javascript',
+          },
+        }
+      );
+    }
+  } else if (!assistant || !apiKey) {
+    // If no embedId and no assistant/apiKey, return error
+    return new Response(
+      `console.error('Missing embed parameters');`,
+      {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/javascript',
+        },
+      }
+    );
+  }
+  
+  console.log('[EMBED JS] Parameters:', { embedId, assistant, position, theme });
 
   const jsContent = `// VAPI-Centric Voice Automation Embed Script  
 // Load Supabase JS first (add this once to your page)

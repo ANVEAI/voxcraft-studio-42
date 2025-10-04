@@ -239,6 +239,81 @@ export type Database = {
           },
         ]
       }
+      embed_mapping_history: {
+        Row: {
+          change_reason: string | null
+          changed_at: string
+          changed_by: string
+          embed_id: string
+          id: string
+          new_api_key: string | null
+          new_vapi_assistant_id: string | null
+          old_api_key: string | null
+          old_vapi_assistant_id: string | null
+        }
+        Insert: {
+          change_reason?: string | null
+          changed_at?: string
+          changed_by: string
+          embed_id: string
+          id?: string
+          new_api_key?: string | null
+          new_vapi_assistant_id?: string | null
+          old_api_key?: string | null
+          old_vapi_assistant_id?: string | null
+        }
+        Update: {
+          change_reason?: string | null
+          changed_at?: string
+          changed_by?: string
+          embed_id?: string
+          id?: string
+          new_api_key?: string | null
+          new_vapi_assistant_id?: string | null
+          old_api_key?: string | null
+          old_vapi_assistant_id?: string | null
+        }
+        Relationships: []
+      }
+      embed_mappings: {
+        Row: {
+          api_key: string
+          created_at: string
+          domain_whitelist: string[] | null
+          embed_id: string
+          id: string
+          is_active: boolean
+          name: string | null
+          updated_at: string
+          user_id: string
+          vapi_assistant_id: string
+        }
+        Insert: {
+          api_key: string
+          created_at?: string
+          domain_whitelist?: string[] | null
+          embed_id: string
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          updated_at?: string
+          user_id: string
+          vapi_assistant_id: string
+        }
+        Update: {
+          api_key?: string
+          created_at?: string
+          domain_whitelist?: string[] | null
+          embed_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          updated_at?: string
+          user_id?: string
+          vapi_assistant_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
