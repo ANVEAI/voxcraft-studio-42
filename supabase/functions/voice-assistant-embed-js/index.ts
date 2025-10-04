@@ -207,13 +207,21 @@ if (!window.supabase) {
       this.isSessionChannelReady = false;
       this.queuedCommands = [];
 
-      const channelName = 'vapi:call:' + callId;
+      const channelName = \`vapi:call:\${callId}:\${this.tabSessionId}\`;
       console.log('[LIFECYCLE] 📡 Subscribing to session-specific channel:', channelName);
       
       this.realtimeChannel = this.supabaseClient
         .channel(channelName)
         .on('broadcast', { event: 'function_call' }, (payload) => {
-          console.log('[LIFECYCLE] 📡 Received session-specific function call:', payload);
+          console.log('[LIFECYCLE] 📡 Received function call:', payload);
+          console.log('[TAB-ISOLATION] Payload tabSessionId:', payload.payload?.tabSessionId);
+          console.log('[TAB-ISOLATION] Current tabSessionId:', this.tabSessionId);
+          
+          // Filter: Only execute if tabSessionId matches
+          if (payload.payload?.tabSessionId && payload.payload.tabSessionId !== this.tabSessionId) {
+            console.log('[TAB-ISOLATION] ⏭️ Ignoring command - different tab session');
+            return;
+          }
           
           // If channel is ready, execute immediately
           if (this.isSessionChannelReady) {
@@ -276,7 +284,10 @@ if (!window.supabase) {
       try {
         const config = {
           position: BOT_CONFIG.position,
-          theme: BOT_CONFIG.theme
+          theme: BOT_CONFIG.theme,
+          metadata: {
+            tabSessionId: this.tabSessionId
+          }
         };
 
         this.vapiWidget = window.vapiSDK.run({
@@ -462,29 +473,7 @@ if (!window.supabase) {
     async startCall() {
       try {
         console.log('[LIFECYCLE] 🚀 Starting new call...');
-        
-        // Check if another tab has an active call
-        const activeCall = localStorage.getItem('vapi-active-call');
-        if (activeCall) {
-          const callData = JSON.parse(activeCall);
-          if (callData.tabSessionId !== this.tabSessionId) {
-            console.warn('[TAB-ISOLATION] ⚠️ Another tab has an active microphone');
-            this.updateWidgetState('blocked', 'Another tab is active');
-            this.visualizer.classList.add('show');
-            setTimeout(() => {
-              this.visualizer.classList.remove('show');
-              this.updateWidgetState('idle', 'Ready to assist');
-            }, 3000);
-            return;
-          }
-        }
-        
-        // Claim the active call for this tab
-        localStorage.setItem('vapi-active-call', JSON.stringify({
-          tabSessionId: this.tabSessionId,
-          timestamp: Date.now()
-        }));
-        console.log('[TAB-ISOLATION] ✅ Claimed active call for this tab');
+        console.log('[TAB-ISOLATION] Tab Session ID:', this.tabSessionId);
         
         this.updateWidgetState('active', 'Connecting...');
         this.visualizer.classList.add('show');
@@ -508,14 +497,6 @@ if (!window.supabase) {
       } catch (error) {
         console.error('[LIFECYCLE] ❌ Start call failed:', error);
         this.isCallInitiator = false;
-        // Clear the active call flag on error
-        const activeCall = localStorage.getItem('vapi-active-call');
-        if (activeCall) {
-          const callData = JSON.parse(activeCall);
-          if (callData.tabSessionId === this.tabSessionId) {
-            localStorage.removeItem('vapi-active-call');
-          }
-        }
         this.updateWidgetState('idle', 'Failed to start');
         setTimeout(() => {
           this.visualizer.classList.remove('show');
@@ -531,15 +512,7 @@ if (!window.supabase) {
           hiddenBtn.click();
         }
         
-        // Clear the active call flag for this tab
-        const activeCall = localStorage.getItem('vapi-active-call');
-        if (activeCall) {
-          const callData = JSON.parse(activeCall);
-          if (callData.tabSessionId === this.tabSessionId) {
-            localStorage.removeItem('vapi-active-call');
-            console.log('[TAB-ISOLATION] ✅ Released active call for this tab');
-          }
-        }
+        console.log('[TAB-ISOLATION] Call ended for tab:', this.tabSessionId);
         
         // Reset initiator flag when call ends
         this.isCallInitiator = false;
@@ -559,11 +532,6 @@ if (!window.supabase) {
       }
       if (this.widgetStatusEl) {
         this.widgetStatusEl.textContent = statusText;
-      }
-      
-      // Add visual feedback for blocked state
-      if (state === 'blocked' && this.widgetBtn) {
-        this.widgetBtn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
       }
     }
 

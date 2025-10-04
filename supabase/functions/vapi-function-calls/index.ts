@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-vapi-assistant-id, x-assistant-id, x-assistant',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-vapi-assistant-id, x-assistant-id, x-assistant, x-tab-session-id',
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
 
@@ -52,13 +52,21 @@ serve(async (req) => {
       payload?.callId ||                                  // Direct callId field
       payload?.message?.callId;                           // From message object
 
+    // Extract tabSessionId from metadata
+    const tabSessionId = 
+      payload?.message?.call?.metadata?.tabSessionId ||
+      payload?.call?.metadata?.tabSessionId ||
+      payload?.metadata?.tabSessionId;
+
     // Enhanced logging to debug call ID extraction
     console.log('[VAPI Function Call] Call ID extraction:', {
       vapiCallId,
+      tabSessionId,
       payloadKeys: Object.keys(payload || {}),
       messageObject: payload?.message,
       callObject: payload?.call,
-      messageCallObject: payload?.message?.call
+      messageCallObject: payload?.message?.call,
+      metadata: payload?.message?.call?.metadata
     });
 
     const toolCall = payload?.message?.toolCalls?.[0] ?? null;
@@ -92,14 +100,25 @@ serve(async (req) => {
       });
     }
 
-    const channelName = `vapi:call:${vapiCallId}`;
-    console.log('[VAPI Function Call] Broadcasting to session-specific channel:', { functionName, channelName, vapiCallId, params });
+    // Tab-specific channel: Include tabSessionId if available
+    const channelName = tabSessionId 
+      ? `vapi:call:${vapiCallId}:${tabSessionId}`
+      : `vapi:call:${vapiCallId}`;
+      
+    console.log('[VAPI Function Call] Broadcasting to tab-specific channel:', { 
+      functionName, 
+      channelName, 
+      vapiCallId, 
+      tabSessionId,
+      params 
+    });
 
     const functionCallMessage = {
       functionName,
       params, // IMPORTANT: "params" to match client dispatcher
       callId,
       vapiCallId,
+      tabSessionId, // Include tabSessionId in the payload
       timestamp: new Date().toISOString()
     };
 
@@ -133,10 +152,23 @@ serve(async (req) => {
       });
     }
 
-    console.log('[VAPI Function Call] Function call broadcasted to session:', { functionName, channelName, vapiCallId });
+    console.log('[VAPI Function Call] Function call broadcasted to tab-specific session:', { 
+      functionName, 
+      channelName, 
+      vapiCallId,
+      tabSessionId 
+    });
 
     return new Response(
-      JSON.stringify({ ok: true, status: 'broadcasted', channel: channelName, functionName, callId, vapiCallId }),
+      JSON.stringify({ 
+        ok: true, 
+        status: 'broadcasted', 
+        channel: channelName, 
+        functionName, 
+        callId, 
+        vapiCallId,
+        tabSessionId 
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
   } catch (error: any) {
