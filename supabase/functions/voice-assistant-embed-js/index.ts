@@ -160,6 +160,7 @@ if (!window.supabase) {
       this.isSessionChannelReady = false; // Track if session channel is ready
       this.queuedCommands = []; // Queue for commands received before channel is ready
       this.discoveryCleanupTimeout = null; // Timeout for cleaning up discovery channel
+      this.pendingFirstCommand = null; // Store first command for replay after session setup
       
       this.init();
     }
@@ -255,12 +256,18 @@ if (!window.supabase) {
         .channel(discoveryChannelName)
         .on('broadcast', { event: 'call_discovery' }, (payload) => {
           console.log('[LIFECYCLE] 📡 Received call discovery:', payload);
-          const { vapiCallId } = payload.payload;
+          const { vapiCallId, firstCommand } = payload.payload;
           
           // Only accept vapiCallId if this tab is the initiator
           if (vapiCallId && !this.currentCallId && this.isCallInitiator) {
             console.log('[LIFECYCLE] 🎯 Call ID discovered via backend:', vapiCallId);
             this.currentCallId = vapiCallId;
+            
+            // Store first command for replay after session channel is ready
+            if (firstCommand) {
+              console.log('[LIFECYCLE] 📦 Storing first command for replay:', firstCommand.functionName);
+              this.pendingFirstCommand = firstCommand;
+            }
             
             // Set up session-specific channel immediately
             this.subscribeToCallChannel(vapiCallId);
@@ -317,9 +324,17 @@ if (!window.supabase) {
           if (status === 'SUBSCRIBED') {
             this.isSessionChannelReady = true;
             this.updateStatus('🟢 Connected to voice control');
+            
+            // Process pending first command if exists
+            if (this.pendingFirstCommand) {
+              console.log('[LIFECYCLE] 🔄 Replaying first command:', this.pendingFirstCommand.functionName);
+              this.executeFunctionCall(this.pendingFirstCommand);
+              this.pendingFirstCommand = null;
+            }
+            
             console.log('[LIFECYCLE] ✅ Session channel ready, processing queued commands:', this.queuedCommands.length);
             
-            // Process any queued commands
+            // Process any other queued commands
             while (this.queuedCommands.length > 0) {
               const command = this.queuedCommands.shift();
               console.log('[LIFECYCLE] 🔄 Processing queued command:', command.functionName);
@@ -622,6 +637,7 @@ if (!window.supabase) {
         this.isCallActive = false;
         this.isSessionChannelReady = false;
         this.queuedCommands = [];
+        this.pendingFirstCommand = null;
         
         if (this.realtimeChannel) {
           console.log('[LIFECYCLE] 🧹 Unsubscribing session channel');

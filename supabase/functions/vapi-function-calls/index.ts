@@ -110,13 +110,19 @@ serve(async (req) => {
       payload: functionCallMessage
     } as any);
 
-    // Also broadcast to discovery channel for call ID sharing
+    // Also broadcast to discovery channel for call ID sharing + first command
     const discoveryChannel = `vapi:discovery:${payload?.message?.assistant?.id || 'unknown'}`;
     const discoveryMessage = {
       type: 'call_id_discovery',
       vapiCallId,
       assistantId: payload?.message?.assistant?.id,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      // Include first command data for replay after session setup
+      firstCommand: {
+        functionName,
+        params,
+        callId
+      }
     };
     
     await supabase.channel(discoveryChannel).send({
