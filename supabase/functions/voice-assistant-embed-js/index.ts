@@ -954,9 +954,9 @@ click_element(params) {
     element = this.findElementByPartialMatch(target_text, nth_match || 0);
   }
   
-  // NEW: If still not found, search in hidden dropdown items
+  // NEW: If still not found, search including hidden elements
   if (!element) {
-    element = this.findHiddenDropdownItem(target_text);
+    element = this.findElementIncludingHidden(target_text, element_type, nth_match || 0);
   }
   
   if (element) {
@@ -974,132 +974,44 @@ click_element(params) {
   }
 }
 
-// NEW METHOD: Find items hidden in dropdowns
-findHiddenDropdownItem(targetText) {
+// NEW METHOD: Search including hidden elements
+findElementIncludingHidden(targetText, elementType, nthMatch = 0) {
   const searchText = targetText.toLowerCase();
-  console.log('🔍 Searching hidden dropdown items for:', searchText);
+  console.log('🔍 Searching including hidden elements for:', searchText);
   
-  // Search all elements including hidden ones
-  const allElements = document.querySelectorAll('a, button, [role="menuitem"], [role="button"], li');
+  // Define element type filters
+  const typeFilters = {
+    'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
+    'link': ['a[href]'],
+    'input': ['input', 'textarea'],
+    'checkbox': ['input[type="checkbox"]'],
+    'radio': ['input[type="radio"]'],
+    'dropdown': ['select'],
+    'menu': ['[role="menu"]', '[role="menuitem"]', '.menu', '.dropdown', '.dropdown-item']
+  };
   
-  for (const element of allElements) {
+  const selectors = elementType && typeFilters[elementType] ? 
+    typeFilters[elementType].join(', ') : 
+    'a, button, [role="button"], [role="menuitem"], input[type="submit"], input[type="button"], li, .dropdown-item, .menu-item';
+  
+  const allElements = document.querySelectorAll(selectors);
+  const matches = [];
+  
+  allElements.forEach(element => {
     const elementText = this.getCompleteElementText(element).toLowerCase();
     
     // Check if text matches
     if (elementText.includes(searchText) || searchText.includes(elementText.trim())) {
-      // Check if element is hidden
-      const isHidden = !this.isVisible(element);
-      
-      if (isHidden) {
-        console.log('✨ Found hidden dropdown item:', elementText);
-        
-        // Find and open the dropdown trigger
-        const dropdownTrigger = this.findDropdownTrigger(element);
-        
-        if (dropdownTrigger) {
-          console.log('🎯 Found dropdown trigger, opening dropdown');
-          this.openDropdown(dropdownTrigger);
-          
-          // Wait for dropdown to open, then return the target element
-          setTimeout(() => {
-            // Check if element is now visible
-            if (this.isVisible(element)) {
-              console.log('✅ Dropdown opened, element now visible');
-            }
-          }, 300);
-          
-          return element;
-        }
-      } else {
-        // Element is visible, return it
-        return element;
-      }
+      matches.push(element);
     }
+  });
+  
+  if (matches.length > 0) {
+    console.log(`✨ Found ${matches.length} matches (including hidden)`);
+    return matches[nthMatch] || matches[0];
   }
   
   return null;
-}
-
-// NEW METHOD: Find the dropdown trigger for a hidden element
-findDropdownTrigger(hiddenElement) {
-  let current = hiddenElement;
-  
-  // Traverse up the DOM to find the dropdown container
-  while (current && current !== document.body) {
-    current = current.parentElement;
-    
-    if (!current) break;
-    
-    // Check if this is a dropdown container
-    const isDropdownContainer = 
-      current.classList.contains('dropdown') ||
-      current.classList.contains('menu') ||
-      current.classList.contains('nav-item') ||
-      current.hasAttribute('data-dropdown') ||
-      current.querySelector('[data-toggle="dropdown"]') ||
-      current.querySelector('[aria-haspopup="true"]');
-    
-    if (isDropdownContainer) {
-      // Find the trigger element (button, link, etc.)
-      const trigger = 
-        current.querySelector('[data-toggle="dropdown"]') ||
-        current.querySelector('[aria-haspopup="true"]') ||
-        current.querySelector('button') ||
-        current.querySelector('a') ||
-        current.querySelector('[role="button"]');
-      
-      if (trigger) {
-        console.log('🎯 Found dropdown trigger:', this.getCompleteElementText(trigger));
-        return trigger;
-      }
-    }
-  }
-  
-  return null;
-}
-
-// NEW METHOD: Open a dropdown by triggering hover and click events
-openDropdown(trigger) {
-  try {
-    // Scroll trigger into view
-    trigger.scrollIntoView({ 
-      behavior: 'smooth', 
-      block: 'center',
-      inline: 'center'
-    });
-    
-    // Simulate mouse enter/hover
-    const mouseEnterEvent = new MouseEvent('mouseenter', {
-      view: window,
-      bubbles: true,
-      cancelable: true
-    });
-    trigger.dispatchEvent(mouseEnterEvent);
-    
-    const mouseOverEvent = new MouseEvent('mouseover', {
-      view: window,
-      bubbles: true,
-      cancelable: true
-    });
-    trigger.dispatchEvent(mouseOverEvent);
-    
-    // Also try focus for keyboard-accessible dropdowns
-    if (trigger.focus) {
-      trigger.focus();
-    }
-    
-    // Some dropdowns require click to open
-    const clickEvent = new MouseEvent('click', {
-      view: window,
-      bubbles: true,
-      cancelable: true
-    });
-    trigger.dispatchEvent(clickEvent);
-    
-    console.log('✅ Dropdown opened');
-  } catch (error) {
-    console.error('❌ Failed to open dropdown:', error);
-  }
 }
 
 performClick(element) {
@@ -1131,7 +1043,96 @@ performClick(element) {
   }
 }
 
-// NEW METHOD: Separated click execution logic
+// Find the dropdown trigger for a hidden element
+findDropdownTrigger(hiddenElement) {
+  let current = hiddenElement;
+  
+  // Traverse up the DOM to find the dropdown container
+  while (current && current !== document.body) {
+    current = current.parentElement;
+    
+    if (!current) break;
+    
+    // Check if this is a dropdown container
+    const isDropdownContainer = 
+      current.classList.contains('dropdown') ||
+      current.classList.contains('menu') ||
+      current.classList.contains('nav-item') ||
+      current.classList.contains('dropdown-menu') ||
+      current.hasAttribute('data-dropdown') ||
+      current.querySelector('[data-toggle="dropdown"]') ||
+      current.querySelector('[aria-haspopup="true"]');
+    
+    if (isDropdownContainer) {
+      // Find the trigger element (button, link, etc.)
+      const trigger = 
+        current.querySelector('[data-toggle="dropdown"]') ||
+        current.querySelector('[aria-haspopup="true"]') ||
+        current.previousElementSibling || // Often trigger is sibling to dropdown menu
+        current.parentElement?.querySelector('[data-toggle="dropdown"]') ||
+        current.parentElement?.querySelector('[aria-haspopup="true"]') ||
+        current.parentElement?.querySelector('button') ||
+        current.parentElement?.querySelector('a');
+      
+      if (trigger && trigger !== hiddenElement) {
+        console.log('🎯 Found dropdown trigger:', this.getCompleteElementText(trigger));
+        return trigger;
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Open a dropdown by triggering hover and click events
+openDropdown(trigger) {
+  try {
+    // Scroll trigger into view
+    trigger.scrollIntoView({ 
+      behavior: 'smooth', 
+      block: 'center',
+      inline: 'center'
+    });
+    
+    // Wait for scroll
+    setTimeout(() => {
+      // Simulate mouse enter/hover
+      const mouseEnterEvent = new MouseEvent('mouseenter', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      });
+      trigger.dispatchEvent(mouseEnterEvent);
+      
+      const mouseOverEvent = new MouseEvent('mouseover', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      });
+      trigger.dispatchEvent(mouseOverEvent);
+      
+      // Also try focus for keyboard-accessible dropdowns
+      if (trigger.focus) {
+        trigger.focus();
+      }
+      
+      // Some dropdowns require click to open
+      const clickEvent = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      });
+      trigger.dispatchEvent(clickEvent);
+      
+      console.log('✅ Dropdown opened');
+    }, 200);
+    
+  } catch (error) {
+    console.error('❌ Failed to open dropdown:', error);
+  }
+}
+
+// Separated click execution logic
 executeClick(element) {
   // Ensure element is in view
   element.scrollIntoView({ 
