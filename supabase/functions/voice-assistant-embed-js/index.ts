@@ -941,14 +941,6 @@ click_element(params) {
   const { target_text, element_type, nth_match } = params;
   console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
   
-  // NEW: Check if this is a dropdown menu item first
-  const dropdownItem = this.findDropdownItem(target_text);
-  if (dropdownItem) {
-    this.clickDropdownItem(dropdownItem);
-    this.updateStatus(`✅ Clicked dropdown: ${target_text}`);
-    return;
-  }
-  
   // Try multiple strategies to find the element
   let element = this.findElementByText(target_text);
   
@@ -960,6 +952,11 @@ click_element(params) {
   // If still not found, try by partial match
   if (!element) {
     element = this.findElementByPartialMatch(target_text, nth_match || 0);
+  }
+  
+  // NEW: If still not found, search in hidden dropdown items
+  if (!element) {
+    element = this.findHiddenDropdownItem(target_text);
   }
   
   if (element) {
@@ -977,109 +974,45 @@ click_element(params) {
   }
 }
 
-// NEW: Find items inside dropdown menus
-findDropdownItem(targetText) {
+// NEW METHOD: Find items hidden in dropdowns
+findHiddenDropdownItem(targetText) {
   const searchText = targetText.toLowerCase();
+  console.log('🔍 Searching hidden dropdown items for:', searchText);
   
-  // Common dropdown selectors
-  const dropdownSelectors = [
-    '[role="menu"]',
-    '[role="menuitem"]',
-    '.dropdown-menu',
-    '.dropdown-content',
-    '.menu',
-    '.submenu',
-    'nav ul',
-    '[aria-haspopup="true"]',
-    '.nav-dropdown',
-    'select option'
-  ];
+  // Search all elements including hidden ones
+  const allElements = document.querySelectorAll('a, button, [role="menuitem"], [role="button"], li');
   
-  let bestMatch = null;
-  let bestScore = 0;
-  
-  // First, look for already visible dropdown items
-  dropdownSelectors.forEach(selector => {
-    try {
-      document.querySelectorAll(selector).forEach(container => {
-        // Look for items within this dropdown
-        const items = container.querySelectorAll('a, button, li, [role="menuitem"], option');
-        
-        items.forEach(item => {
-          const itemText = this.getCompleteElementText(item).toLowerCase();
-          
-          if (itemText.includes(searchText)) {
-            const score = searchText.length / (itemText.length || 1);
-            if (score > bestScore) {
-              bestScore = score;
-              bestMatch = {
-                item: item,
-                container: container,
-                isVisible: this.isVisible(item)
-              };
-            }
-          }
-        });
-      });
-    } catch (e) {
-      console.warn('Dropdown search error:', e);
-    }
-  });
-  
-  // Also check for hidden dropdowns that need to be opened
-  if (!bestMatch || !bestMatch.isVisible) {
-    const hiddenMatch = this.findHiddenDropdownItem(searchText);
-    if (hiddenMatch) {
-      return hiddenMatch;
-    }
-  }
-  
-  return bestMatch;
-}
-
-// NEW: Find items in hidden/collapsed dropdowns
-findHiddenDropdownItem(searchText) {
-  // Look for dropdown triggers
-  const triggers = document.querySelectorAll(
-    '[aria-haspopup="true"], [aria-expanded], .dropdown-toggle, .menu-toggle, [data-toggle="dropdown"]'
-  );
-  
-  for (const trigger of triggers) {
-    // Get the associated dropdown content
-    const dropdownId = trigger.getAttribute('aria-controls') || 
-                       trigger.getAttribute('data-target') ||
-                       trigger.getAttribute('href')?.replace('#', '');
+  for (const element of allElements) {
+    const elementText = this.getCompleteElementText(element).toLowerCase();
     
-    let dropdown = null;
-    
-    if (dropdownId) {
-      dropdown = document.getElementById(dropdownId);
-    }
-    
-    // Also check next sibling or parent's next sibling
-    if (!dropdown) {
-      dropdown = trigger.nextElementSibling;
-      if (dropdown && !dropdown.matches('[role="menu"], .dropdown-menu, .menu')) {
-        dropdown = trigger.parentElement?.querySelector('[role="menu"], .dropdown-menu, .menu');
-      }
-    }
-    
-    if (dropdown) {
-      // Search within this dropdown (even if hidden)
-      const items = dropdown.querySelectorAll('a, button, li, [role="menuitem"]');
+    // Check if text matches
+    if (elementText.includes(searchText) || searchText.includes(elementText.trim())) {
+      // Check if element is hidden
+      const isHidden = !this.isVisible(element);
       
-      for (const item of items) {
-        const itemText = this.getCompleteElementText(item).toLowerCase();
+      if (isHidden) {
+        console.log('✨ Found hidden dropdown item:', elementText);
         
-        if (itemText.includes(searchText)) {
-          return {
-            item: item,
-            container: dropdown,
-            trigger: trigger,
-            isVisible: false,
-            needsExpansion: true
-          };
+        // Find and open the dropdown trigger
+        const dropdownTrigger = this.findDropdownTrigger(element);
+        
+        if (dropdownTrigger) {
+          console.log('🎯 Found dropdown trigger, opening dropdown');
+          this.openDropdown(dropdownTrigger);
+          
+          // Wait for dropdown to open, then return the target element
+          setTimeout(() => {
+            // Check if element is now visible
+            if (this.isVisible(element)) {
+              console.log('✅ Dropdown opened, element now visible');
+            }
+          }, 300);
+          
+          return element;
         }
+      } else {
+        // Element is visible, return it
+        return element;
       }
     }
   }
@@ -1087,163 +1020,204 @@ findHiddenDropdownItem(searchText) {
   return null;
 }
 
-// NEW: Click dropdown item with proper expansion
-clickDropdownItem(dropdownMatch) {
-  try {
-    const { item, trigger, needsExpansion, container } = dropdownMatch;
+// NEW METHOD: Find the dropdown trigger for a hidden element
+findDropdownTrigger(hiddenElement) {
+  let current = hiddenElement;
+  
+  // Traverse up the DOM to find the dropdown container
+  while (current && current !== document.body) {
+    current = current.parentElement;
     
-    if (needsExpansion && trigger) {
-      console.log('🔽 Expanding dropdown first...');
+    if (!current) break;
+    
+    // Check if this is a dropdown container
+    const isDropdownContainer = 
+      current.classList.contains('dropdown') ||
+      current.classList.contains('menu') ||
+      current.classList.contains('nav-item') ||
+      current.hasAttribute('data-dropdown') ||
+      current.querySelector('[data-toggle="dropdown"]') ||
+      current.querySelector('[aria-haspopup="true"]');
+    
+    if (isDropdownContainer) {
+      // Find the trigger element (button, link, etc.)
+      const trigger = 
+        current.querySelector('[data-toggle="dropdown"]') ||
+        current.querySelector('[aria-haspopup="true"]') ||
+        current.querySelector('button') ||
+        current.querySelector('a') ||
+        current.querySelector('[role="button"]');
       
-      // Scroll trigger into view
-      trigger.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'center' 
-      });
-      
-      setTimeout(() => {
-        // Open the dropdown
-        trigger.focus();
-        trigger.click();
-        
-        // Wait for dropdown to expand, then click the item
-        setTimeout(() => {
-          console.log('🖱️ Clicking dropdown item...');
-          
-          item.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'nearest' 
-          });
-          
-          setTimeout(() => {
-            item.focus();
-            item.click();
-            
-            // Re-analyze page
-            setTimeout(() => {
-              this.analyzePageContent();
-            }, 500);
-          }, 200);
-        }, 400); // Wait for dropdown animation
-      }, 300);
-      
-    } else {
-      // Item is already visible, just click it
-      console.log('🖱️ Clicking visible dropdown item...');
-      
-      item.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'center' 
-      });
-      
-      setTimeout(() => {
-        item.focus();
-        item.click();
-        
-        setTimeout(() => {
-          this.analyzePageContent();
-        }, 500);
-      }, 300);
+      if (trigger) {
+        console.log('🎯 Found dropdown trigger:', this.getCompleteElementText(trigger));
+        return trigger;
+      }
     }
-    
-  } catch (error) {
-    console.error('❌ Dropdown click failed:', error);
-    this.updateStatus('❌ Dropdown click failed');
   }
+  
+  return null;
 }
 
-performClick(element) {
+// NEW METHOD: Open a dropdown by triggering hover and click events
+openDropdown(trigger) {
   try {
-    // Ensure element is in view
-    element.scrollIntoView({ 
+    // Scroll trigger into view
+    trigger.scrollIntoView({ 
       behavior: 'smooth', 
       block: 'center',
       inline: 'center'
     });
     
-    // Wait for scroll to complete
-    setTimeout(() => {
-      element.focus();
+    // Simulate mouse enter/hover
+    const mouseEnterEvent = new MouseEvent('mouseenter', {
+      view: window,
+      bubbles: true,
+      cancelable: true
+    });
+    trigger.dispatchEvent(mouseEnterEvent);
+    
+    const mouseOverEvent = new MouseEvent('mouseover', {
+      view: window,
+      bubbles: true,
+      cancelable: true
+    });
+    trigger.dispatchEvent(mouseOverEvent);
+    
+    // Also try focus for keyboard-accessible dropdowns
+    if (trigger.focus) {
+      trigger.focus();
+    }
+    
+    // Some dropdowns require click to open
+    const clickEvent = new MouseEvent('click', {
+      view: window,
+      bubbles: true,
+      cancelable: true
+    });
+    trigger.dispatchEvent(clickEvent);
+    
+    console.log('✅ Dropdown opened');
+  } catch (error) {
+    console.error('❌ Failed to open dropdown:', error);
+  }
+}
+
+performClick(element) {
+  try {
+    // Check if element is hidden (dropdown item)
+    const isHidden = !this.isVisible(element);
+    
+    if (isHidden) {
+      console.log('⚠️ Element is hidden, attempting to open dropdown first');
+      const trigger = this.findDropdownTrigger(element);
       
-      // Special handling for links to enable client-side routing
-      if (element.tagName === 'A' && element.href) {
-        // Check if it's an internal link (same origin)
-        const linkUrl = new URL(element.href, window.location.origin);
-        const isSameOrigin = linkUrl.origin === window.location.origin;
+      if (trigger) {
+        this.openDropdown(trigger);
         
-        if (isSameOrigin) {
-          // Try to trigger client-side navigation for SPAs
-          const clickEvent = new MouseEvent('click', {
-            view: window,
-            bubbles: true,
-            cancelable: true,
-            ctrlKey: false,
-            metaKey: false
-          });
-          
-          // Dispatch the event and let the framework handle it
-          const defaultPrevented = !element.dispatchEvent(clickEvent);
-          
-          // If the framework didn't prevent default, try to use router
-          if (!defaultPrevented) {
-            // Check for common SPA routers
-            if (window.history && window.history.pushState) {
-              // Prevent default navigation
-              const pathname = linkUrl.pathname + linkUrl.search + linkUrl.hash;
-              
-              // Try Next.js router
-              if (window.next?.router) {
-                window.next.router.push(pathname);
-                return;
-              }
-              
-              // Try React Router (if exposed globally)
-              if (window.__REACT_ROUTER__) {
-                window.__REACT_ROUTER__.push(pathname);
-                return;
-              }
-              
-              // Fallback: use History API for client-side navigation
-              window.history.pushState({}, '', pathname);
-              
-              // Dispatch popstate event to notify the router
-              window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-              
-              // Also dispatch a custom navigation event
-              window.dispatchEvent(new CustomEvent('navigate', { 
-                detail: { url: pathname } 
-              }));
-              
-              return;
-            }
-          }
-        }
+        // Wait for dropdown to open before clicking
+        setTimeout(() => {
+          this.executeClick(element);
+        }, 400);
+        return;
       }
-      
-      // For non-links or external links, use standard click
-      const mouseEvents = ['mousedown', 'mouseup', 'click'];
-      mouseEvents.forEach(eventType => {
-        const event = new MouseEvent(eventType, {
-          view: window,
-          bubbles: true,
-          cancelable: true,
-          buttons: 1
-        });
-        element.dispatchEvent(event);
-      });
-      
-      element.click();
-      
-      // Re-analyze page after click for dynamic content
-      setTimeout(() => {
-        this.analyzePageContent();
-      }, 500);
-    }, 300);
+    }
+    
+    // Element is visible, click immediately
+    this.executeClick(element);
     
   } catch (error) {
     console.error('❌ Click failed:', error);
     this.updateStatus('❌ Click failed');
   }
+}
+
+// NEW METHOD: Separated click execution logic
+executeClick(element) {
+  // Ensure element is in view
+  element.scrollIntoView({ 
+    behavior: 'smooth', 
+    block: 'center',
+    inline: 'center'
+  });
+  
+  // Wait for scroll to complete
+  setTimeout(() => {
+    element.focus();
+    
+    // Special handling for links to enable client-side routing
+    if (element.tagName === 'A' && element.href) {
+      // Check if it's an internal link (same origin)
+      const linkUrl = new URL(element.href, window.location.origin);
+      const isSameOrigin = linkUrl.origin === window.location.origin;
+      
+      if (isSameOrigin) {
+        // Try to trigger client-side navigation for SPAs
+        const clickEvent = new MouseEvent('click', {
+          view: window,
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: false,
+          metaKey: false
+        });
+        
+        // Dispatch the event and let the framework handle it
+        const defaultPrevented = !element.dispatchEvent(clickEvent);
+        
+        // If the framework didn't prevent default, try to use router
+        if (!defaultPrevented) {
+          // Check for common SPA routers
+          if (window.history && window.history.pushState) {
+            // Prevent default navigation
+            const pathname = linkUrl.pathname + linkUrl.search + linkUrl.hash;
+            
+            // Try Next.js router
+            if (window.next?.router) {
+              window.next.router.push(pathname);
+              return;
+            }
+            
+            // Try React Router (if exposed globally)
+            if (window.__REACT_ROUTER__) {
+              window.__REACT_ROUTER__.push(pathname);
+              return;
+            }
+            
+            // Fallback: use History API for client-side navigation
+            window.history.pushState({}, '', pathname);
+            
+            // Dispatch popstate event to notify the router
+            window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+            
+            // Also dispatch a custom navigation event
+            window.dispatchEvent(new CustomEvent('navigate', { 
+              detail: { url: pathname } 
+            }));
+            
+            return;
+          }
+        }
+      }
+    }
+    
+    // For non-links or external links, use standard click
+    const mouseEvents = ['mousedown', 'mouseup', 'click'];
+    mouseEvents.forEach(eventType => {
+      const event = new MouseEvent(eventType, {
+        view: window,
+        bubbles: true,
+        cancelable: true,
+        buttons: 1
+      });
+      element.dispatchEvent(event);
+    });
+    
+    element.click();
+    
+    // Re-analyze page after click for dynamic content
+    setTimeout(() => {
+      this.analyzePageContent();
+    }, 500);
+  }, 300);
 }
 
 findElementByFuzzyMatch(targetText, elementType) {
