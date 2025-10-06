@@ -937,7 +937,7 @@ if (!window.supabase) {
       return null;
     }
 
-    async click_element(params) {
+async click_element(params) {
   const { target_text, element_type, nth_match } = params;
   console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
   
