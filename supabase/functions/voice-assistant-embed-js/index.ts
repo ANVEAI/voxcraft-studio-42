@@ -937,155 +937,70 @@ if (!window.supabase) {
       return null;
     }
 
-click_element(params) {
-  const { target_text, element_type, nth_match } = params;
-  console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
-  
-  // STRATEGY: Search ALL elements first (including hidden), then try visible-only
-  let element = null;
-  let isFromHiddenSearch = false;
-  
-  // STEP 1: Search including hidden elements FIRST
-  element = this.findElementIncludingHidden(target_text, element_type, nth_match || 0);
-  if (element) {
-    isFromHiddenSearch = true;
-    console.log('✨ Found element (may be hidden)');
-  }
-  
-  // STEP 2: If not found, try visible-only searches
-  if (!element) {
-    element = this.findElementByText(target_text);
-  }
-  
-  if (!element) {
-    element = this.findElementByFuzzyMatch(target_text, element_type, false); // false = don't skip hidden
-  }
-  
-  if (!element) {
-    element = this.findElementByPartialMatch(target_text, nth_match || 0, false); // false = don't skip hidden
-  }
-  
-  if (element) {
-    this.performClick(element, isFromHiddenSearch);
-    this.updateStatus(`✅ Clicked: ${target_text}`);
-  } else {
-    // Try to provide helpful feedback
-    const suggestions = this.getSimilarElements(target_text);
-    if (suggestions.length > 0) {
-      console.log('🔍 Similar elements found:', suggestions.map(s => s.text));
-      this.updateStatus(`❌ Not found. Try: ${suggestions[0].text}`);
-    } else {
-      this.updateStatus(`❌ Element not found: ${target_text}`);
-    }
-  }
-}
-
-// Search ALL elements including hidden ones
-findElementIncludingHidden(targetText, elementType, nthMatch = 0) {
-  const searchText = targetText.toLowerCase();
-  console.log('🔍 Searching ALL elements (including hidden) for:', searchText);
-  
-  // Define comprehensive selectors
-  const typeFilters = {
-    'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
-    'link': ['a[href]', 'a'],
-    'input': ['input', 'textarea'],
-    'checkbox': ['input[type="checkbox"]'],
-    'radio': ['input[type="radio"]'],
-    'dropdown': ['select', '.dropdown-item', '.dropdown-menu a', '.dropdown-menu button'],
-    'menu': ['[role="menu"]', '[role="menuitem"]', '.menu', '.dropdown', '.dropdown-item', '.menu-item', 'nav a', 'nav button']
-  };
-  
-  const selectors = elementType && typeFilters[elementType] ? 
-    typeFilters[elementType].join(', ') : 
-    'a, button, [role="button"], [role="menuitem"], input[type="submit"], input[type="button"], li a, li button, .dropdown-item, .menu-item, nav a, nav button, [onclick]';
-  
-  const allElements = document.querySelectorAll(selectors);
-  const matches = [];
-  
-  console.log(`📊 Scanning ${allElements.length} elements...`);
-  
-  allElements.forEach(element => {
-    const elementText = this.getCompleteElementText(element).toLowerCase();
-    
-    // Multiple matching strategies
-    const exactMatch = elementText === searchText;
-    const includesMatch = elementText.includes(searchText);
-    const reverseMatch = searchText.includes(elementText.trim()) && elementText.trim().length > 2;
-    const wordMatch = elementText.split(/\s+/).some(word => word === searchText);
-    
-    if (exactMatch || includesMatch || reverseMatch || wordMatch) {
-      const isVisible = this.isElementVisible(element);
-      console.log(`✓ Match found: "${elementText.substring(0, 50)}" | Visible: ${isVisible}`);
-      matches.push({
-        element: element,
-        text: elementText,
-        visible: isVisible,
-        exactMatch: exactMatch
-      });
-    }
-  });
-  
-  if (matches.length > 0) {
-    console.log(`✨ Found ${matches.length} total matches`);
-    
-    // Sort: exact matches first, then visible, then by text length
-    matches.sort((a, b) => {
-      if (a.exactMatch && !b.exactMatch) return -1;
-      if (!a.exactMatch && b.exactMatch) return 1;
-      if (a.visible && !b.visible) return -1;
-      if (!a.visible && b.visible) return 1;
-      return a.text.length - b.text.length;
-    });
-    
-    const selected = matches[nthMatch] || matches[0];
-    console.log(`🎯 Selected: "${selected.text.substring(0, 50)}" | Visible: ${selected.visible}`);
-    return selected.element;
-  }
-  
-  console.log('❌ No matches found in hidden search');
-  return null;
-}
-
-// Enhanced visibility check
-isElementVisible(element) {
-  if (!element) return false;
-  
-  const style = window.getComputedStyle(element);
-  const rect = element.getBoundingClientRect();
-  
-  // Check multiple visibility factors
-  const hasSize = rect.width > 0 && rect.height > 0;
-  const notDisplayNone = style.display !== 'none';
-  const notVisibilityHidden = style.visibility !== 'hidden';
-  const hasOpacity = parseFloat(style.opacity) > 0;
-  const notOffscreen = rect.top < window.innerHeight && rect.bottom > 0;
-  
-  return hasSize && notDisplayNone && notVisibilityHidden && hasOpacity;
-}
-
-performClick(element, isFromHiddenSearch = false) {
-  try {
-    const isVisible = this.isElementVisible(element);
-    
-    console.log(`🎯 Attempting click | Visible: ${isVisible} | FromHiddenSearch: ${isFromHiddenSearch}`);
-    
-    // If element is hidden, try to open its dropdown first
-    if (!isVisible) {
-      console.log('⚠️ Element is HIDDEN, attempting to open dropdown...');
+    click_element(params) {
+      const { target_text, element_type, nth_match } = params;
+      console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
       
-      const dropdownTrigger = this.findDropdownTrigger(element);
+      // Try multiple strategies to find the element
+      let element = this.findElementByText(target_text);
       
-      if (dropdownTrigger) {
-        console.log('🎯 Found dropdown trigger, opening...');
-        this.openDropdown(dropdownTrigger, element);
-        return; // openDropdown will handle the final click
+      // If not found, try more aggressive search
+      if (!element) {
+        element = this.findElementByFuzzyMatch(target_text, element_type);
+      }
+      
+      // If still not found, try by partial match
+      if (!element) {
+        element = this.findElementByPartialMatch(target_text, nth_match || 0);
+      }
+      
+      if (element) {
+        this.performClick(element);
+        this.updateStatus(\`✅ Clicked: \${target_text}\`);
       } else {
-        console.log('⚠️ No dropdown trigger found, attempting direct click anyway...');
+        // Try to provide helpful feedback
+        const suggestions = this.getSimilarElements(target_text);
+        if (suggestions.length > 0) {
+          console.log('🔍 Similar elements found:', suggestions.map(s => s.text));
+          this.updateStatus(\`❌ Not found. Try: \${suggestions[0].text}\`);
+        } else {
+          this.updateStatus(\`❌ Element not found: \${target_text}\`);
+        }
       }
     }
     
-    // Element is visible or no dropdown found, click directly
+performClick(element) {
+  try {
+    console.log('🖱️ Attempting to click:', this.getElementText(element));
+    
+    // STEP 1: Check if element is hidden (likely in a dropdown)
+    const isHidden = !this.isElementActuallyVisible(element);
+    
+    if (isHidden) {
+      console.log('⚠️ Element is hidden - searching for dropdown trigger...');
+      
+      // Find and open the parent dropdown
+      const dropdownTrigger = this.findDropdownTrigger(element);
+      
+      if (dropdownTrigger) {
+        console.log('🎯 Found dropdown trigger:', this.getElementText(dropdownTrigger));
+        
+        // Open the dropdown first
+        this.openDropdown(dropdownTrigger);
+        
+        // Wait for dropdown animation, then click the target
+        setTimeout(() => {
+          console.log('🖱️ Now clicking target element after dropdown opened');
+          this.executeClick(element);
+        }, 400); // Wait for dropdown to fully open
+        
+        return;
+      } else {
+        console.warn('❌ Could not find dropdown trigger for hidden element');
+      }
+    }
+    
+    // STEP 2: Element is visible, click directly
     this.executeClick(element);
     
   } catch (error) {
@@ -1094,155 +1009,120 @@ performClick(element, isFromHiddenSearch = false) {
   }
 }
 
-// Find the dropdown trigger for a hidden element
+// Check if element is actually visible (not just in DOM)
+isElementActuallyVisible(element) {
+  const rect = element.getBoundingClientRect();
+  const style = window.getComputedStyle(element);
+  
+  // Check all visibility factors
+  const isDisplayed = style.display !== 'none';
+  const isVisible = style.visibility !== 'hidden';
+  const hasOpacity = parseFloat(style.opacity) > 0;
+  const hasSize = rect.width > 0 && rect.height > 0;
+  
+  // Additional check: is it actually in viewport or just off-screen?
+  const isInViewport = rect.top < window.innerHeight && rect.bottom > 0;
+  
+  console.log('👁️ Visibility check:', {
+    element: this.getElementText(element),
+    isDisplayed,
+    isVisible,
+    hasOpacity,
+    hasSize,
+    isInViewport
+  });
+  
+  return isDisplayed && isVisible && hasOpacity && hasSize;
+}
+
+// Find the dropdown trigger (parent button/link that opens the menu)
 findDropdownTrigger(hiddenElement) {
   console.log('🔍 Searching for dropdown trigger...');
   
-  let current = hiddenElement;
-  let attempts = 0;
-  const maxAttempts = 10;
+  // Strategy 1: Look for parent with dropdown classes
+  let current = hiddenElement.parentElement;
+  let depth = 0;
+  const maxDepth = 5;
   
-  // Traverse up the DOM tree
-  while (current && current !== document.body && attempts < maxAttempts) {
-    current = current.parentElement;
-    attempts++;
+  while (current && depth < maxDepth) {
+    const classes = current.className || '';
+    const role = current.getAttribute('role') || '';
     
-    if (!current) break;
-    
-    console.log(`  Checking parent ${attempts}:`, current.className, current.tagName);
-    
-    // Strategy 1: Look for dropdown container classes
-    const hasDropdownClass = 
-      current.classList.contains('dropdown') ||
-      current.classList.contains('nav-item') ||
-      current.classList.contains('menu') ||
-      current.classList.contains('menu-item') ||
-      current.hasAttribute('data-dropdown');
-    
-    // Strategy 2: Look for elements with dropdown attributes
-    const hasDropdownAttr = 
-      current.querySelector('[data-toggle="dropdown"]') ||
-      current.querySelector('[aria-haspopup="true"]') ||
-      current.querySelector('[aria-expanded]');
-    
-    // Strategy 3: Check if current element has a button/link sibling or child
-    const hasTriggerElement = 
-      current.querySelector('button:not(.dropdown-item)') ||
-      current.querySelector('a:not(.dropdown-item)') ||
-      current.querySelector('[role="button"]:not(.dropdown-item)');
-    
-    if (hasDropdownClass || hasDropdownAttr || hasTriggerElement) {
-      console.log('  ✓ Found potential dropdown container');
+    // Check if this parent is a dropdown container
+    if (classes.includes('dropdown') || 
+        classes.includes('menu') ||
+        role === 'menu' ||
+        current.hasAttribute('data-dropdown')) {
       
-      // Find the actual trigger element
-      let trigger = null;
-      
-      // Try multiple strategies to find trigger
-      trigger = trigger || current.querySelector('[data-toggle="dropdown"]');
-      trigger = trigger || current.querySelector('[aria-haspopup="true"]');
-      trigger = trigger || current.querySelector('[aria-expanded]');
-      trigger = trigger || current.previousElementSibling; // Sibling trigger
-      trigger = trigger || current.parentElement?.querySelector('button:not(.dropdown-item)');
-      trigger = trigger || current.parentElement?.querySelector('a:not(.dropdown-item)');
-      trigger = trigger || current.querySelector('button:not(.dropdown-item)');
-      trigger = trigger || current.querySelector('a:not(.dropdown-item)');
-      
-      // Make sure trigger is not the hidden element itself
-      if (trigger && trigger !== hiddenElement && !trigger.contains(hiddenElement)) {
-        console.log('🎯 Found dropdown trigger:', this.getCompleteElementText(trigger));
+      // Found dropdown container, now find the trigger
+      const trigger = current.querySelector('[data-toggle], button, a, [role="button"]');
+      if (trigger && this.isElementActuallyVisible(trigger)) {
         return trigger;
       }
+      
+      // Check previous sibling (trigger might be before dropdown)
+      const prevSibling = current.previousElementSibling;
+      if (prevSibling && this.isElementActuallyVisible(prevSibling)) {
+        return prevSibling;
+      }
+    }
+    
+    current = current.parentElement;
+    depth++;
+  }
+  
+  // Strategy 2: Look for aria-controls relationship
+  const elementId = hiddenElement.closest('[id]')?.id;
+  if (elementId) {
+    const trigger = document.querySelector(`[aria-controls="${elementId}"]`);
+    if (trigger) {
+      console.log('🎯 Found trigger via aria-controls');
+      return trigger;
     }
   }
   
-  console.log('❌ No dropdown trigger found after', attempts, 'attempts');
+  // Strategy 3: Look for data-target relationship
+  const targetAttr = hiddenElement.closest('[id]')?.id;
+  if (targetAttr) {
+    const trigger = document.querySelector(`[data-target="#${targetAttr}"]`);
+    if (trigger) {
+      console.log('🎯 Found trigger via data-target');
+      return trigger;
+    }
+  }
+  
   return null;
 }
 
-// Open dropdown with multiple strategies
-openDropdown(trigger, targetElement) {
-  try {
-    console.log('🚀 Opening dropdown...');
-    
-    // Scroll trigger into view first
-    trigger.scrollIntoView({ 
-      behavior: 'smooth', 
-      block: 'center',
-      inline: 'center'
+// Open the dropdown by clicking/hovering the trigger
+openDropdown(trigger) {
+  console.log('🚀 Opening dropdown...');
+  
+  // Scroll trigger into view
+  trigger.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  
+  // Wait for scroll, then trigger hover + click
+  setTimeout(() => {
+    // Dispatch hover events
+    const hoverEvents = ['mouseenter', 'mouseover'];
+    hoverEvents.forEach(eventType => {
+      trigger.dispatchEvent(new MouseEvent(eventType, {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      }));
     });
     
-    // Wait for scroll to complete
-    setTimeout(() => {
-      console.log('  Step 1: Triggering hover events...');
-      
-      // Strategy 1: Hover events (for CSS :hover dropdowns)
-      const hoverEvents = ['mouseenter', 'mouseover', 'mousemove'];
-      hoverEvents.forEach(eventType => {
-        const event = new MouseEvent(eventType, {
-          view: window,
-          bubbles: true,
-          cancelable: true,
-          clientX: trigger.getBoundingClientRect().left + 10,
-          clientY: trigger.getBoundingClientRect().top + 10
-        });
-        trigger.dispatchEvent(event);
-      });
-      
-      // Strategy 2: Focus (for keyboard-accessible dropdowns)
-      if (trigger.focus) {
-        trigger.focus();
-      }
-      
-      // Strategy 3: Click (for click-to-open dropdowns)
-      setTimeout(() => {
-        console.log('  Step 2: Triggering click event...');
-        
-        const clickEvent = new MouseEvent('click', {
-          view: window,
-          bubbles: true,
-          cancelable: true
-        });
-        trigger.dispatchEvent(clickEvent);
-        
-        // Also try native click
-        trigger.click();
-        
-        // Strategy 4: Toggle aria-expanded attribute manually
-        if (trigger.hasAttribute('aria-expanded')) {
-          trigger.setAttribute('aria-expanded', 'true');
-        }
-        
-        // Wait for dropdown animation, then verify and click target
-        setTimeout(() => {
-          console.log('  Step 3: Checking if target is now visible...');
-          
-          const isNowVisible = this.isElementVisible(targetElement);
-          console.log(`  Target visible: ${isNowVisible}`);
-          
-          if (isNowVisible) {
-            console.log('  ✅ Dropdown opened successfully, clicking target...');
-            this.executeClick(targetElement);
-          } else {
-            console.log('  ⚠️ Target still hidden, trying direct click anyway...');
-            // Try clicking anyway - might work for some implementations
-            this.executeClick(targetElement);
-          }
-        }, 600); // Increased wait time for animations
-        
-      }, 200);
-      
-    }, 300);
+    // Click the trigger to open dropdown
+    trigger.click();
     
-  } catch (error) {
-    console.error('❌ Failed to open dropdown:', error);
-    // Fallback: try clicking target directly
-    this.executeClick(targetElement);
-  }
+    console.log('✅ Dropdown trigger activated');
+  }, 200);
 }
 
-// Execute the actual click
+// Execute the actual click with SPA navigation support
 executeClick(element) {
-  console.log('🖱️ Executing click on element...');
+  console.log('🖱️ Executing click on element:', this.getElementText(element));
   
   // Ensure element is in view
   element.scrollIntoView({ 
@@ -1253,281 +1133,242 @@ executeClick(element) {
   
   // Wait for scroll to complete
   setTimeout(() => {
-    try {
-      element.focus();
+    element.focus();
+    
+    // Special handling for links to enable client-side routing
+    if (element.tagName === 'A' && element.href) {
+      // Check if it's an internal link (same origin)
+      const linkUrl = new URL(element.href, window.location.origin);
+      const isSameOrigin = linkUrl.origin === window.location.origin;
       
-      // Special handling for links to enable client-side routing
-      if (element.tagName === 'A' && element.href) {
-        console.log('🔗 Detected link element, checking for SPA routing...');
-        
-        // Check if it's an internal link (same origin)
-        try {
-          const linkUrl = new URL(element.href, window.location.origin);
-          const isSameOrigin = linkUrl.origin === window.location.origin;
-          
-          if (isSameOrigin) {
-            console.log('🔗 Internal link detected, attempting SPA navigation...');
-            
-            // Try to trigger client-side navigation for SPAs
-            const clickEvent = new MouseEvent('click', {
-              view: window,
-              bubbles: true,
-              cancelable: true,
-              ctrlKey: false,
-              metaKey: false
-            });
-            
-            // Dispatch the event and let the framework handle it
-            const defaultPrevented = !element.dispatchEvent(clickEvent);
-            
-            // If the framework didn't prevent default, try to use router
-            if (!defaultPrevented) {
-              // Check for common SPA routers
-              if (window.history && window.history.pushState) {
-                const pathname = linkUrl.pathname + linkUrl.search + linkUrl.hash;
-                
-                // Try Next.js router
-                if (window.next?.router) {
-                  console.log('🔗 Using Next.js router');
-                  window.next.router.push(pathname);
-                  return;
-                }
-                
-                // Try React Router (if exposed globally)
-                if (window.__REACT_ROUTER__) {
-                  console.log('🔗 Using React Router');
-                  window.__REACT_ROUTER__.push(pathname);
-                  return;
-                }
-                
-                // Fallback: use History API for client-side navigation
-                console.log('🔗 Using History API fallback');
-                window.history.pushState({}, '', pathname);
-                
-                // Dispatch popstate event to notify the router
-                window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-                
-                // Also dispatch a custom navigation event
-                window.dispatchEvent(new CustomEvent('navigate', { 
-                  detail: { url: pathname } 
-                }));
-                
-                return;
-              }
-            }
-          }
-        } catch (urlError) {
-          console.warn('⚠️ URL parsing failed, using standard click:', urlError);
-        }
-      }
-      
-      // For non-links or external links, use standard click
-      console.log('🖱️ Using standard click events...');
-      const mouseEvents = ['mousedown', 'mouseup', 'click'];
-      mouseEvents.forEach(eventType => {
-        const event = new MouseEvent(eventType, {
+      if (isSameOrigin) {
+        // Try to trigger client-side navigation for SPAs
+        const clickEvent = new MouseEvent('click', {
           view: window,
           bubbles: true,
           cancelable: true,
-          buttons: 1
+          ctrlKey: false,
+          metaKey: false
         });
-        element.dispatchEvent(event);
-      });
-      
-      // Also trigger native click
-      element.click();
-      
-      console.log('✅ Click executed successfully');
-      
-      // Re-analyze page after click for dynamic content
-      setTimeout(() => {
-        this.analyzePageContent();
-      }, 500);
-      
-    } catch (clickError) {
-      console.error('❌ Click execution error:', clickError);
+        
+        // Dispatch the event and let the framework handle it
+        const defaultPrevented = !element.dispatchEvent(clickEvent);
+        
+        // If the framework didn't prevent default, try to use router
+        if (!defaultPrevented) {
+          // Check for common SPA routers
+          if (window.history && window.history.pushState) {
+            // Prevent default navigation
+            const pathname = linkUrl.pathname + linkUrl.search + linkUrl.hash;
+            
+            // Try Next.js router
+            if (window.next?.router) {
+              window.next.router.push(pathname);
+              return;
+            }
+            
+            // Try React Router (if exposed globally)
+            if (window.__REACT_ROUTER__) {
+              window.__REACT_ROUTER__.push(pathname);
+              return;
+            }
+            
+            // Fallback: use History API for client-side navigation
+            window.history.pushState({}, '', pathname);
+            
+            // Dispatch popstate event to notify the router
+            window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+            
+            // Also dispatch a custom navigation event
+            window.dispatchEvent(new CustomEvent('navigate', { 
+              detail: { url: pathname } 
+            }));
+            
+            return;
+          }
+        }
+      }
     }
+    
+    // For non-links or external links, use standard click
+    const mouseEvents = ['mousedown', 'mouseup', 'click'];
+    mouseEvents.forEach(eventType => {
+      const event = new MouseEvent(eventType, {
+        view: window,
+        bubbles: true,
+        cancelable: true,
+        buttons: 1
+      });
+      element.dispatchEvent(event);
+    });
+    
+    element.click();
+    
+    // Re-analyze page after click for dynamic content
+    setTimeout(() => {
+      this.analyzePageContent();
+    }, 500);
   }, 300);
 }
-
-findElementByFuzzyMatch(targetText, elementType, skipHidden = false) {
-  const searchTerms = targetText.toLowerCase().split(/\s+/);
-  let bestMatch = null;
-  let bestScore = 0;
-  
-  // Define element type filters
-  const typeFilters = {
-    'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
-    'link': ['a[href]', 'a'],
-    'input': ['input', 'textarea'],
-    'checkbox': ['input[type="checkbox"]'],
-    'radio': ['input[type="radio"]'],
-    'dropdown': ['select'],
-    'menu': ['[role="menu"]', '[role="menuitem"]', '.menu', '.dropdown']
-  };
-  
-  const selectors = elementType && typeFilters[elementType] ? 
-    typeFilters[elementType] : 
-    Object.values(typeFilters).flat();
-  
-  selectors.forEach(selector => {
-    try {
-      document.querySelectorAll(selector).forEach(element => {
-        // Only skip hidden if explicitly requested
-        if (skipHidden && !this.isElementVisible(element)) return;
+    
+    findElementByFuzzyMatch(targetText, elementType) {
+      const searchTerms = targetText.toLowerCase().split(/\s+/);
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      // Define element type filters
+      const typeFilters = {
+        'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
+        'link': ['a[href]'],
+        'input': ['input', 'textarea'],
+        'checkbox': ['input[type="checkbox"]'],
+        'radio': ['input[type="radio"]'],
+        'dropdown': ['select'],
+        'menu': ['[role="menu"]', '[role="menuitem"]', '.menu', '.dropdown']
+      };
+      
+      const selectors = elementType && typeFilters[elementType] ? 
+        typeFilters[elementType] : 
+        Object.values(typeFilters).flat();
+      
+      selectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(element => {
+            if (!this.isVisible(element)) return;
+            
+            const elementText = this.getCompleteElementText(element).toLowerCase();
+            
+            let score = 0;
+            searchTerms.forEach(term => {
+              if (elementText.includes(term)) {
+                score += term.length;
+                // Bonus for word boundary matches
+                if (new RegExp(\`\\\\b\${term}\\\\b\`).test(elementText)) {
+                  score += term.length * 0.5;
+                }
+              }
+            });
+            
+            // Normalize score by element text length to prefer shorter exact matches
+            if (elementText.length > 0) {
+              score = score / Math.sqrt(elementText.length);
+            }
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = element;
+            }
+          });
+        } catch (e) {
+          console.warn('Fuzzy match error:', e);
+        }
+      });
+      
+      return bestMatch;
+    }
+    
+    findElementByPartialMatch(targetText, nthMatch = 0) {
+      const searchText = targetText.toLowerCase();
+      const matches = [];
+      
+      // Get all clickable elements
+      const clickableElements = document.querySelectorAll(
+        'a, button, [role="button"], input[type="submit"], input[type="button"], [onclick], [ng-click], [data-click]'
+      );
+      
+      clickableElements.forEach(element => {
+        if (!this.isVisible(element)) return;
         
         const elementText = this.getCompleteElementText(element).toLowerCase();
         
-        let score = 0;
-        searchTerms.forEach(term => {
-          if (elementText.includes(term)) {
-            score += term.length;
-            // Bonus for word boundary matches
-            if (new RegExp(`\\b${term}\\b`).test(elementText)) {
-              score += term.length * 0.5;
-            }
-          }
-        });
-        
-        // Normalize score by element text length to prefer shorter exact matches
-        if (elementText.length > 0) {
-          score = score / Math.sqrt(elementText.length);
-        }
-        
-        if (score > bestScore) {
-          bestScore = score;
-          bestMatch = element;
+        if (elementText.includes(searchText)) {
+          matches.push(element);
         }
       });
-    } catch (e) {
-      console.warn('Fuzzy match error:', e);
-    }
-  });
-  
-  return bestMatch;
-}
-
-findElementByPartialMatch(targetText, nthMatch = 0, skipHidden = false) {
-  const searchText = targetText.toLowerCase();
-  const matches = [];
-  
-  // Get all clickable elements
-  const clickableElements = document.querySelectorAll(
-    'a, button, [role="button"], input[type="submit"], input[type="button"], [onclick], [ng-click], [data-click]'
-  );
-  
-  clickableElements.forEach(element => {
-    // Only skip hidden if explicitly requested
-    if (skipHidden && !this.isElementVisible(element)) return;
-    
-    const elementText = this.getCompleteElementText(element).toLowerCase();
-    
-    if (elementText.includes(searchText)) {
-      matches.push(element);
-    }
-  });
-  
-  return matches[nthMatch] || null;
-}
-
-getSimilarElements(targetText) {
-  const searchText = targetText.toLowerCase();
-  const similar = [];
-  const maxSuggestions = 3;
-  
-  // Search in currentPageElements if available
-  if (this.currentPageElements && this.currentPageElements.length > 0) {
-    this.currentPageElements.forEach(item => {
-      const itemText = item.text.toLowerCase();
-      const similarity = this.calculateSimilarity(searchText, itemText);
       
-      if (similarity > 0.3) { // 30% similarity threshold
-        similar.push({
-          element: item.element,
-          text: item.text,
-          similarity: similarity
-        });
-      }
-    });
-  } else {
-    // Fallback: search all clickable elements
-    const allClickable = document.querySelectorAll('a, button, [role="button"]');
-    allClickable.forEach(element => {
-      const elementText = this.getCompleteElementText(element);
-      const similarity = this.calculateSimilarity(searchText, elementText.toLowerCase());
-      
-      if (similarity > 0.3) {
-        similar.push({
-          element: element,
-          text: elementText,
-          similarity: similarity
-        });
-      }
-    });
-  }
-  
-  // Sort by similarity and return top matches
-  return similar
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, maxSuggestions);
-}
-
-calculateSimilarity(str1, str2) {
-  const longer = str1.length > str2.length ? str1 : str2;
-  const shorter = str1.length > str2.length ? str2 : str1;
-  
-  if (longer.length === 0) return 1.0;
-  
-  const editDistance = this.levenshteinDistance(longer, shorter);
-  return (longer.length - editDistance) / longer.length;
-}
-
-levenshteinDistance(str1, str2) {
-  const matrix = [];
-  
-  for (let i = 0; i <= str2.length; i++) {
-    matrix[i] = [i];
-  }
-  
-  for (let j = 0; j <= str1.length; j++) {
-    matrix[0][j] = j;
-  }
-  
-  for (let i = 1; i <= str2.length; i++) {
-    for (let j = 1; j <= str1.length; j++) {
-      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
+      return matches[nthMatch] || null;
     }
-  }
-  
-  return matrix[str2.length][str1.length];
-}
-
-getCompleteElementText(element) {
-  // Get text from multiple sources for better matching
-  const texts = [
-    element.textContent?.trim(),
-    element.innerText?.trim(),
-    element.value?.trim(),
-    element.alt?.trim(),
-    element.title?.trim(),
-    element.placeholder?.trim(),
-    element.getAttribute('aria-label')?.trim(),
-    element.getAttribute('data-text')?.trim(),
-    element.getAttribute('data-title')?.trim(),
-    element.getAttribute('data-original-title')?.trim(), // Bootstrap tooltips
-    element.getAttribute('data-content')?.trim()
-  ].filter(Boolean);
-  
-  return texts.join(' ');
-}
+    
+    getSimilarElements(targetText) {
+      const searchText = targetText.toLowerCase();
+      const similar = [];
+      const maxSuggestions = 3;
+      
+      this.currentPageElements.forEach(item => {
+        const itemText = item.text.toLowerCase();
+        const similarity = this.calculateSimilarity(searchText, itemText);
+        
+        if (similarity > 0.3) { // 30% similarity threshold
+          similar.push({
+            element: item.element,
+            text: item.text,
+            similarity: similarity
+          });
+        }
+      });
+      
+      // Sort by similarity and return top matches
+      return similar
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, maxSuggestions);
+    }
+    
+    calculateSimilarity(str1, str2) {
+      const longer = str1.length > str2.length ? str1 : str2;
+      const shorter = str1.length > str2.length ? str2 : str1;
+      
+      if (longer.length === 0) return 1.0;
+      
+      const editDistance = this.levenshteinDistance(longer, shorter);
+      return (longer.length - editDistance) / longer.length;
+    }
+    
+    levenshteinDistance(str1, str2) {
+      const matrix = [];
+      
+      for (let i = 0; i <= str2.length; i++) {
+        matrix[i] = [i];
+      }
+      
+      for (let j = 0; j <= str1.length; j++) {
+        matrix[0][j] = j;
+      }
+      
+      for (let i = 1; i <= str2.length; i++) {
+        for (let j = 1; j <= str1.length; j++) {
+          if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+            matrix[i][j] = matrix[i - 1][j - 1];
+          } else {
+            matrix[i][j] = Math.min(
+              matrix[i - 1][j - 1] + 1,
+              matrix[i][j - 1] + 1,
+              matrix[i - 1][j] + 1
+            );
+          }
+        }
+      }
+      
+      return matrix[str2.length][str1.length];
+    }
+    
+    getCompleteElementText(element) {
+      // Get text from multiple sources for better matching
+      const texts = [
+        element.textContent?.trim(),
+        element.innerText?.trim(),
+        element.value?.trim(),
+        element.alt?.trim(),
+        element.title?.trim(),
+        element.placeholder?.trim(),
+        element.getAttribute('aria-label')?.trim(),
+        element.getAttribute('data-text')?.trim(),
+        element.getAttribute('data-title')?.trim(),
+        element.getAttribute('data-original-title')?.trim(), // Bootstrap tooltips
+        element.getAttribute('data-content')?.trim()
+      ].filter(Boolean);
+      
+      return texts.join(' ');
+    }
 
     fill_field(params) {
       const { value, field_hint, field_type, submit_after } = params;
