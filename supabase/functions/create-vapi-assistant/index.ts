@@ -8,10 +8,10 @@ const corsHeaders = {
 
 // Default utility tools that should be attached to every assistant
 const DEFAULT_UTILITY_TOOLS = [
-  '26d46727-2930-4edd-9cde-60658c851652', // toggle_element
-  '21c98b20-e770-4057-811d-f87eec558f18', // fill_field  
-  '7f9b8222-b185-45e5-853e-45eddb247be0', // click_element
-  'd41e48c5-fa8d-4bb7-93ce-cd60fd674d74'  // scroll_page
+  '6b5185d8-0878-4ee8-8e92-e8f50509af4d', // toggle_element
+  '71132b94-7969-401b-bcda-f3ed43731e7b', // fill_field  
+  'a99739d5-a411-4601-a31f-c25e5eeb79ab', // click_element
+  'b62c591a-56a1-4f6a-827d-248f6f5747d8'  // scroll_page
 ];
 
 serve(async (req) => {
