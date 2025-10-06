@@ -969,65 +969,99 @@ if (!window.supabase) {
       }
     }
     
-    performClick(element) {
-      try {
-        // Ensure element is in view
-        element.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'center',
-          inline: 'center'
-        });
+performClick(element) {
+  try {
+    // Ensure element is in view
+    element.scrollIntoView({ 
+      behavior: 'smooth', 
+      block: 'center',
+      inline: 'center'
+    });
+    
+    // Wait for scroll to complete
+    setTimeout(() => {
+      element.focus();
+      
+      // Special handling for links to enable client-side routing
+      if (element.tagName === 'A' && element.href) {
+        // Check if it's an internal link (same origin)
+        const linkUrl = new URL(element.href, window.location.origin);
+        const isSameOrigin = linkUrl.origin === window.location.origin;
         
-        // Wait for scroll to complete
-        setTimeout(() => {
-          // Try multiple click strategies
-          element.focus();
-          
-          // Dispatch mouse events for better compatibility
-          const mouseEvents = ['mousedown', 'mouseup', 'click'];
-          mouseEvents.forEach(eventType => {
-            const event = new MouseEvent(eventType, {
-              view: window,
-              bubbles: true,
-              cancelable: true,
-              buttons: 1
-            });
-            element.dispatchEvent(event);
+        if (isSameOrigin) {
+          // Try to trigger client-side navigation for SPAs
+          const clickEvent = new MouseEvent('click', {
+            view: window,
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: false,
+            metaKey: false
           });
           
-          // Also try native click
-          element.click();
+          // Dispatch the event and let the framework handle it
+          const defaultPrevented = !element.dispatchEvent(clickEvent);
           
-          // Handle special cases
-          if (element.tagName === 'A' && element.href) {
-            // For links that might use preventDefault
-            const clickEvent = new MouseEvent('click', {
-              view: window,
-              bubbles: true,
-              cancelable: true,
-              ctrlKey: false,
-              metaKey: false
-            });
-            
-            if (!element.dispatchEvent(clickEvent)) {
-              // If prevented, try navigation
-              if (element.href && !element.href.startsWith('javascript:')) {
-                window.location.href = element.href;
+          // If the framework didn't prevent default, try to use router
+          if (!defaultPrevented) {
+            // Check for common SPA routers
+            if (window.history && window.history.pushState) {
+              // Prevent default navigation
+              const pathname = linkUrl.pathname + linkUrl.search + linkUrl.hash;
+              
+              // Try Next.js router
+              if (window.next?.router) {
+                window.next.router.push(pathname);
+                return;
               }
+              
+              // Try React Router (if exposed globally)
+              if (window.__REACT_ROUTER__) {
+                window.__REACT_ROUTER__.push(pathname);
+                return;
+              }
+              
+              // Fallback: use History API for client-side navigation
+              window.history.pushState({}, '', pathname);
+              
+              // Dispatch popstate event to notify the router
+              window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+              
+              // Also dispatch a custom navigation event
+              window.dispatchEvent(new CustomEvent('navigate', { 
+                detail: { url: pathname } 
+              }));
+              
+              return;
             }
           }
-          
-          // Re-analyze page after click for dynamic content
-          setTimeout(() => {
-            this.analyzePageContent();
-          }, 500);
-        }, 300);
-        
-      } catch (error) {
-        console.error('❌ Click failed:', error);
-        this.updateStatus('❌ Click failed');
+        }
       }
-    }
+      
+      // For non-links or external links, use standard click
+      const mouseEvents = ['mousedown', 'mouseup', 'click'];
+      mouseEvents.forEach(eventType => {
+        const event = new MouseEvent(eventType, {
+          view: window,
+          bubbles: true,
+          cancelable: true,
+          buttons: 1
+        });
+        element.dispatchEvent(event);
+      });
+      
+      element.click();
+      
+      // Re-analyze page after click for dynamic content
+      setTimeout(() => {
+        this.analyzePageContent();
+      }, 500);
+    }, 300);
+    
+  } catch (error) {
+    console.error('❌ Click failed:', error);
+    this.updateStatus('❌ Click failed');
+  }
+}
     
     findElementByFuzzyMatch(targetText, elementType) {
       const searchTerms = targetText.toLowerCase().split(/\s+/);
