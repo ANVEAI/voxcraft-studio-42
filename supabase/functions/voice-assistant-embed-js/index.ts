@@ -937,38 +937,221 @@ if (!window.supabase) {
       return null;
     }
 
-    click_element(params) {
-      const { target_text, element_type, nth_match } = params;
-      console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
-      
-      // Try multiple strategies to find the element
-      let element = this.findElementByText(target_text);
-      
-      // If not found, try more aggressive search
-      if (!element) {
-        element = this.findElementByFuzzyMatch(target_text, element_type);
-      }
-      
-      // If still not found, try by partial match
-      if (!element) {
-        element = this.findElementByPartialMatch(target_text, nth_match || 0);
-      }
-      
-      if (element) {
-        this.performClick(element);
-        this.updateStatus(\`✅ Clicked: \${target_text}\`);
-      } else {
-        // Try to provide helpful feedback
-        const suggestions = this.getSimilarElements(target_text);
-        if (suggestions.length > 0) {
-          console.log('🔍 Similar elements found:', suggestions.map(s => s.text));
-          this.updateStatus(\`❌ Not found. Try: \${suggestions[0].text}\`);
-        } else {
-          this.updateStatus(\`❌ Element not found: \${target_text}\`);
-        }
+click_element(params) {
+  const { target_text, element_type, nth_match } = params;
+  console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
+  
+  // NEW: Check if this is a dropdown menu item first
+  const dropdownItem = this.findDropdownItem(target_text);
+  if (dropdownItem) {
+    this.clickDropdownItem(dropdownItem);
+    this.updateStatus(`✅ Clicked dropdown: ${target_text}`);
+    return;
+  }
+  
+  // Try multiple strategies to find the element
+  let element = this.findElementByText(target_text);
+  
+  // If not found, try more aggressive search
+  if (!element) {
+    element = this.findElementByFuzzyMatch(target_text, element_type);
+  }
+  
+  // If still not found, try by partial match
+  if (!element) {
+    element = this.findElementByPartialMatch(target_text, nth_match || 0);
+  }
+  
+  if (element) {
+    this.performClick(element);
+    this.updateStatus(`✅ Clicked: ${target_text}`);
+  } else {
+    // Try to provide helpful feedback
+    const suggestions = this.getSimilarElements(target_text);
+    if (suggestions.length > 0) {
+      console.log('🔍 Similar elements found:', suggestions.map(s => s.text));
+      this.updateStatus(`❌ Not found. Try: ${suggestions[0].text}`);
+    } else {
+      this.updateStatus(`❌ Element not found: ${target_text}`);
+    }
+  }
+}
+
+// NEW: Find items inside dropdown menus
+findDropdownItem(targetText) {
+  const searchText = targetText.toLowerCase();
+  
+  // Common dropdown selectors
+  const dropdownSelectors = [
+    '[role="menu"]',
+    '[role="menuitem"]',
+    '.dropdown-menu',
+    '.dropdown-content',
+    '.menu',
+    '.submenu',
+    'nav ul',
+    '[aria-haspopup="true"]',
+    '.nav-dropdown',
+    'select option'
+  ];
+  
+  let bestMatch = null;
+  let bestScore = 0;
+  
+  // First, look for already visible dropdown items
+  dropdownSelectors.forEach(selector => {
+    try {
+      document.querySelectorAll(selector).forEach(container => {
+        // Look for items within this dropdown
+        const items = container.querySelectorAll('a, button, li, [role="menuitem"], option');
+        
+        items.forEach(item => {
+          const itemText = this.getCompleteElementText(item).toLowerCase();
+          
+          if (itemText.includes(searchText)) {
+            const score = searchText.length / (itemText.length || 1);
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = {
+                item: item,
+                container: container,
+                isVisible: this.isVisible(item)
+              };
+            }
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('Dropdown search error:', e);
+    }
+  });
+  
+  // Also check for hidden dropdowns that need to be opened
+  if (!bestMatch || !bestMatch.isVisible) {
+    const hiddenMatch = this.findHiddenDropdownItem(searchText);
+    if (hiddenMatch) {
+      return hiddenMatch;
+    }
+  }
+  
+  return bestMatch;
+}
+
+// NEW: Find items in hidden/collapsed dropdowns
+findHiddenDropdownItem(searchText) {
+  // Look for dropdown triggers
+  const triggers = document.querySelectorAll(
+    '[aria-haspopup="true"], [aria-expanded], .dropdown-toggle, .menu-toggle, [data-toggle="dropdown"]'
+  );
+  
+  for (const trigger of triggers) {
+    // Get the associated dropdown content
+    const dropdownId = trigger.getAttribute('aria-controls') || 
+                       trigger.getAttribute('data-target') ||
+                       trigger.getAttribute('href')?.replace('#', '');
+    
+    let dropdown = null;
+    
+    if (dropdownId) {
+      dropdown = document.getElementById(dropdownId);
+    }
+    
+    // Also check next sibling or parent's next sibling
+    if (!dropdown) {
+      dropdown = trigger.nextElementSibling;
+      if (dropdown && !dropdown.matches('[role="menu"], .dropdown-menu, .menu')) {
+        dropdown = trigger.parentElement?.querySelector('[role="menu"], .dropdown-menu, .menu');
       }
     }
     
+    if (dropdown) {
+      // Search within this dropdown (even if hidden)
+      const items = dropdown.querySelectorAll('a, button, li, [role="menuitem"]');
+      
+      for (const item of items) {
+        const itemText = this.getCompleteElementText(item).toLowerCase();
+        
+        if (itemText.includes(searchText)) {
+          return {
+            item: item,
+            container: dropdown,
+            trigger: trigger,
+            isVisible: false,
+            needsExpansion: true
+          };
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+// NEW: Click dropdown item with proper expansion
+clickDropdownItem(dropdownMatch) {
+  try {
+    const { item, trigger, needsExpansion, container } = dropdownMatch;
+    
+    if (needsExpansion && trigger) {
+      console.log('🔽 Expanding dropdown first...');
+      
+      // Scroll trigger into view
+      trigger.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+      });
+      
+      setTimeout(() => {
+        // Open the dropdown
+        trigger.focus();
+        trigger.click();
+        
+        // Wait for dropdown to expand, then click the item
+        setTimeout(() => {
+          console.log('🖱️ Clicking dropdown item...');
+          
+          item.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'nearest' 
+          });
+          
+          setTimeout(() => {
+            item.focus();
+            item.click();
+            
+            // Re-analyze page
+            setTimeout(() => {
+              this.analyzePageContent();
+            }, 500);
+          }, 200);
+        }, 400); // Wait for dropdown animation
+      }, 300);
+      
+    } else {
+      // Item is already visible, just click it
+      console.log('🖱️ Clicking visible dropdown item...');
+      
+      item.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+      });
+      
+      setTimeout(() => {
+        item.focus();
+        item.click();
+        
+        setTimeout(() => {
+          this.analyzePageContent();
+        }, 500);
+      }, 300);
+    }
+    
+  } catch (error) {
+    console.error('❌ Dropdown click failed:', error);
+    this.updateStatus('❌ Dropdown click failed');
+  }
+}
+
 performClick(element) {
   try {
     // Ensure element is in view
@@ -1062,165 +1245,165 @@ performClick(element) {
     this.updateStatus('❌ Click failed');
   }
 }
-    
-    findElementByFuzzyMatch(targetText, elementType) {
-      const searchTerms = targetText.toLowerCase().split(/\s+/);
-      let bestMatch = null;
-      let bestScore = 0;
-      
-      // Define element type filters
-      const typeFilters = {
-        'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
-        'link': ['a[href]'],
-        'input': ['input', 'textarea'],
-        'checkbox': ['input[type="checkbox"]'],
-        'radio': ['input[type="radio"]'],
-        'dropdown': ['select'],
-        'menu': ['[role="menu"]', '[role="menuitem"]', '.menu', '.dropdown']
-      };
-      
-      const selectors = elementType && typeFilters[elementType] ? 
-        typeFilters[elementType] : 
-        Object.values(typeFilters).flat();
-      
-      selectors.forEach(selector => {
-        try {
-          document.querySelectorAll(selector).forEach(element => {
-            if (!this.isVisible(element)) return;
-            
-            const elementText = this.getCompleteElementText(element).toLowerCase();
-            
-            let score = 0;
-            searchTerms.forEach(term => {
-              if (elementText.includes(term)) {
-                score += term.length;
-                // Bonus for word boundary matches
-                if (new RegExp(\`\\\\b\${term}\\\\b\`).test(elementText)) {
-                  score += term.length * 0.5;
-                }
-              }
-            });
-            
-            // Normalize score by element text length to prefer shorter exact matches
-            if (elementText.length > 0) {
-              score = score / Math.sqrt(elementText.length);
-            }
-            
-            if (score > bestScore) {
-              bestScore = score;
-              bestMatch = element;
-            }
-          });
-        } catch (e) {
-          console.warn('Fuzzy match error:', e);
-        }
-      });
-      
-      return bestMatch;
-    }
-    
-    findElementByPartialMatch(targetText, nthMatch = 0) {
-      const searchText = targetText.toLowerCase();
-      const matches = [];
-      
-      // Get all clickable elements
-      const clickableElements = document.querySelectorAll(
-        'a, button, [role="button"], input[type="submit"], input[type="button"], [onclick], [ng-click], [data-click]'
-      );
-      
-      clickableElements.forEach(element => {
+
+findElementByFuzzyMatch(targetText, elementType) {
+  const searchTerms = targetText.toLowerCase().split(/\s+/);
+  let bestMatch = null;
+  let bestScore = 0;
+  
+  // Define element type filters
+  const typeFilters = {
+    'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
+    'link': ['a[href]'],
+    'input': ['input', 'textarea'],
+    'checkbox': ['input[type="checkbox"]'],
+    'radio': ['input[type="radio"]'],
+    'dropdown': ['select'],
+    'menu': ['[role="menu"]', '[role="menuitem"]', '.menu', '.dropdown']
+  };
+  
+  const selectors = elementType && typeFilters[elementType] ? 
+    typeFilters[elementType] : 
+    Object.values(typeFilters).flat();
+  
+  selectors.forEach(selector => {
+    try {
+      document.querySelectorAll(selector).forEach(element => {
         if (!this.isVisible(element)) return;
         
         const elementText = this.getCompleteElementText(element).toLowerCase();
         
-        if (elementText.includes(searchText)) {
-          matches.push(element);
-        }
-      });
-      
-      return matches[nthMatch] || null;
-    }
-    
-    getSimilarElements(targetText) {
-      const searchText = targetText.toLowerCase();
-      const similar = [];
-      const maxSuggestions = 3;
-      
-      this.currentPageElements.forEach(item => {
-        const itemText = item.text.toLowerCase();
-        const similarity = this.calculateSimilarity(searchText, itemText);
-        
-        if (similarity > 0.3) { // 30% similarity threshold
-          similar.push({
-            element: item.element,
-            text: item.text,
-            similarity: similarity
-          });
-        }
-      });
-      
-      // Sort by similarity and return top matches
-      return similar
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, maxSuggestions);
-    }
-    
-    calculateSimilarity(str1, str2) {
-      const longer = str1.length > str2.length ? str1 : str2;
-      const shorter = str1.length > str2.length ? str2 : str1;
-      
-      if (longer.length === 0) return 1.0;
-      
-      const editDistance = this.levenshteinDistance(longer, shorter);
-      return (longer.length - editDistance) / longer.length;
-    }
-    
-    levenshteinDistance(str1, str2) {
-      const matrix = [];
-      
-      for (let i = 0; i <= str2.length; i++) {
-        matrix[i] = [i];
-      }
-      
-      for (let j = 0; j <= str1.length; j++) {
-        matrix[0][j] = j;
-      }
-      
-      for (let i = 1; i <= str2.length; i++) {
-        for (let j = 1; j <= str1.length; j++) {
-          if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-            matrix[i][j] = matrix[i - 1][j - 1];
-          } else {
-            matrix[i][j] = Math.min(
-              matrix[i - 1][j - 1] + 1,
-              matrix[i][j - 1] + 1,
-              matrix[i - 1][j] + 1
-            );
+        let score = 0;
+        searchTerms.forEach(term => {
+          if (elementText.includes(term)) {
+            score += term.length;
+            // Bonus for word boundary matches
+            if (new RegExp(`\\b${term}\\b`).test(elementText)) {
+              score += term.length * 0.5;
+            }
           }
+        });
+        
+        // Normalize score by element text length to prefer shorter exact matches
+        if (elementText.length > 0) {
+          score = score / Math.sqrt(elementText.length);
         }
-      }
-      
-      return matrix[str2.length][str1.length];
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = element;
+        }
+      });
+    } catch (e) {
+      console.warn('Fuzzy match error:', e);
     }
+  });
+  
+  return bestMatch;
+}
+
+findElementByPartialMatch(targetText, nthMatch = 0) {
+  const searchText = targetText.toLowerCase();
+  const matches = [];
+  
+  // Get all clickable elements
+  const clickableElements = document.querySelectorAll(
+    'a, button, [role="button"], input[type="submit"], input[type="button"], [onclick], [ng-click], [data-click]'
+  );
+  
+  clickableElements.forEach(element => {
+    if (!this.isVisible(element)) return;
     
-    getCompleteElementText(element) {
-      // Get text from multiple sources for better matching
-      const texts = [
-        element.textContent?.trim(),
-        element.innerText?.trim(),
-        element.value?.trim(),
-        element.alt?.trim(),
-        element.title?.trim(),
-        element.placeholder?.trim(),
-        element.getAttribute('aria-label')?.trim(),
-        element.getAttribute('data-text')?.trim(),
-        element.getAttribute('data-title')?.trim(),
-        element.getAttribute('data-original-title')?.trim(), // Bootstrap tooltips
-        element.getAttribute('data-content')?.trim()
-      ].filter(Boolean);
-      
-      return texts.join(' ');
+    const elementText = this.getCompleteElementText(element).toLowerCase();
+    
+    if (elementText.includes(searchText)) {
+      matches.push(element);
     }
+  });
+  
+  return matches[nthMatch] || null;
+}
+
+getSimilarElements(targetText) {
+  const searchText = targetText.toLowerCase();
+  const similar = [];
+  const maxSuggestions = 3;
+  
+  this.currentPageElements.forEach(item => {
+    const itemText = item.text.toLowerCase();
+    const similarity = this.calculateSimilarity(searchText, itemText);
+    
+    if (similarity > 0.3) { // 30% similarity threshold
+      similar.push({
+        element: item.element,
+        text: item.text,
+        similarity: similarity
+      });
+    }
+  });
+  
+  // Sort by similarity and return top matches
+  return similar
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, maxSuggestions);
+}
+
+calculateSimilarity(str1, str2) {
+  const longer = str1.length > str2.length ? str1 : str2;
+  const shorter = str1.length > str2.length ? str2 : str1;
+  
+  if (longer.length === 0) return 1.0;
+  
+  const editDistance = this.levenshteinDistance(longer, shorter);
+  return (longer.length - editDistance) / longer.length;
+}
+
+levenshteinDistance(str1, str2) {
+  const matrix = [];
+  
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+  
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  
+  return matrix[str2.length][str1.length];
+}
+
+getCompleteElementText(element) {
+  // Get text from multiple sources for better matching
+  const texts = [
+    element.textContent?.trim(),
+    element.innerText?.trim(),
+    element.value?.trim(),
+    element.alt?.trim(),
+    element.title?.trim(),
+    element.placeholder?.trim(),
+    element.getAttribute('aria-label')?.trim(),
+    element.getAttribute('data-text')?.trim(),
+    element.getAttribute('data-title')?.trim(),
+    element.getAttribute('data-original-title')?.trim(), // Bootstrap tooltips
+    element.getAttribute('data-content')?.trim()
+  ].filter(Boolean);
+  
+  return texts.join(' ');
+}
 
     fill_field(params) {
       const { value, field_hint, field_type, submit_after } = params;
