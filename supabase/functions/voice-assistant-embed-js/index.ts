@@ -261,11 +261,11 @@ if (!window.supabase) {
       return items;
     }
 
-    // NEW: Smart element finder that handles conditionally rendered dropdowns
+    // ✅ ENHANCED: Smart element finder that handles conditionally rendered dropdowns
     async findElementSmart(targetText, elementType = null, retryCount = 0) {
       const maxRetries = 3;
       
-      console.log(\`[SMART FIND] Searching for: "\${targetText}" (attempt \${retryCount + 1}/\${maxRetries + 1})\`);
+      console.log(\`[SMART FIND] 🔍 Searching for: "\${targetText}" (attempt \${retryCount + 1}/\${maxRetries + 1})\`);
       
       // First, try to find the element directly
       let element = this.findElementByText(targetText);
@@ -285,15 +285,16 @@ if (!window.supabase) {
       }
 
       // If not found or not visible, check if it might be in a dropdown
-      console.log('[SMART FIND] Element not found in DOM, checking dropdowns...');
+      console.log('[SMART FIND] 🔽 Element not found in DOM, checking dropdowns...');
       
       const dropdownInfo = await this.findAndOpenDropdownContaining(targetText);
       
       if (dropdownInfo) {
-        // Wait for React to render
-        await this.waitForReactRender(300);
+        // ✅ ENHANCED: Wait longer for React to render (300-500ms for complex dropdowns)
+        console.log('[SMART FIND] ⏳ Waiting for React to render dropdown items...');
+        await this.waitForReactRender(400);
         
-        // Try finding the element again
+        // Try finding the element again with all strategies
         element = this.findElementByText(targetText);
         
         if (!element) {
@@ -307,13 +308,15 @@ if (!window.supabase) {
         if (element && this.isVisible(element)) {
           console.log('[SMART FIND] ✅ Element found after opening dropdown');
           return element;
+        } else {
+          console.log('[SMART FIND] ⚠️ Dropdown opened but element still not found');
         }
       }
 
       // If still not found and we have retries left, try again
       if (retryCount < maxRetries) {
-        console.log(\`[SMART FIND] Retrying... (\${retryCount + 1}/\${maxRetries})\`);
-        await this.waitForReactRender(200);
+        console.log(\`[SMART FIND] 🔄 Retrying... (\${retryCount + 1}/\${maxRetries})\`);
+        await this.waitForReactRender(250);
         return this.findElementSmart(targetText, elementType, retryCount + 1);
       }
 
@@ -321,9 +324,11 @@ if (!window.supabase) {
       return null;
     }
 
-    // NEW: Find and open dropdown that might contain the target
+    // ✅ ENHANCED: Find and open dropdown that might contain the target
     async findAndOpenDropdownContaining(targetText) {
       const searchText = targetText.toLowerCase();
+      
+      console.log('[DROPDOWN] 🔍 Searching for dropdown containing:', targetText);
       
       // Strategy 1: Check cached dropdowns
       for (const [triggerText, dropdownInfo] of this.dropdownCache.entries()) {
@@ -332,24 +337,39 @@ if (!window.supabase) {
         );
         
         if (hasMatch) {
-          console.log('[DROPDOWN] Found in cache:', triggerText);
-          await this.openDropdown(dropdownInfo.trigger);
-          return dropdownInfo;
+          console.log('[DROPDOWN] 💾 Found in cache:', triggerText);
+          const opened = await this.openDropdown(dropdownInfo.trigger);
+          if (opened) {
+            return dropdownInfo;
+          }
         }
       }
 
       // Strategy 2: Analyze page structure to find potential parent dropdowns
+      console.log('[DROPDOWN] 🔎 Analyzing page structure for potential parents...');
       const potentialParents = this.findPotentialDropdownParents(targetText);
+      console.log('[DROPDOWN] 📋 Found', potentialParents.length, 'potential parent dropdowns');
       
       for (const parent of potentialParents) {
-        console.log('[DROPDOWN] Trying potential parent:', this.getElementText(parent));
+        const parentText = this.getElementText(parent);
+        console.log('[DROPDOWN] 🎯 Trying potential parent:', parentText);
+        
         const opened = await this.openDropdown(parent);
         
         if (opened) {
-          // Wait and check if target is now visible
-          await this.waitForReactRender(300);
+          // ✅ ENHANCED: Wait longer for React to render dropdown items
+          console.log('[DROPDOWN] ⏳ Waiting for dropdown items to render...');
+          await this.waitForReactRender(400);
           
-          const testElement = this.findElementByText(targetText);
+          // Try multiple finding strategies
+          let testElement = this.findElementByText(targetText);
+          if (!testElement) {
+            testElement = this.findElementByFuzzyMatch(targetText);
+          }
+          if (!testElement) {
+            testElement = this.findElementByPartialMatch(targetText, 0);
+          }
+          
           if (testElement && this.isVisible(testElement)) {
             console.log('[DROPDOWN] ✅ Successfully opened correct dropdown');
             
@@ -357,20 +377,23 @@ if (!window.supabase) {
             const menu = this.findDropdownMenu(parent);
             if (menu) {
               const items = this.extractDropdownItems(menu);
-              this.dropdownCache.set(this.getElementText(parent).toLowerCase(), {
+              this.dropdownCache.set(parentText.toLowerCase(), {
                 trigger: parent,
                 menu: menu,
                 items: items,
                 timestamp: Date.now()
               });
+              console.log('[DROPDOWN] 💾 Cached dropdown with', items.length, 'items');
             }
             
             return { trigger: parent, menu: menu };
+          } else {
+            console.log('[DROPDOWN] ⚠️ Dropdown opened but target not found inside');
           }
         }
       }
 
-      console.log('[DROPDOWN] No suitable dropdown found');
+      console.log('[DROPDOWN] ❌ No suitable dropdown found');
       return null;
     }
 
@@ -441,50 +464,68 @@ if (!window.supabase) {
       return parents;
     }
 
-    // NEW: Open a dropdown (handles both hover and click)
+    // ✅ ENHANCED: Open a dropdown (handles both hover and click with improved timing)
     async openDropdown(trigger) {
       if (!trigger) return false;
       
-      console.log('[DROPDOWN] Opening dropdown:', this.getElementText(trigger));
+      console.log('[DROPDOWN] 🔽 Opening dropdown:', this.getElementText(trigger));
       
       try {
         // Check if already open
         const ariaExpanded = trigger.getAttribute('aria-expanded');
         if (ariaExpanded === 'true') {
-          console.log('[DROPDOWN] Already open');
+          console.log('[DROPDOWN] ✅ Already open');
           return true;
         }
 
         // Scroll into view
         trigger.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await this.waitForReactRender(200);
+        await this.waitForReactRender(250);
 
         // Strategy 1: Trigger hover events (for hover-based dropdowns)
+        console.log('[DROPDOWN] 📍 Strategy 1: Triggering hover events...');
         this.triggerHoverEvents(trigger);
-        await this.waitForReactRender(100);
+        await this.waitForReactRender(150);
 
-        // Strategy 2: Click (for click-based dropdowns)
-        trigger.focus();
-        trigger.click();
-        await this.waitForReactRender(100);
+        // Check if opened by hover
+        let isOpen = trigger.getAttribute('aria-expanded') === 'true' || this.findDropdownMenu(trigger) !== null;
+        
+        if (!isOpen) {
+          // Strategy 2: Click (for click-based dropdowns)
+          console.log('[DROPDOWN] 📍 Strategy 2: Triggering click...');
+          trigger.focus();
+          trigger.click();
+          await this.waitForReactRender(150);
+          
+          isOpen = trigger.getAttribute('aria-expanded') === 'true' || this.findDropdownMenu(trigger) !== null;
+        }
 
-        // Strategy 3: Dispatch React synthetic events
-        this.triggerReactEvents(trigger);
-        await this.waitForReactRender(100);
+        if (!isOpen) {
+          // Strategy 3: Dispatch React synthetic events
+          console.log('[DROPDOWN] 📍 Strategy 3: Triggering React events...');
+          this.triggerReactEvents(trigger);
+          await this.waitForReactRender(150);
+          
+          isOpen = trigger.getAttribute('aria-expanded') === 'true' || this.findDropdownMenu(trigger) !== null;
+        }
 
-        // Verify dropdown opened
-        const isOpen = 
-          trigger.getAttribute('aria-expanded') === 'true' ||
-          this.findDropdownMenu(trigger) !== null;
+        // ✅ ENHANCED: Final verification with extended wait for React rendering
+        if (!isOpen) {
+          console.log('[DROPDOWN] ⏳ Waiting for React state update...');
+          await this.waitForReactRender(300);
+          isOpen = trigger.getAttribute('aria-expanded') === 'true' || this.findDropdownMenu(trigger) !== null;
+        }
 
         if (isOpen) {
           this.openDropdowns.add(trigger);
           console.log('[DROPDOWN] ✅ Successfully opened');
+        } else {
+          console.log('[DROPDOWN] ⚠️ Failed to open after all strategies');
         }
 
         return isOpen;
       } catch (error) {
-        console.error('[DROPDOWN] Error opening:', error);
+        console.error('[DROPDOWN] ❌ Error opening:', error);
         return false;
       }
     }
@@ -621,12 +662,13 @@ if (!window.supabase) {
       );
     }
 
-    // NEW: Wait for React to render (with exponential backoff)
+    // ✅ ENHANCED: Wait for React to render (with exponential backoff and frame sync)
     async waitForReactRender(baseMs = 300) {
       return new Promise(resolve => {
-        // Use requestAnimationFrame to wait for paint
+        // Use double requestAnimationFrame to ensure DOM updates are complete
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
+            // Additional timeout for React state updates and re-renders
             setTimeout(resolve, baseMs);
           });
         });
@@ -1672,68 +1714,111 @@ if (!window.supabase) {
       );
     }
 
-    fill_field(params) {
+    async fill_field(params) {
       const { field_name, value } = params;
-      console.log('✍️ Filling field:', field_name, 'with:', value);
+      console.log('[FIELD FILL] 🔍 Attempting to fill field:', field_name, 'with:', value);
       
-      const field = this.findInputField(field_name);
+      // ✅ FIX: Add parameter validation
+      if (!field_name || !value) {
+        console.error('[FIELD FILL] ❌ Missing required parameters:', { field_name, value });
+        this.updateStatus('❌ Invalid field fill parameters');
+        return;
+      }
+      
+      // ✅ FIX: Use smart finder with retry logic for conditionally rendered fields
+      let field = this.findInputField(field_name);
+      
+      // If not found, wait and retry (field might be rendering)
+      if (!field) {
+        console.log('[FIELD FILL] ⏳ Field not found, waiting for render...');
+        await this.waitForReactRender(300);
+        field = this.findInputField(field_name);
+      }
       
       if (field) {
+        console.log('[FIELD FILL] ✅ Field found, filling...');
+        
         field.scrollIntoView({ 
           behavior: 'smooth', 
           block: 'center' 
         });
         
-        setTimeout(() => {
-          field.focus();
-          
-          field.value = value;
-          
-          const events = ['input', 'change', 'blur'];
-          events.forEach(eventType => {
-            const event = new Event(eventType, { bubbles: true, cancelable: true });
-            field.dispatchEvent(event);
-          });
-          
-          const reactPropsKey = Object.keys(field).find(key => 
-            key.startsWith('__reactProps') || key.startsWith('__reactEventHandlers')
-          );
-          
-          if (reactPropsKey) {
-            const props = field[reactPropsKey];
-            if (props.onChange) {
-              props.onChange({ target: field, currentTarget: field });
-            }
+        await this.waitForReactRender(300);
+        
+        field.focus();
+        
+        // Clear existing value first
+        field.value = '';
+        
+        // Set new value
+        field.value = value;
+        
+        // Trigger all necessary events for React compatibility
+        const events = ['input', 'change', 'blur'];
+        events.forEach(eventType => {
+          const event = new Event(eventType, { bubbles: true, cancelable: true });
+          field.dispatchEvent(event);
+        });
+        
+        // Trigger React synthetic events if available
+        const reactPropsKey = Object.keys(field).find(key => 
+          key.startsWith('__reactProps') || key.startsWith('__reactEventHandlers')
+        );
+        
+        if (reactPropsKey) {
+          const props = field[reactPropsKey];
+          if (props.onChange) {
+            props.onChange({ target: field, currentTarget: field });
           }
-          
-          this.updateStatus(\`✅ Filled: \${field_name}\`);
-        }, 300);
+          if (props.onInput) {
+            props.onInput({ target: field, currentTarget: field });
+          }
+        }
+        
+        console.log('[FIELD FILL] ✅ Successfully filled field:', field_name);
+        this.updateStatus(\`✅ Filled: \${field_name}\`);
       } else {
+        console.error('[FIELD FILL] ❌ Field not found after retry:', field_name);
         this.updateStatus(\`❌ Field not found: \${field_name}\`);
       }
     }
 
     findInputField(fieldName) {
-      const searchText = fieldName.toLowerCase();
+      // ✅ FIX: Add defensive null/undefined check
+      if (!fieldName || typeof fieldName !== 'string') {
+        console.error('[FIELD FILL] Invalid field name:', fieldName);
+        return null;
+      }
+      
+      const searchText = fieldName.toLowerCase().trim();
+      
+      if (searchText.length === 0) {
+        console.error('[FIELD FILL] Empty field name after trim');
+        return null;
+      }
       
       const inputs = document.querySelectorAll('input, textarea, select');
       
       for (const input of inputs) {
         if (!this.isVisible(input)) continue;
         
-        const label = this.findLabelForInput(input);
+        const label = this.findLabelForInput(input) || '';
         const placeholder = input.placeholder || '';
         const name = input.name || '';
         const id = input.id || '';
         const ariaLabel = input.getAttribute('aria-label') || '';
+        const type = input.type || '';
         
-        const combinedText = (label + ' ' + placeholder + ' ' + name + ' ' + id + ' ' + ariaLabel).toLowerCase();
+        // Build combined text with all possible identifiers
+        const combinedText = (label + ' ' + placeholder + ' ' + name + ' ' + id + ' ' + ariaLabel + ' ' + type).toLowerCase();
         
         if (combinedText.includes(searchText)) {
+          console.log('[FIELD FILL] ✅ Found field:', { fieldName, element: input });
           return input;
         }
       }
       
+      console.log('[FIELD FILL] ❌ Field not found:', fieldName);
       return null;
     }
 
