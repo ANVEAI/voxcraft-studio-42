@@ -149,6 +149,9 @@ if (!window.supabase) {
       this.sessionId = this.generateSessionId();
       this.openDropdowns = new Set(); // Track currently open dropdowns
       this.dropdownCache = new Map(); // Cache dropdown structures
+      this.contextCache = null; // Cache for page context
+      this.contextCacheTimestamp = 0; // Timestamp of last context extraction
+      this.contextCacheTTL = 30000; // Cache TTL: 30 seconds
       
       this.init();
     }
@@ -169,6 +172,7 @@ if (!window.supabase) {
       this.setupSupabaseRealtime();
       this.loadVapiSDK();
       this.setupDropdownMonitoring(); // NEW: Monitor dropdown state changes
+      this.setupContextCacheInvalidation(); // NEW: Invalidate context cache on navigation
     }
 
     // NEW: Monitor dropdown state changes in React apps
@@ -193,6 +197,34 @@ if (!window.supabase) {
       });
 
       this.dropdownObserver = observer;
+    }
+
+    // NEW: Setup context cache invalidation on navigation
+    setupContextCacheInvalidation() {
+      // Invalidate cache on URL change (SPA navigation)
+      window.addEventListener('popstate', () => {
+        this.contextCache = null;
+        this.contextCacheTimestamp = 0;
+        console.log('[CONTEXT] 🔄 Cache invalidated due to navigation');
+      });
+
+      // Invalidate cache on pushState/replaceState (React Router, Next.js)
+      const originalPushState = history.pushState;
+      const originalReplaceState = history.replaceState;
+
+      history.pushState = (...args) => {
+        originalPushState.apply(history, args);
+        this.contextCache = null;
+        this.contextCacheTimestamp = 0;
+        console.log('[CONTEXT] 🔄 Cache invalidated due to pushState');
+      };
+
+      history.replaceState = (...args) => {
+        originalReplaceState.apply(history, args);
+        this.contextCache = null;
+        this.contextCacheTimestamp = 0;
+        console.log('[CONTEXT] 🔄 Cache invalidated due to replaceState');
+      };
     }
 
     // NEW: Detect and cache dropdown structures
@@ -1346,6 +1378,9 @@ if (!window.supabase) {
       
       try {
         switch (functionName) {
+          case 'get_page_context':
+            this.get_page_context(params);
+            break;
           case 'scroll_page':
             this.scroll_page(params);
             break;
@@ -1368,6 +1403,346 @@ if (!window.supabase) {
         this.updateStatus(\`❌ Error executing \${functionName}\`);
       }
     }
+
+    // ========================================
+    // CONTEXT ENGINE METHODS
+    // ========================================
+
+    get_page_context(params) {
+      console.log('[CONTEXT] 📊 Extracting page context...', params);
+      this.updateStatus('📊 Analyzing page structure...');
+      
+      try {
+        // Handle defaults
+        const refresh = params.refresh || false;
+        const detailLevel = params.detail_level || 'standard';
+        
+        // Check cache unless refresh is requested
+        if (!refresh && this.contextCache) {
+          const now = Date.now();
+          if ((now - this.contextCacheTimestamp) < this.contextCacheTTL) {
+            console.log('[CONTEXT] ✅ Using cached context');
+            this.updateStatus('✅ Context retrieved (cached)');
+            return {
+              success: true,
+              context: this.contextCache,
+              cached: true,
+              message: 'Page context retrieved from cache'
+            };
+          }
+        }
+        
+        // Extract fresh context
+        const context = {
+          url: window.location.href,
+          title: document.title,
+          pageType: this.detectPageType(),
+          timestamp: Date.now()
+        };
+        
+        // Add navigation based on detail level
+        if (detailLevel === 'minimal') {
+          context.navigation = this.extractNavigationMinimal();
+        } else {
+          context.navigation = this.extractNavigation();
+        }
+        
+        // Add interactive elements (standard and detailed)
+        if (detailLevel === 'standard' || detailLevel === 'detailed') {
+          context.interactiveElements = this.extractInteractiveElements();
+        }
+        
+        // Add forms (detailed only)
+        if (detailLevel === 'detailed') {
+          context.forms = this.extractForms();
+          context.contentSections = this.extractContentSections();
+        }
+        
+        // Update cache
+        this.contextCache = context;
+        this.contextCacheTimestamp = Date.now();
+        
+        console.log('[CONTEXT] ✅ Context extracted:', context);
+        this.updateStatus('✅ Page context analyzed');
+        
+        return {
+          success: true,
+          context: context,
+          cached: false,
+          message: 'Page context extracted with ' + detailLevel + ' detail level'
+        };
+        
+      } catch (error) {
+        console.error('[CONTEXT] ❌ Error extracting context:', error);
+        this.updateStatus('❌ Failed to analyze page');
+        return {
+          success: false,
+          error: error.message,
+          message: 'Failed to extract page context'
+        };
+      }
+    }
+
+    detectPageType() {
+      const path = window.location.pathname;
+      
+      if (path === '/' || path === '/home') return 'landing_page';
+      if (path.includes('/product')) return 'product_page';
+      if (path.includes('/checkout') || path.includes('/cart')) return 'checkout_page';
+      if (path.includes('/blog') || path.includes('/article')) return 'blog_page';
+      if (document.querySelector('form[action*="login"]')) return 'login_page';
+      
+      return 'general_page';
+    }
+
+    extractNavigationMinimal() {
+      const navigation = { topLevel: [] };
+      
+      const navContainer = document.querySelector('nav') || 
+                           document.querySelector('header nav') || 
+                           document.querySelector('[role="navigation"]');
+      
+      if (!navContainer) return navigation;
+      
+      const selectors = [
+        'nav > ul > li > a',
+        'nav > ul > li > button',
+        'nav > div > a',
+        'nav > div > button'
+      ];
+      
+      const processed = new Set();
+      
+      selectors.forEach(selector => {
+        try {
+          navContainer.querySelectorAll(selector).forEach(element => {
+            if (processed.has(element)) return;
+            processed.add(element);
+            
+            const text = this.getElementText(element).trim();
+            if (!text || text.length > 50) return;
+            
+            navigation.topLevel.push({
+              text: text,
+              type: this.isDropdownTrigger(element) ? 'dropdown' : 'link',
+              visible: this.isVisible(element)
+            });
+          });
+        } catch (e) {
+          // Continue
+        }
+      });
+      
+      return navigation;
+    }
+
+    extractNavigation() {
+      const navigation = { topLevel: [] };
+      
+      const navContainers = [
+        document.querySelector('nav'),
+        document.querySelector('header nav'),
+        document.querySelector('[role="navigation"]'),
+        document.querySelector('.navbar'),
+        document.querySelector('.navigation')
+      ].filter(Boolean);
+      
+      if (navContainers.length === 0) {
+        console.log('[CONTEXT] ⚠️ No navigation container found');
+        return navigation;
+      }
+      
+      const navContainer = navContainers[0];
+      
+      const topLevelSelectors = [
+        'nav > ul > li > a',
+        'nav > ul > li > button',
+        'nav > div > a',
+        'nav > div > button',
+        '[role="navigation"] > ul > li > a',
+        '[role="navigation"] > ul > li > button'
+      ];
+      
+      const processedElements = new Set();
+      
+      topLevelSelectors.forEach(selector => {
+        try {
+          navContainer.querySelectorAll(selector).forEach(element => {
+            if (processedElements.has(element)) return;
+            processedElements.add(element);
+            
+            const text = this.getElementText(element).trim();
+            if (!text || text.length > 50) return;
+            
+            const navItem = {
+              text: text,
+              type: element.tagName.toLowerCase() === 'a' ? 'link' : 'button',
+              visible: this.isVisible(element)
+            };
+            
+            if (element.tagName.toLowerCase() === 'a') {
+              navItem.href = element.getAttribute('href');
+            }
+            
+            const hasDropdown = this.isDropdownTrigger(element);
+            
+            if (hasDropdown) {
+              navItem.type = 'dropdown';
+              navItem.hasDropdown = true;
+              navItem.children = this.extractDropdownChildren(element);
+            }
+            
+            navigation.topLevel.push(navItem);
+          });
+        } catch (e) {
+          console.warn('[CONTEXT] Error processing selector:', selector, e);
+        }
+      });
+      
+      return navigation;
+    }
+
+    extractDropdownChildren(trigger) {
+      const children = [];
+      
+      const menu = this.findDropdownMenu(trigger);
+      if (!menu) return children;
+      
+      const itemSelectors = ['a', 'button', '[role="menuitem"]', '.dropdown-item'];
+      
+      itemSelectors.forEach(selector => {
+        try {
+          menu.querySelectorAll(selector).forEach(item => {
+            const text = this.getElementText(item).trim();
+            if (!text || text.length > 100) return;
+            
+            const child = {
+              text: text,
+              type: item.tagName.toLowerCase() === 'a' ? 'link' : 'button',
+              parent: this.getElementText(trigger).trim()
+            };
+            
+            if (item.tagName.toLowerCase() === 'a') {
+              child.href = item.getAttribute('href');
+            }
+            
+            children.push(child);
+          });
+        } catch (e) {
+          // Continue
+        }
+      });
+      
+      return children;
+    }
+
+    extractInteractiveElements() {
+      const elements = [];
+      
+      const selectors = [
+        'button:not(nav button):not(header button)',
+        'a.btn',
+        'a.button',
+        '[role="button"]',
+        'input[type="submit"]'
+      ];
+      
+      selectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(element => {
+            if (!this.isVisible(element)) return;
+            
+            const text = this.getElementText(element).trim();
+            if (!text || text.length > 50) return;
+            
+            elements.push({
+              text: text,
+              type: element.tagName.toLowerCase(),
+              visible: true,
+              action: 'click'
+            });
+          });
+        } catch (e) {
+          // Continue
+        }
+      });
+      
+      return elements.slice(0, 20);
+    }
+
+    extractForms() {
+      const forms = [];
+      
+      document.querySelectorAll('form').forEach(form => {
+        const fields = [];
+        
+        form.querySelectorAll('input, textarea, select').forEach(field => {
+          const label = this.findFieldLabel(field);
+          const fieldInfo = {
+            type: field.type || field.tagName.toLowerCase(),
+            name: field.name || field.id,
+            label: label,
+            required: field.required,
+            placeholder: field.placeholder
+          };
+          
+          fields.push(fieldInfo);
+        });
+        
+        if (fields.length > 0) {
+          forms.push({
+            action: form.action,
+            method: form.method,
+            fields: fields
+          });
+        }
+      });
+      
+      return forms;
+    }
+
+    findFieldLabel(field) {
+      if (field.id) {
+        const label = document.querySelector('label[for="' + field.id + '"]');
+        if (label) return label.textContent.trim();
+      }
+      
+      const parentLabel = field.closest('label');
+      if (parentLabel) return parentLabel.textContent.trim();
+      
+      if (field.getAttribute('aria-label')) {
+        return field.getAttribute('aria-label');
+      }
+      
+      if (field.placeholder) return field.placeholder;
+      
+      return field.name || 'Unknown field';
+    }
+
+    extractContentSections() {
+      const sections = [];
+      
+      document.querySelectorAll('section, article, main > div').forEach((section, index) => {
+        const heading = section.querySelector('h1, h2, h3');
+        const text = section.textContent.trim().substring(0, 200);
+        
+        if (heading || text.length > 50) {
+          sections.push({
+            index: index,
+            heading: heading ? heading.textContent.trim() : null,
+            preview: text,
+            hasImages: section.querySelectorAll('img').length > 0,
+            hasButtons: section.querySelectorAll('button, .btn').length > 0
+          });
+        }
+      });
+      
+      return sections.slice(0, 10);
+    }
+
+    // ========================================
+    // END CONTEXT ENGINE METHODS
+    // ========================================
 
     scroll_page(params) {
       const { direction, target_section } = params;
