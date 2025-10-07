@@ -154,6 +154,8 @@ if (!window.supabase) {
       this.contextCacheTTL = 30000; // Cache TTL: 30 seconds
       this.dropdownOpening = false; // Flag when dropdown is opening
       this.commandQueue = []; // Queue commands during dropdown opening
+      this.currentDropdownTrigger = null; // Reference to dropdown trigger element
+      this.hoverKeepAliveInterval = null; // Interval to keep hover active
       
       this.init();
     }
@@ -2000,14 +2002,44 @@ if (!window.supabase) {
             console.log('[DROPDOWN] 🎯 Detected dropdown trigger:', target_text);
             console.log('[QUEUE] 🔒 Setting dropdown opening flag');
             this.dropdownOpening = true;
+            
+            // CRITICAL FIX: For hover dropdowns, simulate hover instead of click
+            console.log('[DROPDOWN] 🖱️ Simulating hover to keep dropdown open...');
+            await this.performHover(element);
+            
+            // Store reference to keep dropdown open
+            this.currentDropdownTrigger = element;
+          } else {
+            await this.performClick(element);
           }
-          
-          await this.performClick(element);
           
           // CRITICAL FIX: If dropdown, wait 3 seconds for React to render items
           if (isDropdown) {
             console.log('[DROPDOWN] 🕐 Waiting 3 seconds for dropdown items to render...');
+            console.log('[DROPDOWN] 🔒 Keeping hover active to prevent close...');
+            
+            // Keep re-triggering hover events every 500ms to prevent dropdown from closing
+            this.hoverKeepAliveInterval = setInterval(() => {
+              if (this.currentDropdownTrigger) {
+                const event = new MouseEvent('mouseenter', {
+                  view: window,
+                  bubbles: true,
+                  cancelable: true,
+                  clientX: this.currentDropdownTrigger.getBoundingClientRect().left + 10,
+                  clientY: this.currentDropdownTrigger.getBoundingClientRect().top + 10
+                });
+                this.currentDropdownTrigger.dispatchEvent(event);
+              }
+            }, 500);
+            
             await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+            
+            // Stop keep-alive
+            if (this.hoverKeepAliveInterval) {
+              clearInterval(this.hoverKeepAliveInterval);
+              this.hoverKeepAliveInterval = null;
+            }
+            
             console.log('[DROPDOWN] ✅ Dropdown should be fully open now');
             
             // Release the queue
@@ -2018,6 +2050,9 @@ if (!window.supabase) {
             if (this.commandQueue.length > 0) {
               await this.processCommandQueue();
             }
+            
+            // Clear dropdown reference after queue is processed
+            this.currentDropdownTrigger = null;
           }
           
           this.updateStatus(\`✅ Clicked: \${target_text}\`);
@@ -2036,6 +2071,14 @@ if (!window.supabase) {
         
         // Release queue on error
         this.dropdownOpening = false;
+        this.currentDropdownTrigger = null;
+        
+        // Clear hover keep-alive
+        if (this.hoverKeepAliveInterval) {
+          clearInterval(this.hoverKeepAliveInterval);
+          this.hoverKeepAliveInterval = null;
+        }
+        
         if (this.commandQueue.length > 0) {
           await this.processCommandQueue();
         }
@@ -2127,6 +2170,62 @@ if (!window.supabase) {
       } catch (error) {
         console.error('❌ Click failed:', error);
         this.updateStatus('❌ Click failed');
+        throw error;
+      }
+    }
+
+    // NEW: Simulate hover to keep dropdown open
+    async performHover(element) {
+      try {
+        element.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center',
+          inline: 'center'
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Trigger all hover-related events
+        const hoverEvents = [
+          'mouseenter',
+          'mouseover',
+          'pointerenter',
+          'pointerover'
+        ];
+        
+        hoverEvents.forEach(eventType => {
+          const event = new MouseEvent(eventType, {
+            view: window,
+            bubbles: true,
+            cancelable: true,
+            clientX: element.getBoundingClientRect().left + 10,
+            clientY: element.getBoundingClientRect().top + 10
+          });
+          element.dispatchEvent(event);
+        });
+        
+        // Also trigger on parent elements (for nested hover handlers)
+        let parent = element.parentElement;
+        let depth = 0;
+        while (parent && depth < 3) {
+          hoverEvents.forEach(eventType => {
+            const event = new MouseEvent(eventType, {
+              view: window,
+              bubbles: true,
+              cancelable: true,
+              clientX: element.getBoundingClientRect().left + 10,
+              clientY: element.getBoundingClientRect().top + 10
+            });
+            parent.dispatchEvent(event);
+          });
+          parent = parent.parentElement;
+          depth++;
+        }
+        
+        console.log('[DROPDOWN] ✅ Hover events triggered');
+        
+      } catch (error) {
+        console.error('❌ Hover simulation failed:', error);
         throw error;
       }
     }
