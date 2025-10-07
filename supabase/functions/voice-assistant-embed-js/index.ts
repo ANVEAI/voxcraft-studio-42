@@ -1941,7 +1941,18 @@ if (!window.supabase) {
         const element = await this.findElementSmart(target_text, element_type);
         
         if (element) {
+          // Check if this is a dropdown trigger
+          const isDropdown = this.isDropdownTrigger(element);
+          
           await this.performClick(element);
+          
+          // CRITICAL FIX: If dropdown, wait for React to render items
+          if (isDropdown) {
+            console.log('[DROPDOWN] 🕐 Detected dropdown click, waiting for items to render...');
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+            console.log('[DROPDOWN] ✅ Dropdown should be open now');
+          }
+          
           this.updateStatus(\`✅ Clicked: \${target_text}\`);
         } else {
           const suggestions = this.getSimilarElements(target_text);
