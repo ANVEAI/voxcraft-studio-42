@@ -366,8 +366,14 @@ if (!window.supabase) {
       style.textContent = 'nav [class*="dropdown"] [class*="menu"], nav [class*="dropdown"] ul, nav [class*="dropdown"] [role="menu"], nav [class*="dropdown"] > div, header [class*="dropdown"] [class*="menu"], header [class*="dropdown"] ul, header [class*="dropdown"] [role="menu"], header [class*="dropdown"] > div, .dropdown-menu, [data-dropdown-menu], [role="navigation"] [class*="menu"] { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; }';
       document.head.appendChild(style);
       
-      // Wait for CSS to apply and React to render
-      await this.waitForReactRender(400);
+      // CRITICAL: Trigger hover on all dropdown triggers to force React rendering
+      const allTriggers = this.findAllDropdownTriggers();
+      allTriggers.forEach(trigger => {
+        this.triggerHoverEvents(trigger);
+      });
+      
+      // Wait longer for CSS to apply and React to render dropdown content
+      await this.waitForReactRender(800);
       
       // Now search for target element
       console.log('[DROPDOWN] 🔍 Searching for target with all dropdowns visible:', targetText);
