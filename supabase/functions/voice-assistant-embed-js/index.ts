@@ -152,6 +152,8 @@ if (!window.supabase) {
       this.contextCache = null; // Cache for page context
       this.contextCacheTimestamp = 0; // Timestamp of last context extraction
       this.contextCacheTTL = 30000; // Cache TTL: 30 seconds
+      this.dropdownOpening = false; // Flag when dropdown is opening
+      this.commandQueue = []; // Queue commands during dropdown opening
       
       this.init();
     }
@@ -1388,6 +1390,13 @@ if (!window.supabase) {
       const { functionName, params } = functionCall;
       console.log('⚡ Executing function call:', functionName, params);
       
+      // CRITICAL FIX: Queue commands if dropdown is opening
+      if (this.dropdownOpening && functionName !== 'get_page_context') {
+        console.log('[QUEUE] 📦 Dropdown opening, queueing command:', functionName);
+        this.commandQueue.push(functionCall);
+        return;
+      }
+      
       try {
         switch (functionName) {
           case 'get_page_context':
@@ -1414,6 +1423,22 @@ if (!window.supabase) {
         console.error('❌ Function execution error:', error);
         this.updateStatus(\`❌ Error executing \${functionName}\`);
       }
+    }
+
+    // NEW: Process queued commands after dropdown opens
+    async processCommandQueue() {
+      console.log('[QUEUE] 🔄 Processing', this.commandQueue.length, 'queued commands');
+      
+      while (this.commandQueue.length > 0) {
+        const command = this.commandQueue.shift();
+        console.log('[QUEUE] ▶️ Executing queued command:', command.functionName);
+        await this.executeFunctionCall(command);
+        
+        // Small delay between queued commands
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      
+      console.log('[QUEUE] ✅ All queued commands processed');
     }
 
     // ========================================
@@ -1973,6 +1998,8 @@ if (!window.supabase) {
           
           if (isDropdown) {
             console.log('[DROPDOWN] 🎯 Detected dropdown trigger:', target_text);
+            console.log('[QUEUE] 🔒 Setting dropdown opening flag');
+            this.dropdownOpening = true;
           }
           
           await this.performClick(element);
@@ -1982,6 +2009,15 @@ if (!window.supabase) {
             console.log('[DROPDOWN] 🕐 Waiting 3 seconds for dropdown items to render...');
             await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
             console.log('[DROPDOWN] ✅ Dropdown should be fully open now');
+            
+            // Release the queue
+            console.log('[QUEUE] 🔓 Releasing dropdown opening flag');
+            this.dropdownOpening = false;
+            
+            // Process any queued commands
+            if (this.commandQueue.length > 0) {
+              await this.processCommandQueue();
+            }
           }
           
           this.updateStatus(\`✅ Clicked: \${target_text}\`);
@@ -1997,6 +2033,12 @@ if (!window.supabase) {
       } catch (error) {
         console.error('❌ Error in click_element:', error);
         this.updateStatus(\`❌ Error: \${error.message}\`);
+        
+        // Release queue on error
+        this.dropdownOpening = false;
+        if (this.commandQueue.length > 0) {
+          await this.processCommandQueue();
+        }
       }
     }
 
