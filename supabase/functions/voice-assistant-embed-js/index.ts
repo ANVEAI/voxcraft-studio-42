@@ -278,10 +278,21 @@ if (!window.supabase) {
         element = this.findElementByPartialMatch(targetText, 0);
       }
 
-      // If found and visible, return it
+      // ✅ ENHANCED: Check if element is actually visible (not just exists in DOM)
       if (element && this.isVisible(element)) {
-        console.log('[SMART FIND] ✅ Element found and visible');
-        return element;
+        // ✅ CRITICAL FIX: Check if this element is a dropdown trigger, not the actual target
+        const isDropdownTrigger = this.looksLikeDropdownTrigger(element);
+        const hasDropdownMenu = element.getAttribute('aria-haspopup') === 'true' || 
+                                element.getAttribute('aria-expanded') !== null;
+        
+        if (isDropdownTrigger || hasDropdownMenu) {
+          console.log('[SMART FIND] ⚠️ Found element is a dropdown trigger, not the target item');
+          console.log('[SMART FIND] 🔽 Will search inside dropdown instead...');
+          // Don't return yet, continue to dropdown search
+        } else {
+          console.log('[SMART FIND] ✅ Element found and visible (not a dropdown trigger)');
+          return element;
+        }
       }
 
       // If not found or not visible, check if it might be in a dropdown
@@ -345,6 +356,31 @@ if (!window.supabase) {
         }
       }
 
+      // ✅ NEW: Strategy 1.5: Check if target text matches a dropdown trigger name
+      // This handles cases like "Courses" → "Beginner Courses" where we need to open "Courses" first
+      const allDropdownTriggers = this.findAllDropdownTriggers();
+      console.log('[DROPDOWN] 🎯 Found', allDropdownTriggers.length, 'dropdown triggers on page');
+      
+      for (const trigger of allDropdownTriggers) {
+        const triggerText = this.getElementText(trigger).toLowerCase();
+        // Check if target text starts with or contains the trigger text
+        if (searchText.includes(triggerText) || triggerText.includes(searchText.split(' ')[0])) {
+          console.log('[DROPDOWN] 🎯 Target might be inside dropdown:', triggerText);
+          const opened = await this.openDropdown(trigger);
+          if (opened) {
+            await this.waitForReactRender(400);
+            // Check if target is now visible
+            const targetElement = this.findElementByText(targetText) || 
+                                  this.findElementByFuzzyMatch(targetText) ||
+                                  this.findElementByPartialMatch(targetText, 0);
+            if (targetElement && this.isVisible(targetElement)) {
+              console.log('[DROPDOWN] ✅ Found target after opening related dropdown');
+              return { trigger, menu: this.findDropdownMenu(trigger) };
+            }
+          }
+        }
+      }
+
       // Strategy 2: Analyze page structure to find potential parent dropdowns
       console.log('[DROPDOWN] 🔎 Analyzing page structure for potential parents...');
       const potentialParents = this.findPotentialDropdownParents(targetText);
@@ -395,6 +431,37 @@ if (!window.supabase) {
 
       console.log('[DROPDOWN] ❌ No suitable dropdown found');
       return null;
+    }
+
+    // ✅ NEW: Find all dropdown triggers on the page
+    findAllDropdownTriggers() {
+      const triggers = [];
+      const selectors = [
+        '[aria-haspopup="true"]',
+        '[aria-expanded]',
+        '.dropdown-toggle',
+        '[role="button"][aria-haspopup]',
+        'button[aria-haspopup]',
+        'a[aria-haspopup]',
+        '[class*="dropdown"][role="button"]',
+        'nav [role="button"]',
+        'nav button',
+        'nav a[aria-expanded]'
+      ];
+      
+      selectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(el => {
+            if (this.isVisible(el) && !triggers.includes(el)) {
+              triggers.push(el);
+            }
+          });
+        } catch (e) {
+          // Continue
+        }
+      });
+      
+      return triggers;
     }
 
     // NEW: Find potential dropdown parent elements
@@ -1715,8 +1782,12 @@ if (!window.supabase) {
     }
 
     async fill_field(params) {
-      const { field_name, value } = params;
+      // ✅ FIX: Support both field_name and field_hint parameters (VAPI sends field_hint)
+      const field_name = params.field_name || params.field_hint || params.fieldName || params.fieldHint;
+      const value = params.value;
+      
       console.log('[FIELD FILL] 🔍 Attempting to fill field:', field_name, 'with:', value);
+      console.log('[FIELD FILL] 📦 Raw params received:', params);
       
       // ✅ FIX: Add parameter validation
       if (!field_name || !value) {
