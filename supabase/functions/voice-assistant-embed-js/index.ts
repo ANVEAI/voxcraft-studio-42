@@ -356,27 +356,34 @@ if (!window.supabase) {
         }
       }
 
-      // ✅ NEW: Strategy 1.5: Check if target text matches a dropdown trigger name
-      // This handles cases like "Courses" → "Beginner Courses" where we need to open "Courses" first
+      // ✅ NEW: Strategy 1.5: Intelligently try ALL dropdown triggers
+      // Open each dropdown and check if target appears
       const allDropdownTriggers = this.findAllDropdownTriggers();
       console.log('[DROPDOWN] 🎯 Found', allDropdownTriggers.length, 'dropdown triggers on page');
+      console.log('[DROPDOWN] 🔍 Will try opening each dropdown to find:', targetText);
       
       for (const trigger of allDropdownTriggers) {
-        const triggerText = this.getElementText(trigger).toLowerCase();
-        // Check if target text starts with or contains the trigger text
-        if (searchText.includes(triggerText) || triggerText.includes(searchText.split(' ')[0])) {
-          console.log('[DROPDOWN] 🎯 Target might be inside dropdown:', triggerText);
-          const opened = await this.openDropdown(trigger);
-          if (opened) {
-            await this.waitForReactRender(400);
-            // Check if target is now visible
-            const targetElement = this.findElementByText(targetText) || 
-                                  this.findElementByFuzzyMatch(targetText) ||
-                                  this.findElementByPartialMatch(targetText, 0);
-            if (targetElement && this.isVisible(targetElement)) {
-              console.log('[DROPDOWN] ✅ Found target after opening related dropdown');
-              return { trigger, menu: this.findDropdownMenu(trigger) };
-            }
+        const triggerText = this.getElementText(trigger).toLowerCase().trim();
+        console.log('[DROPDOWN] 🎯 Trying dropdown trigger:', triggerText);
+        
+        const opened = await this.openDropdown(trigger);
+        if (opened) {
+          // Wait for dropdown items to render
+          await this.waitForReactRender(500);
+          
+          // Check if target is now visible
+          const targetElement = this.findElementByText(targetText) || 
+                                this.findElementByFuzzyMatch(targetText) ||
+                                this.findElementByPartialMatch(targetText, 0);
+          
+          if (targetElement && this.isVisible(targetElement)) {
+            console.log('[DROPDOWN] ✅ Found target inside dropdown:', triggerText);
+            return { trigger, menu: this.findDropdownMenu(trigger), items: [targetElement] };
+          } else {
+            console.log('[DROPDOWN] ❌ Target not found in this dropdown, closing...');
+            // Close this dropdown before trying next one
+            this.closeDropdown(trigger);
+            await this.waitForReactRender(200);
           }
         }
       }
@@ -531,11 +538,31 @@ if (!window.supabase) {
       return parents;
     }
 
+    // ✅ NEW: Close a dropdown
+    closeDropdown(trigger) {
+      if (!trigger) return;
+      
+      try {
+        const ariaExpanded = trigger.getAttribute('aria-expanded');
+        if (ariaExpanded === 'true') {
+          // Try clicking to close
+          trigger.click();
+          // Or trigger mouse leave
+          this.triggerEvent(trigger, 'mouseleave');
+          this.triggerEvent(trigger, 'pointerleave');
+          this.triggerEvent(trigger, 'blur');
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+
     // ✅ ENHANCED: Open a dropdown (handles both hover and click with improved timing)
     async openDropdown(trigger) {
       if (!trigger) return false;
       
-      console.log('[DROPDOWN] 🔽 Opening dropdown:', this.getElementText(trigger));
+      const triggerText = this.getElementText(trigger).trim();
+      console.log('[DROPDOWN] 🔽 Attempting to open:', triggerText);
       
       try {
         // Check if already open
@@ -545,42 +572,46 @@ if (!window.supabase) {
           return true;
         }
 
-        // Scroll into view
-        trigger.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await this.waitForReactRender(250);
+        // Scroll into view first
+        trigger.scrollIntoView({ behavior: 'instant', block: 'center' });
+        await this.waitForReactRender(100);
 
-        // Strategy 1: Trigger hover events (for hover-based dropdowns)
-        console.log('[DROPDOWN] 📍 Strategy 1: Triggering hover events...');
-        this.triggerHoverEvents(trigger);
-        await this.waitForReactRender(150);
-
-        // Check if opened by hover
-        let isOpen = trigger.getAttribute('aria-expanded') === 'true' || this.findDropdownMenu(trigger) !== null;
+        // ✅ CRITICAL: Try click first (most common for React dropdowns)
+        console.log('[DROPDOWN] 📍 Strategy 1: Click...');
+        trigger.focus();
+        await this.waitForReactRender(50);
+        trigger.click();
+        await this.waitForReactRender(300);
+        
+        let isOpen = this.checkIfDropdownOpen(trigger);
+        console.log('[DROPDOWN] 📊 After click - isOpen:', isOpen);
         
         if (!isOpen) {
-          // Strategy 2: Click (for click-based dropdowns)
-          console.log('[DROPDOWN] 📍 Strategy 2: Triggering click...');
-          trigger.focus();
-          trigger.click();
-          await this.waitForReactRender(150);
-          
-          isOpen = trigger.getAttribute('aria-expanded') === 'true' || this.findDropdownMenu(trigger) !== null;
-        }
-
-        if (!isOpen) {
-          // Strategy 3: Dispatch React synthetic events
-          console.log('[DROPDOWN] 📍 Strategy 3: Triggering React events...');
-          this.triggerReactEvents(trigger);
-          await this.waitForReactRender(150);
-          
-          isOpen = trigger.getAttribute('aria-expanded') === 'true' || this.findDropdownMenu(trigger) !== null;
-        }
-
-        // ✅ ENHANCED: Final verification with extended wait for React rendering
-        if (!isOpen) {
-          console.log('[DROPDOWN] ⏳ Waiting for React state update...');
+          // Strategy 2: Hover events (for hover-based dropdowns)
+          console.log('[DROPDOWN] 📍 Strategy 2: Hover events...');
+          this.triggerHoverEvents(trigger);
           await this.waitForReactRender(300);
-          isOpen = trigger.getAttribute('aria-expanded') === 'true' || this.findDropdownMenu(trigger) !== null;
+          
+          isOpen = this.checkIfDropdownOpen(trigger);
+          console.log('[DROPDOWN] 📊 After hover - isOpen:', isOpen);
+        }
+
+        if (!isOpen) {
+          // Strategy 3: React synthetic events
+          console.log('[DROPDOWN] 📍 Strategy 3: React synthetic events...');
+          this.triggerReactEvents(trigger);
+          await this.waitForReactRender(300);
+          
+          isOpen = this.checkIfDropdownOpen(trigger);
+          console.log('[DROPDOWN] 📊 After React events - isOpen:', isOpen);
+        }
+
+        // ✅ ENHANCED: Final check with extended wait
+        if (!isOpen) {
+          console.log('[DROPDOWN] ⏳ Final wait for React...');
+          await this.waitForReactRender(400);
+          isOpen = this.checkIfDropdownOpen(trigger);
+          console.log('[DROPDOWN] 📊 Final check - isOpen:', isOpen);
         }
 
         if (isOpen) {
@@ -595,6 +626,36 @@ if (!window.supabase) {
         console.error('[DROPDOWN] ❌ Error opening:', error);
         return false;
       }
+    }
+
+    // ✅ NEW: Check if dropdown is actually open
+    checkIfDropdownOpen(trigger) {
+      // Method 1: Check aria-expanded
+      if (trigger.getAttribute('aria-expanded') === 'true') {
+        console.log('[DROPDOWN] ✅ Detected via aria-expanded');
+        return true;
+      }
+      
+      // Method 2: Check for visible dropdown menu
+      const menu = this.findDropdownMenu(trigger);
+      if (menu && this.isVisible(menu)) {
+        console.log('[DROPDOWN] ✅ Detected via visible menu');
+        return true;
+      }
+      
+      // Method 3: Check for visible dropdown items near trigger
+      const parent = trigger.closest('nav, header, .navigation, .navbar, [role="navigation"]');
+      if (parent) {
+        const dropdownItems = parent.querySelectorAll('[role="menuitem"], .dropdown-item, [class*="dropdown"][class*="item"]');
+        for (const item of dropdownItems) {
+          if (this.isVisible(item) && item !== trigger) {
+            console.log('[DROPDOWN] ✅ Detected via visible dropdown items');
+            return true;
+          }
+        }
+      }
+      
+      return false;
     }
 
     // NEW: Trigger hover events for hover-based dropdowns
