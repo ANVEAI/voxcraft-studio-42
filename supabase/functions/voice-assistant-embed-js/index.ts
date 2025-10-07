@@ -515,6 +515,9 @@ if (!window.supabase) {
       const parents = [];
       const searchTerms = targetText.toLowerCase().split(/\s+/);
       
+      // SEMANTIC FILTER: Exclude unrelated UI controls
+      const excludePatterns = /toggle|theme|dark|light|mode|settings|profile|account|search|login|sign/i;
+      
       // Look for navigation items, buttons, or links that might trigger dropdowns
       const parentSelectors = [
         'nav a',
@@ -538,6 +541,12 @@ if (!window.supabase) {
             
             const elementText = this.getElementText(element).toLowerCase();
             
+            // CRITICAL FIX: Filter out semantically unrelated dropdowns
+            if (excludePatterns.test(elementText) && !excludePatterns.test(targetText)) {
+              console.log('[DROPDOWN] 🚫 Skipping unrelated dropdown:', elementText);
+              return;
+            }
+            
             // Check if this parent's text relates to the target
             // (e.g., searching for "About Team" might be under "About" dropdown)
             const hasRelatedTerm = searchTerms.some(term => 
@@ -557,7 +566,10 @@ if (!window.supabase) {
               parents.push(element);
             } else if (hasDropdownIndicator && searchTerms.length > 1) {
               // If target has multiple words, the parent might be a category
-              parents.push(element);
+              // But still apply semantic filter
+              if (!excludePatterns.test(elementText)) {
+                parents.push(element);
+              }
             }
           });
         } catch (e) {
@@ -1941,16 +1953,20 @@ if (!window.supabase) {
         const element = await this.findElementSmart(target_text, element_type);
         
         if (element) {
-          // Check if this is a dropdown trigger
-          const isDropdown = this.looksLikeDropdownTrigger(element);
+          // ENHANCED: Check if this is a dropdown using multiple strategies
+          const isDropdown = this.isDropdownFromContext(target_text) || this.looksLikeDropdownTrigger(element);
+          
+          if (isDropdown) {
+            console.log('[DROPDOWN] 🎯 Detected dropdown trigger:', target_text);
+          }
           
           await this.performClick(element);
           
-          // CRITICAL FIX: If dropdown, wait for React to render items
+          // CRITICAL FIX: If dropdown, wait 3 seconds for React to render items
           if (isDropdown) {
-            console.log('[DROPDOWN] 🕐 Detected dropdown click, waiting for items to render...');
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-            console.log('[DROPDOWN] ✅ Dropdown should be open now');
+            console.log('[DROPDOWN] 🕐 Waiting 3 seconds for dropdown items to render...');
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+            console.log('[DROPDOWN] ✅ Dropdown should be fully open now');
           }
           
           this.updateStatus(\`✅ Clicked: \${target_text}\`);
@@ -2254,13 +2270,48 @@ if (!window.supabase) {
       return null;
     }
 
+    // NEW: Check if element is a dropdown using context engine data
+    isDropdownFromContext(targetText) {
+      if (!this.contextCache || !this.contextCache.navigation) {
+        return false;
+      }
+      
+      const normalizedTarget = targetText.toLowerCase().trim();
+      
+      // Check topLevel navigation
+      if (this.contextCache.navigation.topLevel) {
+        const found = this.contextCache.navigation.topLevel.find(item => {
+          const itemText = (item.text || '').toLowerCase().trim();
+          return itemText === normalizedTarget && 
+                 (item.type === 'dropdown' || item.hasDropdown === true);
+        });
+        
+        if (found) {
+          console.log('[DROPDOWN] ✅ Context engine confirms this is a dropdown:', targetText);
+          return true;
+        }
+      }
+      
+      return false;
+    }
+
     looksLikeDropdownTrigger(element) {
-      return (
-        element.getAttribute('aria-haspopup') === 'true' ||
-        element.getAttribute('aria-expanded') !== null ||
-        element.classList.contains('dropdown-toggle') ||
-        /dropdown|menu/i.test(element.className)
-      );
+      // Enhanced detection with more patterns
+      const hasAriaDropdown = element.getAttribute('aria-haspopup') === 'true' ||
+                              element.getAttribute('aria-expanded') !== null;
+      
+      const hasDropdownClass = element.classList.contains('dropdown-toggle') ||
+                               /dropdown|menu|nav-item/i.test(element.className);
+      
+      // Check if element has dropdown-related children
+      const hasDropdownChildren = element.querySelector('[role="menu"], [class*="dropdown"], [class*="menu"]') !== null;
+      
+      // Check common navigation patterns
+      const isNavWithChildren = element.tagName === 'BUTTON' && 
+                                element.closest('nav') !== null &&
+                                hasDropdownChildren;
+      
+      return hasAriaDropdown || hasDropdownClass || hasDropdownChildren || isNavWithChildren;
     }
 
     async fill_field(params) {
@@ -2520,11 +2571,11 @@ if (!window.supabase) {
       
       // Priority 5: Full text content (fallback)
       if (!text.trim()) {
-        text = element.textContent || '';
+        text = element.textContent || element.innerText || '';
       }
       
-      // Clean: collapse multiple spaces, trim, limit length
-      return text.replace(/\s+/g, ' ').trim().substring(0, 200);
+      // FIXED: Clean whitespace properly without truncating characters
+      return text.replace(/\s+/g, ' ').trim();
     }
 
     getCompleteElementText(element) {
