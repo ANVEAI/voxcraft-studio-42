@@ -1416,6 +1416,16 @@ if (!window.supabase) {
         // Handle defaults
         const refresh = params.refresh || false;
         const detailLevel = params.detail_level || 'standard';
+        const currentUrl = window.location.href;
+        
+        // CRITICAL FIX: Invalidate cache if URL changed
+        if (this.contextCache && this.contextCache.url !== currentUrl) {
+          console.log('[CONTEXT] 🔄 URL mismatch detected - invalidating cache');
+          console.log('[CONTEXT] 📍 Cached URL:', this.contextCache.url);
+          console.log('[CONTEXT] 📍 Current URL:', currentUrl);
+          this.contextCache = null;
+          this.contextCacheTimestamp = 0;
+        }
         
         // Check cache unless refresh is requested
         if (!refresh && this.contextCache) {
