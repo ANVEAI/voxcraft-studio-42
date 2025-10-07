@@ -1526,35 +1526,50 @@ if (!window.supabase) {
       
       if (!navContainer) return navigation;
       
+      // FIXED: Use less specific selectors to match nested structures
       const selectors = [
-        'nav > ul > li > a',
-        'nav > ul > li > button',
-        'nav > div > a',
-        'nav > div > button'
+        'nav a',      // Any anchor in nav
+        'nav button'  // Any button in nav
       ];
       
       const processed = new Set();
       
       selectors.forEach(selector => {
         try {
-          navContainer.querySelectorAll(selector).forEach(element => {
+          document.querySelectorAll(selector).forEach(element => {
             if (processed.has(element)) return;
+            if (!this.isVisible(element)) return;  // Skip hidden elements
             processed.add(element);
             
             const text = this.getElementText(element).trim();
             if (!text || text.length > 50) return;
             
-            navigation.topLevel.push({
+            // Skip mobile menu toggle and theme toggle
+            if (text.toLowerCase().includes('menu') || text.toLowerCase().includes('toggle')) {
+              return;
+            }
+            
+            const isDropdown = this.looksLikeDropdownTrigger(element);
+            const navItem = {
               text: text,
-              type: this.looksLikeDropdownTrigger(element) ? 'dropdown' : 'link',
-              visible: this.isVisible(element)
-            });
+              type: isDropdown ? 'dropdown' : 'link',
+              visible: true
+            };
+            
+            // If dropdown, try to extract children
+            if (isDropdown) {
+              navItem.hasDropdown = true;
+              navItem.children = this.extractDropdownChildren(element);
+            }
+            
+            navigation.topLevel.push(navItem);
           });
         } catch (e) {
-          // Continue
+          console.warn('[NAV EXTRACT] Error:', e);
         }
       });
       
+      console.log('[NAV EXTRACT] ✅ Extracted', navigation.topLevel.length, 'nav items');
       return navigation;
     }
 
