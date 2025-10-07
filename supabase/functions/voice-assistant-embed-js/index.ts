@@ -356,37 +356,38 @@ if (!window.supabase) {
         }
       }
 
-      // ✅ NEW: Strategy 1.5: Intelligently try ALL dropdown triggers
-      // Open each dropdown and check if target appears
-      const allDropdownTriggers = this.findAllDropdownTriggers();
-      console.log('[DROPDOWN] 🎯 Found', allDropdownTriggers.length, 'dropdown triggers on page');
-      console.log('[DROPDOWN] 🔍 Will try opening each dropdown to find:', targetText);
+      // ✅ NEW: Strategy 1.5: Force ALL dropdowns visible with CSS injection
+      console.log('[DROPDOWN] 💉 Using CSS injection to force dropdowns visible');
       
-      for (const trigger of allDropdownTriggers) {
-        const triggerText = this.getElementText(trigger).toLowerCase().trim();
-        console.log('[DROPDOWN] 🎯 Trying dropdown trigger:', triggerText);
-        
-        const opened = await this.openDropdown(trigger);
-        if (opened) {
-          // Wait for dropdown items to render
-          await this.waitForReactRender(500);
-          
-          // Check if target is now visible
-          const targetElement = this.findElementByText(targetText) || 
-                                this.findElementByFuzzyMatch(targetText) ||
-                                this.findElementByPartialMatch(targetText, 0);
-          
-          if (targetElement && this.isVisible(targetElement)) {
-            console.log('[DROPDOWN] ✅ Found target inside dropdown:', triggerText);
-            return { trigger, menu: this.findDropdownMenu(trigger), items: [targetElement] };
-          } else {
-            console.log('[DROPDOWN] ❌ Target not found in this dropdown, closing...');
-            // Close this dropdown before trying next one
-            this.closeDropdown(trigger);
-            await this.waitForReactRender(200);
-          }
-        }
+      // Inject CSS to force all dropdowns visible
+      const styleId = 'voxcraft-dropdown-force-' + Date.now();
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = 'nav [class*="dropdown"] [class*="menu"], nav [class*="dropdown"] ul, nav [class*="dropdown"] [role="menu"], nav [class*="dropdown"] > div, header [class*="dropdown"] [class*="menu"], header [class*="dropdown"] ul, header [class*="dropdown"] [role="menu"], header [class*="dropdown"] > div, .dropdown-menu, [data-dropdown-menu], [role="navigation"] [class*="menu"] { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; }';
+      document.head.appendChild(style);
+      
+      // Wait for CSS to apply and React to render
+      await this.waitForReactRender(400);
+      
+      // Now search for target element
+      console.log('[DROPDOWN] 🔍 Searching for target with all dropdowns visible:', targetText);
+      const targetElement = this.findElementByText(targetText) || 
+                            this.findElementByFuzzyMatch(targetText) ||
+                            this.findElementByPartialMatch(targetText, 0);
+      
+      // Cleanup: Remove injected CSS
+      const injectedStyle = document.getElementById(styleId);
+      if (injectedStyle) {
+        injectedStyle.remove();
+        console.log('[DROPDOWN] 🧹 Cleaned up injected CSS');
       }
+      
+      if (targetElement && this.isVisible(targetElement)) {
+        console.log('[DROPDOWN] ✅ Found target with CSS injection method');
+        return { trigger: null, menu: null, items: [targetElement] };
+      }
+      
+      console.log('[DROPDOWN] ❌ Target not found even with CSS injection');
 
       // Strategy 2: Analyze page structure to find potential parent dropdowns
       console.log('[DROPDOWN] 🔎 Analyzing page structure for potential parents...');
@@ -628,7 +629,7 @@ if (!window.supabase) {
       }
     }
 
-    // ✅ NEW: Check if dropdown is actually open
+    // ✅ ENHANCED: Check if dropdown is actually open (with computed styles)
     checkIfDropdownOpen(trigger) {
       // Method 1: Check aria-expanded
       if (trigger.getAttribute('aria-expanded') === 'true') {
@@ -636,23 +637,41 @@ if (!window.supabase) {
         return true;
       }
       
-      // Method 2: Check for visible dropdown menu
+      // Method 2: Check for visible dropdown menu via computed styles
+      const navParent = trigger.closest('nav, header, [role="navigation"], .navigation, .navbar');
+      if (navParent) {
+        const dropdownSelectors = [
+          '[class*="dropdown"][class*="menu"]',
+          '[class*="dropdown"] ul',
+          '[class*="dropdown"] [role="menu"]',
+          '.dropdown-menu',
+          '[data-dropdown-menu]',
+          '[role="menu"]'
+        ];
+        
+        for (const selector of dropdownSelectors) {
+          try {
+            const menus = navParent.querySelectorAll(selector);
+            for (const menu of menus) {
+              const computed = window.getComputedStyle(menu);
+              if (computed.display !== 'none' && 
+                  computed.visibility !== 'hidden' && 
+                  parseFloat(computed.opacity) > 0.1) {
+                console.log('[DROPDOWN] ✅ Detected via computed styles:', selector);
+                return true;
+              }
+            }
+          } catch (e) {
+            // Continue
+          }
+        }
+      }
+      
+      // Method 3: Check for visible dropdown items
       const menu = this.findDropdownMenu(trigger);
       if (menu && this.isVisible(menu)) {
         console.log('[DROPDOWN] ✅ Detected via visible menu');
         return true;
-      }
-      
-      // Method 3: Check for visible dropdown items near trigger
-      const parent = trigger.closest('nav, header, .navigation, .navbar, [role="navigation"]');
-      if (parent) {
-        const dropdownItems = parent.querySelectorAll('[role="menuitem"], .dropdown-item, [class*="dropdown"][class*="item"]');
-        for (const item of dropdownItems) {
-          if (this.isVisible(item) && item !== trigger) {
-            console.log('[DROPDOWN] ✅ Detected via visible dropdown items');
-            return true;
-          }
-        }
       }
       
       return false;
@@ -2073,29 +2092,37 @@ if (!window.supabase) {
     }
 
     getElementText(element) {
+      // Priority 1: aria-label
       const ariaLabel = element.getAttribute('aria-label');
-      if (ariaLabel) return ariaLabel.trim();
+      if (ariaLabel?.trim()) return ariaLabel.trim();
       
+      // Priority 2: title
       const title = element.getAttribute('title');
-      if (title) return title.trim();
+      if (title?.trim()) return title.trim();
       
+      // Priority 3: Input/textarea special handling
       if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
         return element.placeholder || element.value || '';
       }
       
+      // Priority 4: Direct text nodes only (excludes nested elements)
       let text = '';
-      
-      const textNode = Array.from(element.childNodes).find(
-        node => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
-      );
-      
-      if (textNode) {
-        text = textNode.textContent.trim();
-      } else {
-        text = element.textContent.trim();
+      for (const node of element.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const nodeText = node.textContent || '';
+          if (nodeText.trim()) {
+            text += nodeText;
+          }
+        }
       }
       
-      return text.replace(/\s+/g, ' ').substring(0, 200);
+      // Priority 5: Full text content (fallback)
+      if (!text.trim()) {
+        text = element.textContent || '';
+      }
+      
+      // Clean: collapse multiple spaces, trim, limit length
+      return text.replace(/\s+/g, ' ').trim().substring(0, 200);
     }
 
     getCompleteElementText(element) {
