@@ -1534,7 +1534,7 @@ if (!window.supabase) {
             
             navigation.topLevel.push({
               text: text,
-              type: this.isDropdownTrigger(element) ? 'dropdown' : 'link',
+              type: this.looksLikeDropdownTrigger(element) ? 'dropdown' : 'link',
               visible: this.isVisible(element)
             });
           });
@@ -1594,7 +1594,7 @@ if (!window.supabase) {
               navItem.href = element.getAttribute('href');
             }
             
-            const hasDropdown = this.isDropdownTrigger(element);
+            const hasDropdown = this.looksLikeDropdownTrigger(element);
             
             if (hasDropdown) {
               navItem.type = 'dropdown';
@@ -1942,7 +1942,7 @@ if (!window.supabase) {
         
         if (element) {
           // Check if this is a dropdown trigger
-          const isDropdown = this.isDropdownTrigger(element);
+          const isDropdown = this.looksLikeDropdownTrigger(element);
           
           await this.performClick(element);
           
