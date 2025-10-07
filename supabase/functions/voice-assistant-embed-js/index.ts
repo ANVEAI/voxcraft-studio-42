@@ -2321,12 +2321,21 @@ if (!window.supabase) {
       // Check if element has dropdown-related children
       const hasDropdownChildren = element.querySelector('[role="menu"], [class*="dropdown"], [class*="menu"]') !== null;
       
-      // Check common navigation patterns
-      const isNavWithChildren = element.tagName === 'BUTTON' && 
-                                element.closest('nav') !== null &&
-                                hasDropdownChildren;
+      // CRITICAL FIX: Check for SVG icon (chevron/arrow indicator)
+      const hasSVGIcon = element.querySelector('svg') !== null;
       
-      return hasAriaDropdown || hasDropdownClass || hasDropdownChildren || isNavWithChildren;
+      // Check common navigation patterns
+      const isNavButtonWithIcon = element.tagName === 'BUTTON' && 
+                                  element.closest('nav') !== null &&
+                                  hasSVGIcon;
+      
+      // Check if nav button with "Resources" or "Courses" text (common dropdown triggers)
+      const isCommonDropdownTrigger = element.tagName === 'BUTTON' &&
+                                      element.closest('nav') !== null &&
+                                      /resources|courses|products|services|solutions/i.test(this.getElementText(element));
+      
+      return hasAriaDropdown || hasDropdownClass || hasDropdownChildren || 
+             isNavButtonWithIcon || isCommonDropdownTrigger;
     }
 
     async fill_field(params) {
