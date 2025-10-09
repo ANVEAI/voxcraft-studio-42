@@ -156,6 +156,8 @@ if (!window.supabase) {
       this.commandQueue = []; // Queue commands during dropdown opening
       this.currentDropdownTrigger = null; // Reference to dropdown trigger element
       this.hoverKeepAliveInterval = null; // Interval to keep hover active
+      this.mobileMenuOpen = false; // Track if mobile menu is open
+      this.ENABLE_MOBILE_NAV = true; // Feature flag for mobile navigation
       
       this.init();
     }
@@ -328,6 +330,32 @@ if (!window.supabase) {
         } else {
           console.log('[SMART FIND] ✅ Element found and visible (not a dropdown trigger)');
           return element;
+        }
+      }
+
+      // ✅ NEW: If element not found/visible, try opening mobile menu first
+      if ((!element || !this.isVisible(element)) && retryCount === 0) {
+        const mobileMenuOpened = await this.tryOpenMobileMenu();
+        
+        if (mobileMenuOpened) {
+          console.log('[SMART FIND] 📱 Mobile menu opened, retrying search...');
+          await this.waitForReactRender(300);
+          
+          // Retry search after opening mobile menu
+          element = this.findElementByText(targetText);
+          
+          if (!element) {
+            element = this.findElementByFuzzyMatch(targetText, elementType);
+          }
+          
+          if (!element) {
+            element = this.findElementByPartialMatch(targetText, 0);
+          }
+          
+          if (element && this.isVisible(element)) {
+            console.log('[SMART FIND] ✅ Element found after opening mobile menu');
+            return element;
+          }
         }
       }
 
@@ -2769,6 +2797,110 @@ if (!window.supabase) {
       ];
       
       return parts.join(' ').trim().replace(/\s+/g, ' ');
+    }
+
+    // ========================================
+    // MOBILE NAVIGATION SUPPORT
+    // ========================================
+
+    // NEW: Detect if we're on mobile and if there's a hamburger menu
+    detectMobileMenu() {
+      try {
+        const viewport = window.innerWidth;
+        const isMobile = viewport < 768;
+        
+        // Common hamburger menu selectors
+        const hamburgerSelectors = [
+          '[class*="hamburger"]',
+          '[class*="menu-toggle"]',
+          '[class*="mobile-menu-button"]',
+          '[class*="nav-toggle"]',
+          '[aria-label*="menu" i]',
+          'button[class*="md:hidden"]', // Tailwind mobile-only buttons
+          '.mobile-menu-btn',
+          '#mobile-menu-button'
+        ];
+        
+        let hamburgerElement = null;
+        for (const selector of hamburgerSelectors) {
+          const element = document.querySelector(selector);
+          if (element && this.isVisible(element)) {
+            hamburgerElement = element;
+            break;
+          }
+        }
+        
+        const result = {
+          isMobile,
+          hasHamburger: hamburgerElement !== null,
+          hamburgerElement,
+          viewport
+        };
+        
+        console.log('[MOBILE] Detection:', result);
+        return result;
+      } catch (error) {
+        console.warn('[MOBILE] Detection failed:', error);
+        return { isMobile: false, hasHamburger: false, hamburgerElement: null };
+      }
+    }
+
+    // NEW: Try to open mobile menu if it exists
+    async tryOpenMobileMenu() {
+      if (!this.ENABLE_MOBILE_NAV) {
+        console.log('[MOBILE] Mobile nav disabled by feature flag');
+        return false;
+      }
+
+      if (this.mobileMenuOpen) {
+        console.log('[MOBILE] Mobile menu already open');
+        return true;
+      }
+
+      try {
+        const mobileInfo = this.detectMobileMenu();
+        
+        if (!mobileInfo.hasHamburger) {
+          console.log('[MOBILE] No hamburger menu detected, skipping');
+          return false;
+        }
+        
+        console.log('[MOBILE] 🍔 Opening hamburger menu...');
+        await this.performClick(mobileInfo.hamburgerElement);
+        
+        // Wait for menu animation
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        this.mobileMenuOpen = true;
+        console.log('[MOBILE] ✅ Mobile menu opened successfully');
+        
+        return true;
+      } catch (error) {
+        console.warn('[MOBILE] Failed to open mobile menu:', error);
+        return false;
+      }
+    }
+
+    // NEW: Close mobile menu if open
+    async closeMobileMenu() {
+      if (!this.mobileMenuOpen) {
+        return;
+      }
+
+      try {
+        const mobileInfo = this.detectMobileMenu();
+        
+        if (mobileInfo.hasHamburger) {
+          console.log('[MOBILE] 🍔 Closing hamburger menu...');
+          await this.performClick(mobileInfo.hamburgerElement);
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        this.mobileMenuOpen = false;
+        console.log('[MOBILE] ✅ Mobile menu closed');
+      } catch (error) {
+        console.warn('[MOBILE] Failed to close mobile menu:', error);
+      }
     }
 
     isVisible(element) {
