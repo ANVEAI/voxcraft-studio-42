@@ -333,32 +333,6 @@ if (!window.supabase) {
         }
       }
 
-      // ✅ NEW: If element not found/visible, try opening mobile menu first
-      if ((!element || !this.isVisible(element)) && retryCount === 0) {
-        const mobileMenuOpened = await this.tryOpenMobileMenu();
-        
-        if (mobileMenuOpened) {
-          console.log('[SMART FIND] 📱 Mobile menu opened, retrying search...');
-          await this.waitForReactRender(300);
-          
-          // Retry search after opening mobile menu
-          element = this.findElementByText(targetText);
-          
-          if (!element) {
-            element = this.findElementByFuzzyMatch(targetText, elementType);
-          }
-          
-          if (!element) {
-            element = this.findElementByPartialMatch(targetText, 0);
-          }
-          
-          if (element && this.isVisible(element)) {
-            console.log('[SMART FIND] ✅ Element found after opening mobile menu');
-            return element;
-          }
-        }
-      }
-
       // If not found or not visible, check if it might be in a dropdown
       console.log('[SMART FIND] 🔽 Element not found in DOM, checking dropdowns...');
       
@@ -2033,6 +2007,13 @@ if (!window.supabase) {
       
       try {
         this.updateStatus(\`🔍 Searching for: \${target_text}\`);
+        
+        // ✅ CRITICAL FIX: Open mobile menu FIRST before searching (prevents wrong element clicks)
+        const mobileInfo = this.detectMobileMenu();
+        if (mobileInfo.isMobile && mobileInfo.hasHamburger && !this.mobileMenuOpen) {
+          console.log('[MOBILE] 📱 Mobile detected, opening menu before search...');
+          await this.tryOpenMobileMenu();
+        }
         
         // Use smart finder that handles dropdowns
         const element = await this.findElementSmart(target_text, element_type);
