@@ -2027,9 +2027,15 @@ if (!window.supabase) {
             console.log('[QUEUE] 🔒 Setting dropdown opening flag');
             this.dropdownOpening = true;
             
-            // CRITICAL FIX: For hover dropdowns, simulate hover instead of click
-            console.log('[DROPDOWN] 🖱️ Simulating hover to keep dropdown open...');
-            await this.performHover(element);
+            // ✅ CRITICAL FIX: Mobile uses click for nested dropdowns, desktop uses hover
+            const mobileInfo = this.detectMobileMenu();
+            if (mobileInfo.isMobile) {
+              console.log('[DROPDOWN] 📱 Mobile: Clicking dropdown to expand nested items...');
+              await this.performClick(element);
+            } else {
+              console.log('[DROPDOWN] 🖱️ Desktop: Simulating hover to keep dropdown open...');
+              await this.performHover(element);
+            }
             
             // Store reference to keep dropdown open
             this.currentDropdownTrigger = element;
@@ -2040,21 +2046,29 @@ if (!window.supabase) {
           // CRITICAL FIX: If dropdown, wait 3 seconds for React to render items
           if (isDropdown) {
             console.log('[DROPDOWN] 🕐 Waiting 3 seconds for dropdown items to render...');
-            console.log('[DROPDOWN] 🔒 Keeping hover active to prevent close...');
             
-            // Keep re-triggering hover events every 500ms to prevent dropdown from closing
-            this.hoverKeepAliveInterval = setInterval(() => {
-              if (this.currentDropdownTrigger) {
-                const event = new MouseEvent('mouseenter', {
-                  view: window,
-                  bubbles: true,
-                  cancelable: true,
-                  clientX: this.currentDropdownTrigger.getBoundingClientRect().left + 10,
-                  clientY: this.currentDropdownTrigger.getBoundingClientRect().top + 10
-                });
-                this.currentDropdownTrigger.dispatchEvent(event);
-              }
-            }, 500);
+            const mobileInfo = this.detectMobileMenu();
+            
+            // Only use hover keep-alive on desktop (mobile uses click, no need for hover)
+            if (!mobileInfo.isMobile) {
+              console.log('[DROPDOWN] 🔒 Keeping hover active to prevent close...');
+              
+              // Keep re-triggering hover events every 500ms to prevent dropdown from closing
+              this.hoverKeepAliveInterval = setInterval(() => {
+                if (this.currentDropdownTrigger) {
+                  const event = new MouseEvent('mouseenter', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: this.currentDropdownTrigger.getBoundingClientRect().left + 10,
+                    clientY: this.currentDropdownTrigger.getBoundingClientRect().top + 10
+                  });
+                  this.currentDropdownTrigger.dispatchEvent(event);
+                }
+              }, 500);
+            } else {
+              console.log('[DROPDOWN] 📱 Mobile: Dropdown expanded via click, no hover needed');
+            }
             
             await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
             
