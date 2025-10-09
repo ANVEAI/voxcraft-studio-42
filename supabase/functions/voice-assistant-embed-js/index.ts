@@ -2399,6 +2399,8 @@ if (!window.supabase) {
         '[role="link"]', '[tabindex]'
       ];
       
+      const matches = [];
+      
       for (const selector of clickableSelectors) {
         try {
           const elements = document.querySelectorAll(selector);
@@ -2408,7 +2410,7 @@ if (!window.supabase) {
             const elementText = this.getCompleteElementText(element).toLowerCase().trim();
             
             if (elementText === searchText) {
-              return element;
+              matches.push(element);
             }
           }
         } catch (e) {
@@ -2416,7 +2418,49 @@ if (!window.supabase) {
         }
       }
       
-      return null;
+      if (matches.length === 0) {
+        return null;
+      }
+      
+      // ✅ CRITICAL FIX: Priority scoring to prefer dropdown triggers over navigation links
+      if (matches.length > 1) {
+        matches.forEach(el => {
+          let score = 100; // Base score
+          
+          // BOOST: Dropdown triggers (highest priority)
+          if (el.hasAttribute('aria-haspopup')) score += 50;
+          if (el.hasAttribute('aria-expanded')) score += 50;
+          if (el.getAttribute('role') === 'button') score += 40;
+          if (el.tagName === 'BUTTON') score += 30;
+          
+          // BOOST: Interactive elements
+          if (el.hasAttribute('onclick')) score += 20;
+          if (el.classList.contains('dropdown-toggle')) score += 40;
+          
+          // PENALTY: Navigation links (lower priority)
+          if (el.tagName === 'A' && el.href) {
+            score -= 40;
+            // Extra penalty if href actually navigates somewhere
+            if (el.href && !el.href.includes('#')) {
+              score -= 30;
+            }
+          }
+          
+          el._priorityScore = score;
+        });
+        
+        // Sort by priority score (highest first)
+        matches.sort((a, b) => b._priorityScore - a._priorityScore);
+        
+        console.log('[PRIORITY] 🎯 Found', matches.length, 'matches, selected highest priority:', {
+          element: matches[0].tagName,
+          score: matches[0]._priorityScore,
+          hasDropdown: matches[0].hasAttribute('aria-haspopup'),
+          isLink: matches[0].tagName === 'A'
+        });
+      }
+      
+      return matches[0];
     }
 
     findDropdownTrigger(menu) {
