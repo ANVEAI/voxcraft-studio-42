@@ -2270,8 +2270,7 @@ if (!window.supabase) {
 
     findElementByFuzzyMatch(targetText, elementType) {
       const searchTerms = targetText.toLowerCase().split(/\s+/);
-      let bestMatch = null;
-      let bestScore = 0;
+      const candidates = [];
       
       const typeFilters = {
         'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
@@ -2308,9 +2307,9 @@ if (!window.supabase) {
               score = score / Math.sqrt(elementText.length);
             }
             
-            if (score > bestScore) {
-              bestScore = score;
-              bestMatch = element;
+            if (score > 0) {
+              element._fuzzyScore = score;
+              candidates.push(element);
             }
           });
         } catch (e) {
@@ -2318,7 +2317,18 @@ if (!window.supabase) {
         }
       });
       
-      return bestMatch;
+      if (candidates.length === 0) return null;
+      
+      // Sort by fuzzy score first
+      candidates.sort((a, b) => b._fuzzyScore - a._fuzzyScore);
+      
+      // Take top matches with similar fuzzy scores
+      const topScore = candidates[0]._fuzzyScore;
+      const topMatches = candidates.filter(el => el._fuzzyScore >= topScore * 0.8);
+      
+      // ✅ Apply priority scoring to top matches
+      const scored = this.applyPriorityScoring(topMatches);
+      return scored[0];
     }
 
     findElementByPartialMatch(targetText, nthMatch = 0) {
@@ -2339,7 +2349,11 @@ if (!window.supabase) {
         }
       });
       
-      return matches[nthMatch] || null;
+      if (matches.length === 0) return null;
+      
+      // ✅ Apply priority scoring
+      const scored = this.applyPriorityScoring(matches);
+      return scored[nthMatch] || null;
     }
 
     getSimilarElements(targetText) {
@@ -2436,45 +2450,56 @@ if (!window.supabase) {
         return null;
       }
       
-      // ✅ CRITICAL FIX: Priority scoring to prefer dropdown triggers over navigation links
-      if (matches.length > 1) {
-        matches.forEach(el => {
-          let score = 100; // Base score
-          
-          // BOOST: Dropdown triggers (highest priority)
-          if (el.hasAttribute('aria-haspopup')) score += 50;
-          if (el.hasAttribute('aria-expanded')) score += 50;
-          if (el.getAttribute('role') === 'button') score += 40;
-          if (el.tagName === 'BUTTON') score += 30;
-          
-          // BOOST: Interactive elements
-          if (el.hasAttribute('onclick')) score += 20;
-          if (el.classList.contains('dropdown-toggle')) score += 40;
-          
-          // PENALTY: Navigation links (lower priority)
-          if (el.tagName === 'A' && el.href) {
-            score -= 40;
-            // Extra penalty if href actually navigates somewhere
-            if (el.href && !el.href.includes('#')) {
-              score -= 30;
-            }
+      // ✅ CRITICAL FIX: Apply priority scoring
+      const scored = this.applyPriorityScoring(matches);
+      return scored[0];
+    }
+
+    // ✅ NEW: Centralized priority scoring for element selection
+    applyPriorityScoring(elements) {
+      if (!elements || elements.length === 0) return [];
+      
+      const elementsArray = Array.isArray(elements) ? elements : Array.from(elements);
+      
+      elementsArray.forEach(el => {
+        let score = 100; // Base score
+        
+        // BOOST: Dropdown triggers (highest priority)
+        if (el.hasAttribute('aria-haspopup')) score += 50;
+        if (el.hasAttribute('aria-expanded')) score += 50;
+        if (el.getAttribute('role') === 'button') score += 40;
+        if (el.tagName === 'BUTTON') score += 30;
+        
+        // BOOST: Interactive elements
+        if (el.hasAttribute('onclick')) score += 20;
+        if (el.classList.contains('dropdown-toggle')) score += 40;
+        
+        // PENALTY: Navigation links (lower priority)
+        if (el.tagName === 'A' && el.href) {
+          score -= 40;
+          // Extra penalty if href actually navigates somewhere
+          if (el.href && !el.href.includes('#')) {
+            score -= 30;
           }
-          
-          el._priorityScore = score;
-        });
+        }
         
-        // Sort by priority score (highest first)
-        matches.sort((a, b) => b._priorityScore - a._priorityScore);
-        
-        console.log('[PRIORITY] 🎯 Found', matches.length, 'matches, selected highest priority:', {
-          element: matches[0].tagName,
-          score: matches[0]._priorityScore,
-          hasDropdown: matches[0].hasAttribute('aria-haspopup'),
-          isLink: matches[0].tagName === 'A'
+        el._priorityScore = score;
+      });
+      
+      // Sort by priority score (highest first)
+      elementsArray.sort((a, b) => b._priorityScore - a._priorityScore);
+      
+      if (elementsArray.length > 1) {
+        console.log('[PRIORITY] 🎯 Scored', elementsArray.length, 'elements, top choice:', {
+          element: elementsArray[0].tagName,
+          text: elementsArray[0].textContent?.substring(0, 30),
+          score: elementsArray[0]._priorityScore,
+          hasDropdown: elementsArray[0].hasAttribute('aria-haspopup'),
+          isLink: elementsArray[0].tagName === 'A'
         });
       }
       
-      return matches[0];
+      return elementsArray;
     }
 
     findDropdownTrigger(menu) {
