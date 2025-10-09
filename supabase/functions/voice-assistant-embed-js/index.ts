@@ -1106,6 +1106,10 @@ if (!window.supabase) {
         bottom: 24px;
         z-index: 999999;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
       \`;
 
       const isDark = BOT_CONFIG.theme === 'dark';
@@ -1162,7 +1166,7 @@ if (!window.supabase) {
           }
           .voxcraft-visualizer {
             position: absolute;
-            bottom: 100%;
+            bottom: calc(100% + 28px);
             \${BOT_CONFIG.position === 'bottom-left' ? 'left: 0;' : 'right: 0;'}
             margin-bottom: 12px;
             background: \${isDark
@@ -1234,6 +1238,17 @@ if (!window.supabase) {
             <div class="voxcraft-bar"></div>
             <div class="voxcraft-bar"></div>
           </div>
+        </div>
+        
+        <div class="voxcraft-branding" style="
+          font-size: 10px;
+          color: \${isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)'};
+          font-weight: 500;
+          text-align: center;
+          white-space: nowrap;
+          letter-spacing: 0.5px;
+        ">
+          Powered by Anve Voice
         </div>
       \`;
 
