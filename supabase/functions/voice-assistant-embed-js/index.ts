@@ -325,8 +325,9 @@ if (!window.supabase) {
         
         if (isDropdownTrigger || hasDropdownMenu) {
           console.log('[SMART FIND] ⚠️ Found element is a dropdown trigger, not the target item');
-          console.log('[SMART FIND] 🔽 Will search inside dropdown instead...');
-          // Don't return yet, continue to dropdown search
+          console.log('[SMART FIND] ✅ Returning dropdown trigger to be clicked');
+          // ✅ CRITICAL FIX: Return the dropdown trigger itself - it will be clicked in click_element()
+          return element;
         } else {
           console.log('[SMART FIND] ✅ Element found and visible (not a dropdown trigger)');
           return element;
