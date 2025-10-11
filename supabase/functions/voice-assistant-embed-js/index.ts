@@ -1,108 +1,123 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS'
 };
 
 serve(async (req) => {
   // Handle CORS preflight requests
-  if (req.method === "OPTIONS") {
+  if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  console.log("[EMBED JS] Request received:", req.method, req.url);
-
+  console.log('[EMBED JS] Request received:', req.method, req.url);
+  
   // Extract parameters from URL
   const url = new URL(req.url);
-  const embedId = url.searchParams.get("embedId");
-  const position = url.searchParams.get("position") || "bottom-right";
-  const theme = url.searchParams.get("theme") || "light";
-
+  const embedId = url.searchParams.get('embedId');
+  const position = url.searchParams.get('position') || 'bottom-right';
+  const theme = url.searchParams.get('theme') || 'light';
+  
   // For backward compatibility, support old format
-  let assistant = url.searchParams.get("assistant");
-  let apiKey = url.searchParams.get("apiKey");
-
+  let assistant = url.searchParams.get('assistant');
+  let apiKey = url.searchParams.get('apiKey');
+  
   // If embedId is provided, fetch mapping from database
   if (embedId) {
     try {
-      const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-      const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.57.4");
+      const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+      const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      
+      const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2.57.4');
       const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
+      
       const { data: mapping, error } = await supabase
-        .from("embed_mappings")
-        .select("vapi_assistant_id, api_key, is_active, domain_whitelist")
-        .eq("embed_id", embedId)
+        .from('embed_mappings')
+        .select('vapi_assistant_id, api_key, is_active, domain_whitelist')
+        .eq('embed_id', embedId)
         .single();
-
+      
       if (error || !mapping) {
-        console.error("[EMBED JS] Failed to fetch embed mapping:", error);
-        return new Response(`console.error('Invalid embed ID: ${embedId}');`, {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/javascript",
-          },
-        });
-      }
-
-      if (!mapping.is_active) {
-        console.log("[EMBED JS] Embed is inactive:", embedId);
-        return new Response(`console.warn('This embed has been disabled');`, {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/javascript",
-          },
-        });
-      }
-
-      // Domain whitelist check (optional)
-      const referer = req.headers.get("Referer");
-      if (mapping.domain_whitelist && mapping.domain_whitelist.length > 0 && referer) {
-        const refererDomain = new URL(referer).hostname;
-        const isAllowed = mapping.domain_whitelist.some(
-          (domain) => refererDomain === domain || refererDomain.endsWith(`.${domain}`),
-        );
-
-        if (!isAllowed) {
-          console.warn("[EMBED JS] Domain not whitelisted:", refererDomain);
-          return new Response(`console.error('Domain not authorized for this embed');`, {
+        console.error('[EMBED JS] Failed to fetch embed mapping:', error);
+        return new Response(
+          `console.error('Invalid embed ID: ${embedId}');`,
+          {
             headers: {
               ...corsHeaders,
-              "Content-Type": "application/javascript",
+              'Content-Type': 'application/javascript',
             },
-          });
+          }
+        );
+      }
+      
+      if (!mapping.is_active) {
+        console.log('[EMBED JS] Embed is inactive:', embedId);
+        return new Response(
+          `console.warn('This embed has been disabled');`,
+          {
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/javascript',
+            },
+          }
+        );
+      }
+      
+      // Domain whitelist check (optional)
+      const referer = req.headers.get('Referer');
+      if (mapping.domain_whitelist && mapping.domain_whitelist.length > 0 && referer) {
+        const refererDomain = new URL(referer).hostname;
+        const isAllowed = mapping.domain_whitelist.some(domain => 
+          refererDomain === domain || refererDomain.endsWith(`.${domain}`)
+        );
+        
+        if (!isAllowed) {
+          console.warn('[EMBED JS] Domain not whitelisted:', refererDomain);
+          return new Response(
+            `console.error('Domain not authorized for this embed');`,
+            {
+              headers: {
+                ...corsHeaders,
+                'Content-Type': 'application/javascript',
+              },
+            }
+          );
         }
       }
-
+      
       assistant = mapping.vapi_assistant_id;
       apiKey = mapping.api_key;
-      console.log("[EMBED JS] Embed mapping loaded:", { embedId, assistant });
+      console.log('[EMBED JS] Embed mapping loaded:', { embedId, assistant });
     } catch (err) {
-      console.error("[EMBED JS] Database lookup failed:", err);
-      return new Response(`console.error('Failed to load embed configuration');`, {
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/javascript",
-        },
-      });
+      console.error('[EMBED JS] Database lookup failed:', err);
+      return new Response(
+        `console.error('Failed to load embed configuration');`,
+        {
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/javascript',
+          },
+        }
+      );
     }
   } else if (!assistant || !apiKey) {
     // If no embedId and no assistant/apiKey, return error
-    return new Response(`console.error('Missing embed parameters');`, {
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/javascript",
-      },
-    });
+    return new Response(
+      `console.error('Missing embed parameters');`,
+      {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/javascript',
+        },
+      }
+    );
   }
+  
+  console.log('[EMBED JS] Parameters:', { embedId, assistant, position, theme });
 
-  console.log("[EMBED JS] Parameters:", { embedId, assistant, position, theme });
-
-  const jsContent = `// VAPI-Centric Voice Automation Embed Script with Enhanced Dropdown Support
+  const jsContent = `// VAPI-Centric Voice Automation Embed Script  
 // Load Supabase JS first (add this once to your page)
 if (!window.supabase) {
   const script = document.createElement('script');
@@ -116,10 +131,10 @@ if (!window.supabase) {
   
   // Configuration - Dynamically injected from URL parameters
   const BOT_CONFIG = {
-    assistantId: "${assistant}",
-    apiKey: "${apiKey}",
-    position: "${position}",
-    theme: "${theme}"
+    assistantId: "${assistant}", // Assistant ID from URL
+    apiKey: "${apiKey}",         // API key from URL
+    position: "${position}",     // Position from URL
+    theme: "${theme}"            // Theme from URL
   };
 
   // Supabase configuration
@@ -141,28 +156,18 @@ if (!window.supabase) {
       this.widgetBtn = null;
       this.visualizer = null;
       this.widgetStatusEl = null;
-      this.isCallInitiator = false;
-      this.isSessionChannelReady = false;
-      this.queuedCommands = [];
-      this.discoveryCleanupTimeout = null;
-      this.pendingFirstCommand = null;
-      this.sessionId = this.generateSessionId();
-      this.openDropdowns = new Set(); // Track currently open dropdowns
-      this.dropdownCache = new Map(); // Cache dropdown structures
-      this.contextCache = null; // Cache for page context
-      this.contextCacheTimestamp = 0; // Timestamp of last context extraction
-      this.contextCacheTTL = 30000; // Cache TTL: 30 seconds
-      this.dropdownOpening = false; // Flag when dropdown is opening
-      this.commandQueue = []; // Queue commands during dropdown opening
-      this.currentDropdownTrigger = null; // Reference to dropdown trigger element
-      this.hoverKeepAliveInterval = null; // Interval to keep hover active
-      this.mobileMenuOpen = false; // Track if mobile menu is open
-      this.ENABLE_MOBILE_NAV = true; // Feature flag for mobile navigation
+      this.isCallInitiator = false; // Flag to track if this tab initiated the call
+      this.isSessionChannelReady = false; // Track if session channel is ready
+      this.queuedCommands = []; // Queue for commands received before channel is ready
+      this.discoveryCleanupTimeout = null; // Timeout for cleaning up discovery channel
+      this.pendingFirstCommand = null; // Store first command for replay after session setup
+      this.sessionId = this.generateSessionId(); // Unique session ID for this tab instance
       
       this.init();
     }
 
     generateSessionId() {
+      // Generate a unique session ID for this browser tab
       return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0;
         const v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -177,706 +182,6 @@ if (!window.supabase) {
       this.analyzePageContent();
       this.setupSupabaseRealtime();
       this.loadVapiSDK();
-      this.setupDropdownMonitoring(); // NEW: Monitor dropdown state changes
-      this.setupContextCacheInvalidation(); // NEW: Invalidate context cache on navigation
-    }
-
-    // NEW: Monitor dropdown state changes in React apps
-    setupDropdownMonitoring() {
-      // Use MutationObserver to detect when dropdowns are rendered
-      const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          if (mutation.addedNodes.length > 0) {
-            // Check if any added nodes are dropdown menus
-            mutation.addedNodes.forEach((node) => {
-              if (node.nodeType === 1) { // Element node
-                this.detectAndCacheDropdown(node);
-              }
-            });
-          }
-        });
-      });
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
-
-      this.dropdownObserver = observer;
-    }
-
-    // NEW: Setup context cache invalidation on navigation
-    setupContextCacheInvalidation() {
-      // Invalidate cache on URL change (SPA navigation)
-      window.addEventListener('popstate', () => {
-        this.contextCache = null;
-        this.contextCacheTimestamp = 0;
-        console.log('[CONTEXT] 🔄 Cache invalidated due to navigation');
-      });
-
-      // Invalidate cache on pushState/replaceState (React Router, Next.js)
-      const originalPushState = history.pushState;
-      const originalReplaceState = history.replaceState;
-
-      history.pushState = (...args) => {
-        originalPushState.apply(history, args);
-        this.contextCache = null;
-        this.contextCacheTimestamp = 0;
-        console.log('[CONTEXT] 🔄 Cache invalidated due to pushState');
-      };
-
-      history.replaceState = (...args) => {
-        originalReplaceState.apply(history, args);
-        this.contextCache = null;
-        this.contextCacheTimestamp = 0;
-        console.log('[CONTEXT] 🔄 Cache invalidated due to replaceState');
-      };
-    }
-
-    // NEW: Detect and cache dropdown structures
-    detectAndCacheDropdown(element) {
-      // Look for common dropdown patterns
-      const dropdownSelectors = [
-        '[role="menu"]',
-        '[role="navigation"] ul',
-        '.dropdown-menu',
-        '.dropdown-content',
-        '.menu-dropdown',
-        '[class*="dropdown"]',
-        '[class*="submenu"]',
-        '[data-dropdown]'
-      ];
-
-      dropdownSelectors.forEach(selector => {
-        try {
-          const dropdowns = element.matches?.(selector) ? [element] : element.querySelectorAll?.(selector) || [];
-          dropdowns.forEach(dropdown => {
-            if (this.isVisible(dropdown)) {
-              const items = this.extractDropdownItems(dropdown);
-              if (items.length > 0) {
-                const parentTrigger = this.findDropdownTrigger(dropdown);
-                if (parentTrigger) {
-                  const triggerText = this.getElementText(parentTrigger);
-                  this.dropdownCache.set(triggerText.toLowerCase(), {
-                    trigger: parentTrigger,
-                    menu: dropdown,
-                    items: items,
-                    timestamp: Date.now()
-                  });
-                  console.log('[DROPDOWN] Cached dropdown:', triggerText, 'with', items.length, 'items');
-                }
-              }
-            }
-          });
-        } catch (e) {
-          // Selector might not be valid
-        }
-      });
-    }
-
-    // NEW: Extract items from dropdown menu
-    extractDropdownItems(dropdown) {
-      const items = [];
-      const itemSelectors = ['a', 'button', '[role="menuitem"]', 'li > *'];
-      
-      itemSelectors.forEach(selector => {
-        try {
-          dropdown.querySelectorAll(selector).forEach(item => {
-            const text = this.getElementText(item);
-            if (text && text.length > 0) {
-              items.push({
-                element: item,
-                text: text,
-                href: item.href || ''
-              });
-            }
-          });
-        } catch (e) {
-          // Continue
-        }
-      });
-
-      return items;
-    }
-
-    // ✅ ENHANCED: Smart element finder that handles conditionally rendered dropdowns
-    async findElementSmart(targetText, elementType = null, retryCount = 0) {
-      const maxRetries = 3;
-      
-      console.log(\`[SMART FIND] 🔍 Searching for: "\${targetText}" (attempt \${retryCount + 1}/\${maxRetries + 1})\`);
-      
-      // First, try to find the element directly
-      let element = this.findElementByText(targetText);
-      
-      if (!element) {
-        element = this.findElementByFuzzyMatch(targetText, elementType);
-      }
-      
-      if (!element) {
-        element = this.findElementByPartialMatch(targetText, 0);
-      }
-
-      // ✅ ENHANCED: Check if element is actually visible (not just exists in DOM)
-      if (element && this.isVisible(element)) {
-        // ✅ CRITICAL FIX: Check if this element is a dropdown trigger, not the actual target
-        const isDropdownTrigger = this.looksLikeDropdownTrigger(element);
-        const hasDropdownMenu = element.getAttribute('aria-haspopup') === 'true' || 
-                                element.getAttribute('aria-expanded') !== null;
-        
-        if (isDropdownTrigger || hasDropdownMenu) {
-          console.log('[SMART FIND] ⚠️ Found element is a dropdown trigger, not the target item');
-          console.log('[SMART FIND] ✅ Returning dropdown trigger to be clicked');
-          // ✅ CRITICAL FIX: Return the dropdown trigger itself - it will be clicked in click_element()
-          return element;
-        } else {
-          console.log('[SMART FIND] ✅ Element found and visible (not a dropdown trigger)');
-          return element;
-        }
-      }
-
-      // If not found or not visible, check if it might be in a dropdown
-      console.log('[SMART FIND] 🔽 Element not found in DOM, checking dropdowns...');
-      
-      const dropdownInfo = await this.findAndOpenDropdownContaining(targetText);
-      
-      if (dropdownInfo) {
-        // ✅ ENHANCED: Wait longer for React to render (300-500ms for complex dropdowns)
-        console.log('[SMART FIND] ⏳ Waiting for React to render dropdown items...');
-        await this.waitForReactRender(400);
-        
-        // Try finding the element again with all strategies
-        element = this.findElementByText(targetText);
-        
-        if (!element) {
-          element = this.findElementByFuzzyMatch(targetText, elementType);
-        }
-        
-        if (!element) {
-          element = this.findElementByPartialMatch(targetText, 0);
-        }
-
-        if (element && this.isVisible(element)) {
-          console.log('[SMART FIND] ✅ Element found after opening dropdown');
-          return element;
-        } else {
-          console.log('[SMART FIND] ⚠️ Dropdown opened but element still not found');
-        }
-      }
-
-      // If still not found and we have retries left, try again
-      if (retryCount < maxRetries) {
-        console.log(\`[SMART FIND] 🔄 Retrying... (\${retryCount + 1}/\${maxRetries})\`);
-        await this.waitForReactRender(250);
-        return this.findElementSmart(targetText, elementType, retryCount + 1);
-      }
-
-      console.log('[SMART FIND] ❌ Element not found after all attempts');
-      return null;
-    }
-
-    // ✅ ENHANCED: Find and open dropdown that might contain the target
-    async findAndOpenDropdownContaining(targetText) {
-      const searchText = targetText.toLowerCase();
-      
-      console.log('[DROPDOWN] 🔍 Searching for dropdown containing:', targetText);
-      
-      // Strategy 1: Check cached dropdowns
-      for (const [triggerText, dropdownInfo] of this.dropdownCache.entries()) {
-        const hasMatch = dropdownInfo.items.some(item => 
-          item.text.toLowerCase().includes(searchText)
-        );
-        
-        if (hasMatch) {
-          console.log('[DROPDOWN] 💾 Found in cache:', triggerText);
-          const opened = await this.openDropdown(dropdownInfo.trigger);
-          if (opened) {
-            return dropdownInfo;
-          }
-        }
-      }
-
-      // ✅ NEW: Strategy 1.5: Force ALL dropdowns visible with CSS injection
-      console.log('[DROPDOWN] 💉 Using CSS injection to force dropdowns visible');
-      
-      // Inject CSS to force all dropdowns visible
-      const styleId = 'voxcraft-dropdown-force-' + Date.now();
-      const style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = 'nav [class*="dropdown"] [class*="menu"], nav [class*="dropdown"] ul, nav [class*="dropdown"] [role="menu"], nav [class*="dropdown"] > div, header [class*="dropdown"] [class*="menu"], header [class*="dropdown"] ul, header [class*="dropdown"] [role="menu"], header [class*="dropdown"] > div, .dropdown-menu, [data-dropdown-menu], [role="navigation"] [class*="menu"] { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; }';
-      document.head.appendChild(style);
-      
-      // CRITICAL: Trigger hover on all dropdown triggers to force React rendering
-      const allTriggers = this.findAllDropdownTriggers();
-      allTriggers.forEach(trigger => {
-        this.triggerHoverEvents(trigger);
-      });
-      
-      // Wait longer for CSS to apply and React to render dropdown content
-      await this.waitForReactRender(800);
-      
-      // Now search for target element
-      console.log('[DROPDOWN] 🔍 Searching for target with all dropdowns visible:', targetText);
-      const targetElement = this.findElementByText(targetText) || 
-                            this.findElementByFuzzyMatch(targetText) ||
-                            this.findElementByPartialMatch(targetText, 0);
-      
-      // Cleanup: Remove injected CSS
-      const injectedStyle = document.getElementById(styleId);
-      if (injectedStyle) {
-        injectedStyle.remove();
-        console.log('[DROPDOWN] 🧹 Cleaned up injected CSS');
-      }
-      
-      if (targetElement && this.isVisible(targetElement)) {
-        console.log('[DROPDOWN] ✅ Found target with CSS injection method');
-        return { trigger: null, menu: null, items: [targetElement] };
-      }
-      
-      console.log('[DROPDOWN] ❌ Target not found even with CSS injection');
-
-      // Strategy 2: Analyze page structure to find potential parent dropdowns
-      console.log('[DROPDOWN] 🔎 Analyzing page structure for potential parents...');
-      const potentialParents = this.findPotentialDropdownParents(targetText);
-      console.log('[DROPDOWN] 📋 Found', potentialParents.length, 'potential parent dropdowns');
-      
-      for (const parent of potentialParents) {
-        const parentText = this.getElementText(parent);
-        console.log('[DROPDOWN] 🎯 Trying potential parent:', parentText);
-        
-        const opened = await this.openDropdown(parent);
-        
-        if (opened) {
-          // ✅ ENHANCED: Wait longer for React to render dropdown items
-          console.log('[DROPDOWN] ⏳ Waiting for dropdown items to render...');
-          await this.waitForReactRender(400);
-          
-          // Try multiple finding strategies
-          let testElement = this.findElementByText(targetText);
-          if (!testElement) {
-            testElement = this.findElementByFuzzyMatch(targetText);
-          }
-          if (!testElement) {
-            testElement = this.findElementByPartialMatch(targetText, 0);
-          }
-          
-          if (testElement && this.isVisible(testElement)) {
-            console.log('[DROPDOWN] ✅ Successfully opened correct dropdown');
-            
-            // Cache this dropdown for future use
-            const menu = this.findDropdownMenu(parent);
-            if (menu) {
-              const items = this.extractDropdownItems(menu);
-              this.dropdownCache.set(parentText.toLowerCase(), {
-                trigger: parent,
-                menu: menu,
-                items: items,
-                timestamp: Date.now()
-              });
-              console.log('[DROPDOWN] 💾 Cached dropdown with', items.length, 'items');
-            }
-            
-            return { trigger: parent, menu: menu };
-          } else {
-            console.log('[DROPDOWN] ⚠️ Dropdown opened but target not found inside');
-          }
-        }
-      }
-
-      console.log('[DROPDOWN] ❌ No suitable dropdown found');
-      return null;
-    }
-
-    // ✅ NEW: Find all dropdown triggers on the page
-    findAllDropdownTriggers() {
-      const triggers = [];
-      const selectors = [
-        '[aria-haspopup="true"]',
-        '[aria-expanded]',
-        '.dropdown-toggle',
-        '[role="button"][aria-haspopup]',
-        'button[aria-haspopup]',
-        'a[aria-haspopup]',
-        '[class*="dropdown"][role="button"]',
-        'nav [role="button"]',
-        'nav button',
-        'nav a[aria-expanded]'
-      ];
-      
-      selectors.forEach(selector => {
-        try {
-          document.querySelectorAll(selector).forEach(el => {
-            if (this.isVisible(el) && !triggers.includes(el)) {
-              triggers.push(el);
-            }
-          });
-        } catch (e) {
-          // Continue
-        }
-      });
-      
-      return triggers;
-    }
-
-    // NEW: Find potential dropdown parent elements
-    findPotentialDropdownParents(targetText) {
-      const parents = [];
-      const searchTerms = targetText.toLowerCase().split(/\s+/);
-      
-      // SEMANTIC FILTER: Exclude unrelated UI controls
-      const excludePatterns = /toggle|theme|dark|light|mode|settings|profile|account|search|login|sign/i;
-      
-      // Look for navigation items, buttons, or links that might trigger dropdowns
-      const parentSelectors = [
-        'nav a',
-        'nav button',
-        '[role="navigation"] a',
-        '[role="navigation"] button',
-        '.nav-item',
-        '.menu-item',
-        '[aria-haspopup="true"]',
-        '[aria-expanded]',
-        '.dropdown-toggle',
-        '[data-dropdown-trigger]',
-        'header a',
-        'header button'
-      ];
-
-      parentSelectors.forEach(selector => {
-        try {
-          document.querySelectorAll(selector).forEach(element => {
-            if (!this.isVisible(element)) return;
-            
-            const elementText = this.getElementText(element).toLowerCase();
-            
-            // CRITICAL FIX: Filter out semantically unrelated dropdowns
-            if (excludePatterns.test(elementText) && !excludePatterns.test(targetText)) {
-              console.log('[DROPDOWN] 🚫 Skipping unrelated dropdown:', elementText);
-              return;
-            }
-            
-            // Check if this parent's text relates to the target
-            // (e.g., searching for "About Team" might be under "About" dropdown)
-            const hasRelatedTerm = searchTerms.some(term => 
-              elementText.includes(term) || 
-              term.includes(elementText.split(/\s+/)[0])
-            );
-            
-            // Also check if it has dropdown indicators
-            const hasDropdownIndicator = 
-              element.getAttribute('aria-haspopup') === 'true' ||
-              element.getAttribute('aria-expanded') !== null ||
-              element.classList.contains('dropdown-toggle') ||
-              element.querySelector('svg, .icon, .arrow, .caret') !== null ||
-              /dropdown|menu|submenu/i.test(element.className);
-
-            if (hasRelatedTerm && hasDropdownIndicator) {
-              parents.push(element);
-            } else if (hasDropdownIndicator && searchTerms.length > 1) {
-              // If target has multiple words, the parent might be a category
-              // But still apply semantic filter
-              if (!excludePatterns.test(elementText)) {
-                parents.push(element);
-              }
-            }
-          });
-        } catch (e) {
-          // Continue
-        }
-      });
-
-      // Sort by relevance (text similarity to target)
-      parents.sort((a, b) => {
-        const aText = this.getElementText(a).toLowerCase();
-        const bText = this.getElementText(b).toLowerCase();
-        const aSimilarity = this.calculateSimilarity(targetText.toLowerCase(), aText);
-        const bSimilarity = this.calculateSimilarity(targetText.toLowerCase(), bText);
-        return bSimilarity - aSimilarity;
-      });
-
-      return parents;
-    }
-
-    // ✅ NEW: Close a dropdown
-    closeDropdown(trigger) {
-      if (!trigger) return;
-      
-      try {
-        const ariaExpanded = trigger.getAttribute('aria-expanded');
-        if (ariaExpanded === 'true') {
-          // Try clicking to close
-          trigger.click();
-          // Or trigger mouse leave
-          this.triggerEvent(trigger, 'mouseleave');
-          this.triggerEvent(trigger, 'pointerleave');
-          this.triggerEvent(trigger, 'blur');
-        }
-      } catch (e) {
-        // Ignore errors
-      }
-    }
-
-    // ✅ ENHANCED: Open a dropdown (handles both hover and click with improved timing)
-    async openDropdown(trigger) {
-      if (!trigger) return false;
-      
-      const triggerText = this.getElementText(trigger).trim();
-      console.log('[DROPDOWN] 🔽 Attempting to open:', triggerText);
-      
-      try {
-        // Check if already open
-        const ariaExpanded = trigger.getAttribute('aria-expanded');
-        if (ariaExpanded === 'true') {
-          console.log('[DROPDOWN] ✅ Already open');
-          return true;
-        }
-
-        // Scroll into view first
-        trigger.scrollIntoView({ behavior: 'instant', block: 'center' });
-        await this.waitForReactRender(100);
-
-        // ✅ CRITICAL: Try click first (most common for React dropdowns)
-        console.log('[DROPDOWN] 📍 Strategy 1: Click...');
-        trigger.focus();
-        await this.waitForReactRender(50);
-        trigger.click();
-        await this.waitForReactRender(300);
-        
-        let isOpen = this.checkIfDropdownOpen(trigger);
-        console.log('[DROPDOWN] 📊 After click - isOpen:', isOpen);
-        
-        if (!isOpen) {
-          // Strategy 2: Hover events (for hover-based dropdowns)
-          console.log('[DROPDOWN] 📍 Strategy 2: Hover events...');
-          this.triggerHoverEvents(trigger);
-          await this.waitForReactRender(300);
-          
-          isOpen = this.checkIfDropdownOpen(trigger);
-          console.log('[DROPDOWN] 📊 After hover - isOpen:', isOpen);
-        }
-
-        if (!isOpen) {
-          // Strategy 3: React synthetic events
-          console.log('[DROPDOWN] 📍 Strategy 3: React synthetic events...');
-          this.triggerReactEvents(trigger);
-          await this.waitForReactRender(300);
-          
-          isOpen = this.checkIfDropdownOpen(trigger);
-          console.log('[DROPDOWN] 📊 After React events - isOpen:', isOpen);
-        }
-
-        // ✅ ENHANCED: Final check with extended wait
-        if (!isOpen) {
-          console.log('[DROPDOWN] ⏳ Final wait for React...');
-          await this.waitForReactRender(400);
-          isOpen = this.checkIfDropdownOpen(trigger);
-          console.log('[DROPDOWN] 📊 Final check - isOpen:', isOpen);
-        }
-
-        if (isOpen) {
-          this.openDropdowns.add(trigger);
-          console.log('[DROPDOWN] ✅ Successfully opened');
-        } else {
-          console.log('[DROPDOWN] ⚠️ Failed to open after all strategies');
-        }
-
-        return isOpen;
-      } catch (error) {
-        console.error('[DROPDOWN] ❌ Error opening:', error);
-        return false;
-      }
-    }
-
-    // ✅ ENHANCED: Check if dropdown is actually open (with computed styles)
-    checkIfDropdownOpen(trigger) {
-      // Method 1: Check aria-expanded
-      if (trigger.getAttribute('aria-expanded') === 'true') {
-        console.log('[DROPDOWN] ✅ Detected via aria-expanded');
-        return true;
-      }
-      
-      // Method 2: Check for visible dropdown menu via computed styles
-      const navParent = trigger.closest('nav, header, [role="navigation"], .navigation, .navbar');
-      if (navParent) {
-        const dropdownSelectors = [
-          '[class*="dropdown"][class*="menu"]',
-          '[class*="dropdown"] ul',
-          '[class*="dropdown"] [role="menu"]',
-          '.dropdown-menu',
-          '[data-dropdown-menu]',
-          '[role="menu"]'
-        ];
-        
-        for (const selector of dropdownSelectors) {
-          try {
-            const menus = navParent.querySelectorAll(selector);
-            for (const menu of menus) {
-              const computed = window.getComputedStyle(menu);
-              if (computed.display !== 'none' && 
-                  computed.visibility !== 'hidden' && 
-                  parseFloat(computed.opacity) > 0.1) {
-                console.log('[DROPDOWN] ✅ Detected via computed styles:', selector);
-                return true;
-              }
-            }
-          } catch (e) {
-            // Continue
-          }
-        }
-      }
-      
-      // Method 3: Check for visible dropdown items
-      const menu = this.findDropdownMenu(trigger);
-      if (menu && this.isVisible(menu)) {
-        console.log('[DROPDOWN] ✅ Detected via visible menu');
-        return true;
-      }
-      
-      return false;
-    }
-
-    // NEW: Trigger hover events for hover-based dropdowns
-    triggerHoverEvents(element) {
-      const events = [
-        'mouseenter',
-        'mouseover',
-        'mousemove',
-        'pointerenter',
-        'pointerover',
-        'focus'
-      ];
-
-      const rect = element.getBoundingClientRect();
-      const clientX = rect.left + rect.width / 2;
-      const clientY = rect.top + rect.height / 2;
-
-      events.forEach(eventType => {
-        const event = new MouseEvent(eventType, {
-          view: window,
-          bubbles: true,
-          cancelable: true,
-          clientX: clientX,
-          clientY: clientY,
-          relatedTarget: document.body
-        });
-        element.dispatchEvent(event);
-      });
-
-      // Also trigger on parent elements (some React apps listen on parents)
-      let parent = element.parentElement;
-      let depth = 0;
-      while (parent && depth < 3) {
-        events.forEach(eventType => {
-          const event = new MouseEvent(eventType, {
-            view: window,
-            bubbles: true,
-            cancelable: true,
-            clientX: clientX,
-            clientY: clientY,
-            relatedTarget: element
-          });
-          parent.dispatchEvent(event);
-        });
-        parent = parent.parentElement;
-        depth++;
-      }
-    }
-
-    // NEW: Trigger React synthetic events
-    triggerReactEvents(element) {
-      // Find React fiber
-      const reactPropsKey = Object.keys(element).find(key => 
-        key.startsWith('__reactProps') || key.startsWith('__reactEventHandlers')
-      );
-
-      if (reactPropsKey) {
-        const props = element[reactPropsKey];
-        
-        // Trigger common React event handlers
-        if (props.onMouseEnter) props.onMouseEnter({ target: element });
-        if (props.onMouseOver) props.onMouseOver({ target: element });
-        if (props.onClick) props.onClick({ target: element });
-        if (props.onFocus) props.onFocus({ target: element });
-      }
-
-      // Also try to trigger state updates by simulating user interaction
-      const clickEvent = new MouseEvent('click', {
-        view: window,
-        bubbles: true,
-        cancelable: true,
-        composed: true
-      });
-      element.dispatchEvent(clickEvent);
-    }
-
-    // NEW: Find dropdown menu associated with trigger
-    findDropdownMenu(trigger) {
-      // Strategy 1: Check aria-controls
-      const controlsId = trigger.getAttribute('aria-controls');
-      if (controlsId) {
-        const menu = document.getElementById(controlsId);
-        if (menu && this.isVisible(menu)) return menu;
-      }
-
-      // Strategy 2: Check next sibling
-      let sibling = trigger.nextElementSibling;
-      let attempts = 0;
-      while (sibling && attempts < 3) {
-        if (this.looksLikeDropdownMenu(sibling) && this.isVisible(sibling)) {
-          return sibling;
-        }
-        sibling = sibling.nextElementSibling;
-        attempts++;
-      }
-
-      // Strategy 3: Check parent's children
-      const parent = trigger.parentElement;
-      if (parent) {
-        const menus = parent.querySelectorAll('[role="menu"], .dropdown-menu, .menu-dropdown, [class*="dropdown"]');
-        for (const menu of menus) {
-          if (menu !== trigger && this.isVisible(menu)) {
-            return menu;
-          }
-        }
-      }
-
-      // Strategy 4: Check document for recently added menus
-      const recentMenus = document.querySelectorAll('[role="menu"], .dropdown-menu, .menu-dropdown');
-      for (const menu of recentMenus) {
-        if (this.isVisible(menu)) {
-          return menu;
-        }
-      }
-
-      return null;
-    }
-
-    // NEW: Check if element looks like a dropdown menu
-    looksLikeDropdownMenu(element) {
-      const role = element.getAttribute('role');
-      const className = element.className?.toString().toLowerCase() || '';
-      
-      return (
-        role === 'menu' ||
-        role === 'navigation' ||
-        className.includes('dropdown') ||
-        className.includes('menu') ||
-        className.includes('submenu') ||
-        element.tagName === 'UL' ||
-        element.tagName === 'NAV'
-      );
-    }
-
-    // ✅ ENHANCED: Wait for React to render (with exponential backoff and frame sync)
-    async waitForReactRender(baseMs = 300) {
-      return new Promise(resolve => {
-        // Use double requestAnimationFrame to ensure DOM updates are complete
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            // Additional timeout for React state updates and re-renders
-            setTimeout(resolve, baseMs);
-          });
-        });
-      });
     }
 
     createStatusIndicator() {
@@ -914,6 +219,7 @@ if (!window.supabase) {
 
     async setupSupabaseRealtime() {
       try {
+        // Wait for Supabase to load
         let attempts = 0;
         while (!window.supabase && attempts < 50) {
           await new Promise(resolve => setTimeout(resolve, 100));
@@ -930,19 +236,24 @@ if (!window.supabase) {
         console.log('[LIFECYCLE] ✅ Supabase client initialized');
         this.updateStatus('🟡 Ready for voice session...');
         
+        // Discovery channel will be created on call start
+        
       } catch (error) {
         console.error('❌ Supabase Realtime setup failed:', error);
         this.updateStatus("❌ Command listener failed");
       }
     }
 
+    // Call ID Discovery Mechanism
     setupDiscoveryChannel() {
+      // Clean up existing discovery channel if any
       if (this.discoveryChannel) {
         console.log('[LIFECYCLE] 🧹 Cleaning up old discovery channel');
         this.discoveryChannel.unsubscribe();
         this.discoveryChannel = null;
       }
 
+      // Clear any pending cleanup timeout
       if (this.discoveryCleanupTimeout) {
         clearTimeout(this.discoveryCleanupTimeout);
         this.discoveryCleanupTimeout = null;
@@ -957,18 +268,22 @@ if (!window.supabase) {
           console.log('[LIFECYCLE] 📡 Received call discovery:', payload);
           const { vapiCallId, firstCommand, sessionId } = payload.payload;
           
+          // Only accept vapiCallId if this tab is the initiator AND sessionId matches
           if (vapiCallId && !this.currentCallId && this.isCallInitiator && sessionId === this.sessionId) {
             console.log('[LIFECYCLE] 🎯 Call ID discovered via backend for our session:', vapiCallId, 'sessionId:', sessionId);
             this.currentCallId = vapiCallId;
             
+            // Store first command for replay after session channel is ready
             if (firstCommand) {
               console.log('[LIFECYCLE] 📦 Storing first command for replay:', firstCommand.functionName);
               this.pendingFirstCommand = firstCommand;
             }
             
+            // Set up session-specific channel immediately
             this.subscribeToCallChannel(vapiCallId);
             this.updateStatus('🔗 Session isolated - ready for commands!');
             
+            // Clean up discovery channel after a short delay (to ensure session channel is ready)
             this.discoveryCleanupTimeout = setTimeout(() => {
               if (this.discoveryChannel) {
                 console.log('[LIFECYCLE] 🧹 Cleaning up discovery channel after successful setup');
@@ -987,12 +302,14 @@ if (!window.supabase) {
         });
     }
 
+    // VAPI-Native Session Isolation: Subscribe to call-specific channel
     subscribeToCallChannel(callId) {
       if (this.realtimeChannel) {
         console.log('[LIFECYCLE] 🧹 Unsubscribing from old session channel');
         this.realtimeChannel.unsubscribe();
       }
 
+      // Reset channel ready state
       this.isSessionChannelReady = false;
       this.queuedCommands = [];
 
@@ -1004,9 +321,11 @@ if (!window.supabase) {
         .on('broadcast', { event: 'function_call' }, (payload) => {
           console.log('[LIFECYCLE] 📡 Received session-specific function call:', payload);
           
+          // If channel is ready, execute immediately
           if (this.isSessionChannelReady) {
             this.executeFunctionCall(payload.payload);
           } else {
+            // Queue the command if channel isn't fully ready
             console.log('[LIFECYCLE] ⏳ Channel not ready, queueing command:', payload.payload.functionName);
             this.queuedCommands.push(payload.payload);
           }
@@ -1018,6 +337,7 @@ if (!window.supabase) {
             this.isSessionChannelReady = true;
             this.updateStatus('🟢 Connected to voice control');
             
+            // Process pending first command if exists
             if (this.pendingFirstCommand) {
               console.log('[LIFECYCLE] 🔄 Replaying first command:', this.pendingFirstCommand.functionName);
               this.executeFunctionCall(this.pendingFirstCommand);
@@ -1026,6 +346,7 @@ if (!window.supabase) {
             
             console.log('[LIFECYCLE] ✅ Session channel ready, processing queued commands:', this.queuedCommands.length);
             
+            // Process any other queued commands
             while (this.queuedCommands.length > 0) {
               const command = this.queuedCommands.shift();
               console.log('[LIFECYCLE] 🔄 Processing queued command:', command.functionName);
@@ -1071,7 +392,7 @@ if (!window.supabase) {
           position: BOT_CONFIG.position,
           theme: BOT_CONFIG.theme,
           metadata: {
-            sessionId: this.sessionId
+            sessionId: this.sessionId // Pass session ID to VAPI
           }
         };
 
@@ -1081,11 +402,12 @@ if (!window.supabase) {
           config,
           assistantOverrides: {
             variableValues: {
-              sessionId: this.sessionId
+              sessionId: this.sessionId // Also pass via variableValues
             }
           }
         });
 
+        // Hide default button (we provide our own custom UI)
         const hideStyle = document.createElement('style');
         hideStyle.textContent = '.vapi-btn{display:none!important}';
         document.head.appendChild(hideStyle);
@@ -1109,10 +431,6 @@ if (!window.supabase) {
         bottom: 24px;
         z-index: 999999;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
       \`;
 
       const isDark = BOT_CONFIG.theme === 'dark';
@@ -1169,7 +487,7 @@ if (!window.supabase) {
           }
           .voxcraft-visualizer {
             position: absolute;
-            bottom: calc(100% + 28px);
+            bottom: 100%;
             \${BOT_CONFIG.position === 'bottom-left' ? 'left: 0;' : 'right: 0;'}
             margin-bottom: 12px;
             background: \${isDark
@@ -1242,17 +560,6 @@ if (!window.supabase) {
             <div class="voxcraft-bar"></div>
           </div>
         </div>
-        
-        <div class="voxcraft-branding" style="
-          font-size: 10px;
-          color: \${isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)'};
-          font-weight: 500;
-          text-align: center;
-          white-space: nowrap;
-          letter-spacing: 0.5px;
-        ">
-          Powered by Anve Voice
-        </div>
       \`;
 
       widget.innerHTML = widgetHTML;
@@ -1265,6 +572,7 @@ if (!window.supabase) {
       this.widgetBtn.addEventListener('click', () => this.toggleCall());
     }
 
+    // Toggle call state based on vapi SDK instance
     async toggleCall() {
       if (this.isCallActive || this.vapiWidget.started) {
         this.endCall();
@@ -1279,12 +587,15 @@ if (!window.supabase) {
         this.updateWidgetState('active', 'Connecting...');
         this.visualizer.classList.add('show');
         
+        // Mark this tab as the call initiator
         this.isCallInitiator = true;
         console.log('[LIFECYCLE] ✅ Marked as call initiator');
         
+        // Set up discovery channel for this call
         this.setupDiscoveryChannel();
         console.log('[LIFECYCLE] ✅ Discovery channel created');
         
+        // Trigger the hidden default widget to start the call
         const hiddenBtn = document.querySelector('.vapi-btn');
         if (hiddenBtn) {
           hiddenBtn.click();
@@ -1304,14 +615,15 @@ if (!window.supabase) {
 
     endCall() {
       try {
+        // Trigger the hidden default widget to end the call
         const hiddenBtn = document.querySelector('.vapi-btn');
         if (hiddenBtn) {
           hiddenBtn.click();
         }
         
+        // Reset initiator flag when call ends
         this.isCallInitiator = false;
         this.isCallActive = false;
-        this.openDropdowns.clear(); // Clear open dropdowns
         this.updateWidgetState('idle', 'Call ended');
         setTimeout(() => {
           this.visualizer.classList.remove('show');
@@ -1331,12 +643,14 @@ if (!window.supabase) {
     }
 
     setupVapiEventListeners() {
+      // Call started - Wait for backend discovery
       this.vapiWidget.on("call-start", (event) => {
         console.log('📞 VAPI call started, waiting for backend call ID discovery...');
         this.updateStatus("🎤 Voice active - discovering session...");
         this.updateWidgetState('listening', 'Listening...');
       });
 
+      // Call ended - Clean up session
       this.vapiWidget.on("call-end", () => {
         console.log('[LIFECYCLE] 📞 VAPI call ended - cleaning up...');
         this.currentCallId = null;
@@ -1344,7 +658,6 @@ if (!window.supabase) {
         this.isSessionChannelReady = false;
         this.queuedCommands = [];
         this.pendingFirstCommand = null;
-        this.openDropdowns.clear();
         
         if (this.realtimeChannel) {
           console.log('[LIFECYCLE] 🧹 Unsubscribing session channel');
@@ -1374,18 +687,21 @@ if (!window.supabase) {
         }, 2000);
       });
 
+      // User speaking
       this.vapiWidget.on("speech-start", () => {
         console.log('🎤 User speaking');
         this.updateStatus("🎤 Listening...");
         this.updateWidgetState('listening', 'Listening...');
       });
 
+      // User stopped speaking
       this.vapiWidget.on("speech-end", () => {
         console.log('🎤 User stopped speaking');
         this.updateStatus("🤖 Processing...");
         this.updateWidgetState('active', 'Processing...');
       });
 
+      // Assistant speaking
       this.vapiWidget.on("message", (message) => {
         if (message?.type === 'transcript' && message?.transcriptType === 'partial') {
           console.log('🤖 Assistant speaking');
@@ -1394,6 +710,7 @@ if (!window.supabase) {
         }
       });
 
+      // Error handling
       this.vapiWidget.on("error", (error) => {
         console.error('❌ VAPI error:', error);
         this.updateStatus("❌ Voice error");
@@ -1406,22 +723,13 @@ if (!window.supabase) {
       });
     }
 
+    // Core function call executor - receives commands from VAPI via webhook -> Supabase Realtime
     executeFunctionCall(functionCall) {
       const { functionName, params } = functionCall;
       console.log('⚡ Executing function call:', functionName, params);
       
-      // CRITICAL FIX: Queue commands if dropdown is opening
-      if (this.dropdownOpening && functionName !== 'get_page_context') {
-        console.log('[QUEUE] 📦 Dropdown opening, queueing command:', functionName);
-        this.commandQueue.push(functionCall);
-        return;
-      }
-      
       try {
         switch (functionName) {
-          case 'get_page_context':
-            this.get_page_context(params);
-            break;
           case 'scroll_page':
             this.scroll_page(params);
             break;
@@ -1445,391 +753,13 @@ if (!window.supabase) {
       }
     }
 
-    // NEW: Process queued commands after dropdown opens
-    async processCommandQueue() {
-      console.log('[QUEUE] 🔄 Processing', this.commandQueue.length, 'queued commands');
-      
-      while (this.commandQueue.length > 0) {
-        const command = this.commandQueue.shift();
-        console.log('[QUEUE] ▶️ Executing queued command:', command.functionName);
-        await this.executeFunctionCall(command);
-        
-        // Small delay between queued commands
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
-      
-      console.log('[QUEUE] ✅ All queued commands processed');
-    }
-
-    // ========================================
-    // CONTEXT ENGINE METHODS
-    // ========================================
-
-    get_page_context(params) {
-      console.log('[CONTEXT] 📊 Extracting page context...', params);
-      this.updateStatus('📊 Analyzing page structure...');
-      
-      try {
-        // Handle defaults
-        const refresh = params.refresh || false;
-        const detailLevel = params.detail_level || 'standard';
-        const currentUrl = window.location.href;
-        
-        // CRITICAL FIX: Invalidate cache if URL changed
-        if (this.contextCache && this.contextCache.url !== currentUrl) {
-          console.log('[CONTEXT] 🔄 URL mismatch detected - invalidating cache');
-          console.log('[CONTEXT] 📍 Cached URL:', this.contextCache.url);
-          console.log('[CONTEXT] 📍 Current URL:', currentUrl);
-          this.contextCache = null;
-          this.contextCacheTimestamp = 0;
-        }
-        
-        // Check cache unless refresh is requested
-        if (!refresh && this.contextCache) {
-          const now = Date.now();
-          if ((now - this.contextCacheTimestamp) < this.contextCacheTTL) {
-            console.log('[CONTEXT] ✅ Using cached context');
-            this.updateStatus('✅ Context retrieved (cached)');
-            return {
-              success: true,
-              context: this.contextCache,
-              cached: true,
-              message: 'Page context retrieved from cache'
-            };
-          }
-        }
-        
-        // Extract fresh context
-        const context = {
-          url: window.location.href,
-          title: document.title,
-          pageType: this.detectPageType(),
-          timestamp: Date.now()
-        };
-        
-        // Add navigation based on detail level
-        if (detailLevel === 'minimal') {
-          context.navigation = this.extractNavigationMinimal();
-        } else {
-          context.navigation = this.extractNavigation();
-        }
-        
-        // Add interactive elements (standard and detailed)
-        if (detailLevel === 'standard' || detailLevel === 'detailed') {
-          context.interactiveElements = this.extractInteractiveElements();
-        }
-        
-        // Add forms (detailed only)
-        if (detailLevel === 'detailed') {
-          context.forms = this.extractForms();
-          context.contentSections = this.extractContentSections();
-        }
-        
-        // Update cache
-        this.contextCache = context;
-        this.contextCacheTimestamp = Date.now();
-        
-        console.log('[CONTEXT] ✅ Context extracted:', context);
-        this.updateStatus('✅ Page context analyzed');
-        
-        return {
-          success: true,
-          context: context,
-          cached: false,
-          message: 'Page context extracted with ' + detailLevel + ' detail level'
-        };
-        
-      } catch (error) {
-        console.error('[CONTEXT] ❌ Error extracting context:', error);
-        this.updateStatus('❌ Failed to analyze page');
-        return {
-          success: false,
-          error: error.message,
-          message: 'Failed to extract page context'
-        };
-      }
-    }
-
-    detectPageType() {
-      const path = window.location.pathname;
-      
-      if (path === '/' || path === '/home') return 'landing_page';
-      if (path.includes('/product')) return 'product_page';
-      if (path.includes('/checkout') || path.includes('/cart')) return 'checkout_page';
-      if (path.includes('/blog') || path.includes('/article')) return 'blog_page';
-      if (document.querySelector('form[action*="login"]')) return 'login_page';
-      
-      return 'general_page';
-    }
-
-    extractNavigationMinimal() {
-      const navigation = { topLevel: [] };
-      
-      const navContainer = document.querySelector('nav') || 
-                           document.querySelector('header nav') || 
-                           document.querySelector('[role="navigation"]');
-      
-      if (!navContainer) return navigation;
-      
-      // FIXED: Use less specific selectors to match nested structures
-      const selectors = [
-        'nav a',      // Any anchor in nav
-        'nav button'  // Any button in nav
-      ];
-      
-      const processed = new Set();
-      
-      selectors.forEach(selector => {
-        try {
-          document.querySelectorAll(selector).forEach(element => {
-            if (processed.has(element)) return;
-            if (!this.isVisible(element)) return;  // Skip hidden elements
-            processed.add(element);
-            
-            const text = this.getElementText(element).trim();
-            if (!text || text.length > 50) return;
-            
-            // Skip mobile menu toggle and theme toggle
-            if (text.toLowerCase().includes('menu') || text.toLowerCase().includes('toggle')) {
-              return;
-            }
-            
-            const isDropdown = this.looksLikeDropdownTrigger(element);
-            const navItem = {
-              text: text,
-              type: isDropdown ? 'dropdown' : 'link',
-              visible: true
-            };
-            
-            // If dropdown, try to extract children
-            if (isDropdown) {
-              navItem.hasDropdown = true;
-              navItem.children = this.extractDropdownChildren(element);
-            }
-            
-            navigation.topLevel.push(navItem);
-          });
-        } catch (e) {
-          console.warn('[NAV EXTRACT] Error:', e);
-        }
-      });
-      
-      console.log('[NAV EXTRACT] ✅ Extracted', navigation.topLevel.length, 'nav items');
-      return navigation;
-    }
-
-    extractNavigation() {
-      const navigation = { topLevel: [] };
-      
-      const navContainers = [
-        document.querySelector('nav'),
-        document.querySelector('header nav'),
-        document.querySelector('[role="navigation"]'),
-        document.querySelector('.navbar'),
-        document.querySelector('.navigation')
-      ].filter(Boolean);
-      
-      if (navContainers.length === 0) {
-        console.log('[CONTEXT] ⚠️ No navigation container found');
-        return navigation;
-      }
-      
-      const navContainer = navContainers[0];
-      
-      const topLevelSelectors = [
-        'nav > ul > li > a',
-        'nav > ul > li > button',
-        'nav > div > a',
-        'nav > div > button',
-        '[role="navigation"] > ul > li > a',
-        '[role="navigation"] > ul > li > button'
-      ];
-      
-      const processedElements = new Set();
-      
-      topLevelSelectors.forEach(selector => {
-        try {
-          navContainer.querySelectorAll(selector).forEach(element => {
-            if (processedElements.has(element)) return;
-            processedElements.add(element);
-            
-            const text = this.getElementText(element).trim();
-            if (!text || text.length > 50) return;
-            
-            const navItem = {
-              text: text,
-              type: element.tagName.toLowerCase() === 'a' ? 'link' : 'button',
-              visible: this.isVisible(element)
-            };
-            
-            if (element.tagName.toLowerCase() === 'a') {
-              navItem.href = element.getAttribute('href');
-            }
-            
-            const hasDropdown = this.looksLikeDropdownTrigger(element);
-            
-            if (hasDropdown) {
-              navItem.type = 'dropdown';
-              navItem.hasDropdown = true;
-              navItem.children = this.extractDropdownChildren(element);
-            }
-            
-            navigation.topLevel.push(navItem);
-          });
-        } catch (e) {
-          console.warn('[CONTEXT] Error processing selector:', selector, e);
-        }
-      });
-      
-      return navigation;
-    }
-
-    extractDropdownChildren(trigger) {
-      const children = [];
-      
-      const menu = this.findDropdownMenu(trigger);
-      if (!menu) return children;
-      
-      const itemSelectors = ['a', 'button', '[role="menuitem"]', '.dropdown-item'];
-      
-      itemSelectors.forEach(selector => {
-        try {
-          menu.querySelectorAll(selector).forEach(item => {
-            const text = this.getElementText(item).trim();
-            if (!text || text.length > 100) return;
-            
-            const child = {
-              text: text,
-              type: item.tagName.toLowerCase() === 'a' ? 'link' : 'button',
-              parent: this.getElementText(trigger).trim()
-            };
-            
-            if (item.tagName.toLowerCase() === 'a') {
-              child.href = item.getAttribute('href');
-            }
-            
-            children.push(child);
-          });
-        } catch (e) {
-          // Continue
-        }
-      });
-      
-      return children;
-    }
-
-    extractInteractiveElements() {
-      const elements = [];
-      
-      const selectors = [
-        'button:not(nav button):not(header button)',
-        'a.btn',
-        'a.button',
-        '[role="button"]',
-        'input[type="submit"]'
-      ];
-      
-      selectors.forEach(selector => {
-        try {
-          document.querySelectorAll(selector).forEach(element => {
-            if (!this.isVisible(element)) return;
-            
-            const text = this.getElementText(element).trim();
-            if (!text || text.length > 50) return;
-            
-            elements.push({
-              text: text,
-              type: element.tagName.toLowerCase(),
-              visible: true,
-              action: 'click'
-            });
-          });
-        } catch (e) {
-          // Continue
-        }
-      });
-      
-      return elements.slice(0, 20);
-    }
-
-    extractForms() {
-      const forms = [];
-      
-      document.querySelectorAll('form').forEach(form => {
-        const fields = [];
-        
-        form.querySelectorAll('input, textarea, select').forEach(field => {
-          const label = this.findFieldLabel(field);
-          const fieldInfo = {
-            type: field.type || field.tagName.toLowerCase(),
-            name: field.name || field.id,
-            label: label,
-            required: field.required,
-            placeholder: field.placeholder
-          };
-          
-          fields.push(fieldInfo);
-        });
-        
-        if (fields.length > 0) {
-          forms.push({
-            action: form.action,
-            method: form.method,
-            fields: fields
-          });
-        }
-      });
-      
-      return forms;
-    }
-
-    findFieldLabel(field) {
-      if (field.id) {
-        const label = document.querySelector('label[for="' + field.id + '"]');
-        if (label) return label.textContent.trim();
-      }
-      
-      const parentLabel = field.closest('label');
-      if (parentLabel) return parentLabel.textContent.trim();
-      
-      if (field.getAttribute('aria-label')) {
-        return field.getAttribute('aria-label');
-      }
-      
-      if (field.placeholder) return field.placeholder;
-      
-      return field.name || 'Unknown field';
-    }
-
-    extractContentSections() {
-      const sections = [];
-      
-      document.querySelectorAll('section, article, main > div').forEach((section, index) => {
-        const heading = section.querySelector('h1, h2, h3');
-        const text = section.textContent.trim().substring(0, 200);
-        
-        if (heading || text.length > 50) {
-          sections.push({
-            index: index,
-            heading: heading ? heading.textContent.trim() : null,
-            preview: text,
-            hasImages: section.querySelectorAll('img').length > 0,
-            hasButtons: section.querySelectorAll('button, .btn').length > 0
-          });
-        }
-      });
-      
-      return sections.slice(0, 10);
-    }
-
-    // ========================================
-    // END CONTEXT ENGINE METHODS
-    // ========================================
-
+    // DOM manipulation functions - these contain all the DOM logic
+    
     scroll_page(params) {
       const { direction, target_section } = params;
       console.log('📜 Scrolling page:', direction, target_section);
       
+      // If target_section is provided, try to scroll to specific section
       if (target_section) {
         const sectionFound = this.scrollToSection(target_section);
         if (sectionFound) {
@@ -1838,6 +768,7 @@ if (!window.supabase) {
         }
       }
       
+      // Enhanced scrolling with better amount calculations
       const scrollAmount = window.innerHeight * 0.85;
       const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
@@ -1888,6 +819,7 @@ if (!window.supabase) {
           break;
           
         default:
+          // Try to find element or section by direction text
           if (direction) {
             const element = this.findScrollTarget(direction);
             if (element) {
@@ -1909,6 +841,7 @@ if (!window.supabase) {
     scrollToSection(sectionName) {
       const searchTerms = sectionName.toLowerCase().split(/\s+/);
       
+      // Common section identifiers
       const sectionSelectors = [
         'section', 'article', 'header', 'footer', 'nav', 'main', 'aside',
         '[role="region"]', '[role="navigation"]', '[role="main"]',
@@ -1941,6 +874,7 @@ if (!window.supabase) {
               }
             });
             
+            // Bonus for exact ID or class match
             if (element.id && element.id.toLowerCase() === sectionName.toLowerCase()) {
               score += 100;
             }
@@ -1961,7 +895,8 @@ if (!window.supabase) {
           block: 'start',
           inline: 'nearest'
         });
-        const offset = 80;
+        // Adjust for fixed headers
+        const offset = 80; // Typical fixed header height
         window.scrollBy(0, -offset);
         return true;
       }
@@ -1972,6 +907,7 @@ if (!window.supabase) {
     findScrollTarget(targetText) {
       const searchText = targetText.toLowerCase();
       
+      // Look for anchors, headings, and sections
       const targetSelectors = [
         \`[id="\${CSS.escape(targetText)}"]\`,
         \`[id*="\${CSS.escape(searchText)}"]\`,
@@ -2001,278 +937,104 @@ if (!window.supabase) {
       return null;
     }
 
-    // UPDATED: Use smart finder for click_element
-    async click_element(params) {
+    click_element(params) {
       const { target_text, element_type, nth_match } = params;
       console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
       
-      try {
-        this.updateStatus(\`🔍 Searching for: \${target_text}\`);
-        
-        // ✅ CRITICAL FIX: Open mobile menu FIRST before searching (prevents wrong element clicks)
-        const mobileInfo = this.detectMobileMenu();
-        if (mobileInfo.isMobile && mobileInfo.hasHamburger && !this.mobileMenuOpen) {
-          console.log('[MOBILE] 📱 Mobile detected, opening menu before search...');
-          await this.tryOpenMobileMenu();
-        }
-        
-        // Use smart finder that handles dropdowns
-        const element = await this.findElementSmart(target_text, element_type);
-        
-        if (element) {
-          // ENHANCED: Check if this is a dropdown using multiple strategies
-          const isDropdown = this.isDropdownFromContext(target_text) || this.looksLikeDropdownTrigger(element);
-          
-          if (isDropdown) {
-            console.log('[DROPDOWN] 🎯 Detected dropdown trigger:', target_text);
-            console.log('[QUEUE] 🔒 Setting dropdown opening flag');
-            this.dropdownOpening = true;
-            
-            // ✅ CRITICAL FIX: Mobile uses click for nested dropdowns, desktop uses hover
-            const mobileInfo = this.detectMobileMenu();
-            if (mobileInfo.isMobile) {
-              console.log('[DROPDOWN] 📱 Mobile: Clicking dropdown to expand nested items...');
-              await this.performClick(element);
-            } else {
-              console.log('[DROPDOWN] 🖱️ Desktop: Simulating hover to keep dropdown open...');
-              await this.performHover(element);
-            }
-            
-            // Store reference to keep dropdown open
-            this.currentDropdownTrigger = element;
-          } else {
-            await this.performClick(element);
-          }
-          
-          // CRITICAL FIX: If dropdown, wait 3 seconds for React to render items
-          if (isDropdown) {
-            console.log('[DROPDOWN] 🕐 Waiting 3 seconds for dropdown items to render...');
-            
-            const mobileInfo = this.detectMobileMenu();
-            
-            // Only use hover keep-alive on desktop (mobile uses click, no need for hover)
-            if (!mobileInfo.isMobile) {
-              console.log('[DROPDOWN] 🔒 Keeping hover active to prevent close...');
-              
-              // Keep re-triggering hover events every 500ms to prevent dropdown from closing
-              this.hoverKeepAliveInterval = setInterval(() => {
-                if (this.currentDropdownTrigger) {
-                  const event = new MouseEvent('mouseenter', {
-                    view: window,
-                    bubbles: true,
-                    cancelable: true,
-                    clientX: this.currentDropdownTrigger.getBoundingClientRect().left + 10,
-                    clientY: this.currentDropdownTrigger.getBoundingClientRect().top + 10
-                  });
-                  this.currentDropdownTrigger.dispatchEvent(event);
-                }
-              }, 500);
-            } else {
-              console.log('[DROPDOWN] 📱 Mobile: Dropdown expanded via click, no hover needed');
-            }
-            
-            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
-            
-            // Stop keep-alive
-            if (this.hoverKeepAliveInterval) {
-              clearInterval(this.hoverKeepAliveInterval);
-              this.hoverKeepAliveInterval = null;
-            }
-            
-            console.log('[DROPDOWN] ✅ Dropdown should be fully open now');
-            
-            // Release the queue
-            console.log('[QUEUE] 🔓 Releasing dropdown opening flag');
-            this.dropdownOpening = false;
-            
-            // Process any queued commands
-            if (this.commandQueue.length > 0) {
-              await this.processCommandQueue();
-            }
-            
-            // Clear dropdown reference after queue is processed
-            this.currentDropdownTrigger = null;
-          }
-          
-          this.updateStatus(\`✅ Clicked: \${target_text}\`);
+      // Try multiple strategies to find the element
+      let element = this.findElementByText(target_text);
+      
+      // If not found, try more aggressive search
+      if (!element) {
+        element = this.findElementByFuzzyMatch(target_text, element_type);
+      }
+      
+      // If still not found, try by partial match
+      if (!element) {
+        element = this.findElementByPartialMatch(target_text, nth_match || 0);
+      }
+      
+      if (element) {
+        this.performClick(element);
+        this.updateStatus(\`✅ Clicked: \${target_text}\`);
+      } else {
+        // Try to provide helpful feedback
+        const suggestions = this.getSimilarElements(target_text);
+        if (suggestions.length > 0) {
+          console.log('🔍 Similar elements found:', suggestions.map(s => s.text));
+          this.updateStatus(\`❌ Not found. Try: \${suggestions[0].text}\`);
         } else {
-          const suggestions = this.getSimilarElements(target_text);
-          if (suggestions.length > 0) {
-            console.log('🔍 Similar elements found:', suggestions.map(s => s.text));
-            this.updateStatus(\`❌ Not found. Try: \${suggestions[0].text}\`);
-          } else {
-            this.updateStatus(\`❌ Element not found: \${target_text}\`);
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error in click_element:', error);
-        this.updateStatus(\`❌ Error: \${error.message}\`);
-        
-        // Release queue on error
-        this.dropdownOpening = false;
-        this.currentDropdownTrigger = null;
-        
-        // Clear hover keep-alive
-        if (this.hoverKeepAliveInterval) {
-          clearInterval(this.hoverKeepAliveInterval);
-          this.hoverKeepAliveInterval = null;
-        }
-        
-        if (this.commandQueue.length > 0) {
-          await this.processCommandQueue();
+          this.updateStatus(\`❌ Element not found: \${target_text}\`);
         }
       }
     }
-
-    async performClick(element) {
+    
+    performClick(element) {
       try {
+        // Ensure element is in view
         element.scrollIntoView({ 
           behavior: 'smooth', 
           block: 'center',
           inline: 'center'
         });
         
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        element.focus();
-        
-        if (element.tagName === 'A' && element.href) {
-          try {
-            const linkUrl = new URL(element.href, window.location.origin);
-            const isSameOrigin = linkUrl.origin === window.location.origin;
-            
-            if (isSameOrigin) {
-              const clickEvent = new MouseEvent('click', {
-                view: window,
-                bubbles: true,
-                cancelable: true,
-                ctrlKey: false,
-                metaKey: false,
-                button: 0
-              });
-              
-              const defaultPrevented = !element.dispatchEvent(clickEvent);
-              
-              if (!defaultPrevented) {
-                const pathname = linkUrl.pathname + linkUrl.search + linkUrl.hash;
-                
-                if (window.next?.router) {
-                  window.next.router.push(pathname);
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                  this.analyzePageContent();
-                  return;
-                }
-                
-                if (window.__REACT_ROUTER__) {
-                  window.__REACT_ROUTER__.push(pathname);
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                  this.analyzePageContent();
-                  return;
-                }
-                
-                if (window.history && window.history.pushState) {
-                  window.history.pushState({}, '', pathname);
-                  window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-                  window.dispatchEvent(new CustomEvent('navigate', { detail: { url: pathname } }));
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                  this.analyzePageContent();
-                  return;
-                }
-              } else {
-                await new Promise(resolve => setTimeout(resolve, 500));
-                this.analyzePageContent();
-                return;
-              }
-            }
-          } catch (urlError) {
-            console.warn('URL parsing error:', urlError);
-          }
-        }
-        
-        const mouseEvents = ['mousedown', 'mouseup', 'click'];
-        mouseEvents.forEach(eventType => {
-          const event = new MouseEvent(eventType, {
-            view: window,
-            bubbles: true,
-            cancelable: true,
-            buttons: 1,
-            button: 0
-          });
-          element.dispatchEvent(event);
-        });
-        
-        element.click();
-        
-        await new Promise(resolve => setTimeout(resolve, 500));
-        this.analyzePageContent();
-        
-      } catch (error) {
-        console.error('❌ Click failed:', error);
-        this.updateStatus('❌ Click failed');
-        throw error;
-      }
-    }
-
-    // NEW: Simulate hover to keep dropdown open
-    async performHover(element) {
-      try {
-        element.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'center',
-          inline: 'center'
-        });
-        
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        // Trigger all hover-related events
-        const hoverEvents = [
-          'mouseenter',
-          'mouseover',
-          'pointerenter',
-          'pointerover'
-        ];
-        
-        hoverEvents.forEach(eventType => {
-          const event = new MouseEvent(eventType, {
-            view: window,
-            bubbles: true,
-            cancelable: true,
-            clientX: element.getBoundingClientRect().left + 10,
-            clientY: element.getBoundingClientRect().top + 10
-          });
-          element.dispatchEvent(event);
-        });
-        
-        // Also trigger on parent elements (for nested hover handlers)
-        let parent = element.parentElement;
-        let depth = 0;
-        while (parent && depth < 3) {
-          hoverEvents.forEach(eventType => {
+        // Wait for scroll to complete
+        setTimeout(() => {
+          // Try multiple click strategies
+          element.focus();
+          
+          // Dispatch mouse events for better compatibility
+          const mouseEvents = ['mousedown', 'mouseup', 'click'];
+          mouseEvents.forEach(eventType => {
             const event = new MouseEvent(eventType, {
               view: window,
               bubbles: true,
               cancelable: true,
-              clientX: element.getBoundingClientRect().left + 10,
-              clientY: element.getBoundingClientRect().top + 10
+              buttons: 1
             });
-            parent.dispatchEvent(event);
+            element.dispatchEvent(event);
           });
-          parent = parent.parentElement;
-          depth++;
-        }
-        
-        console.log('[DROPDOWN] ✅ Hover events triggered');
+          
+          // Also try native click
+          element.click();
+          
+          // Handle special cases
+          if (element.tagName === 'A' && element.href) {
+            // For links that might use preventDefault
+            const clickEvent = new MouseEvent('click', {
+              view: window,
+              bubbles: true,
+              cancelable: true,
+              ctrlKey: false,
+              metaKey: false
+            });
+            
+            if (!element.dispatchEvent(clickEvent)) {
+              // If prevented, try navigation
+              if (element.href && !element.href.startsWith('javascript:')) {
+                window.location.href = element.href;
+              }
+            }
+          }
+          
+          // Re-analyze page after click for dynamic content
+          setTimeout(() => {
+            this.analyzePageContent();
+          }, 500);
+        }, 300);
         
       } catch (error) {
-        console.error('❌ Hover simulation failed:', error);
-        throw error;
+        console.error('❌ Click failed:', error);
+        this.updateStatus('❌ Click failed');
       }
     }
-
+    
     findElementByFuzzyMatch(targetText, elementType) {
       const searchTerms = targetText.toLowerCase().split(/\s+/);
-      const candidates = [];
+      let bestMatch = null;
+      let bestScore = 0;
       
+      // Define element type filters
       const typeFilters = {
         'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
         'link': ['a[href]'],
@@ -2298,19 +1060,21 @@ if (!window.supabase) {
             searchTerms.forEach(term => {
               if (elementText.includes(term)) {
                 score += term.length;
+                // Bonus for word boundary matches
                 if (new RegExp(\`\\\\b\${term}\\\\b\`).test(elementText)) {
                   score += term.length * 0.5;
                 }
               }
             });
             
+            // Normalize score by element text length to prefer shorter exact matches
             if (elementText.length > 0) {
               score = score / Math.sqrt(elementText.length);
             }
             
-            if (score > 0) {
-              element._fuzzyScore = score;
-              candidates.push(element);
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = element;
             }
           });
         } catch (e) {
@@ -2318,26 +1082,16 @@ if (!window.supabase) {
         }
       });
       
-      if (candidates.length === 0) return null;
-      
-      // Sort by fuzzy score first
-      candidates.sort((a, b) => b._fuzzyScore - a._fuzzyScore);
-      
-      // Take top matches with similar fuzzy scores
-      const topScore = candidates[0]._fuzzyScore;
-      const topMatches = candidates.filter(el => el._fuzzyScore >= topScore * 0.8);
-      
-      // ✅ Apply priority scoring to top matches
-      const scored = this.applyPriorityScoring(topMatches);
-      return scored[0];
+      return bestMatch;
     }
-
+    
     findElementByPartialMatch(targetText, nthMatch = 0) {
       const searchText = targetText.toLowerCase();
       const matches = [];
       
+      // Get all clickable elements
       const clickableElements = document.querySelectorAll(
-        'a, button, [role="button"], [role="menuitem"], input[type="submit"], input[type="button"], [onclick], [ng-click], [data-click]'
+        'a, button, [role="button"], input[type="submit"], input[type="button"], [onclick], [ng-click], [data-click]'
       );
       
       clickableElements.forEach(element => {
@@ -2350,13 +1104,9 @@ if (!window.supabase) {
         }
       });
       
-      if (matches.length === 0) return null;
-      
-      // ✅ Apply priority scoring
-      const scored = this.applyPriorityScoring(matches);
-      return scored[nthMatch] || null;
+      return matches[nthMatch] || null;
     }
-
+    
     getSimilarElements(targetText) {
       const searchText = targetText.toLowerCase();
       const similar = [];
@@ -2366,7 +1116,7 @@ if (!window.supabase) {
         const itemText = item.text.toLowerCase();
         const similarity = this.calculateSimilarity(searchText, itemText);
         
-        if (similarity > 0.3) {
+        if (similarity > 0.3) { // 30% similarity threshold
           similar.push({
             element: item.element,
             text: item.text,
@@ -2375,11 +1125,12 @@ if (!window.supabase) {
         }
       });
       
+      // Sort by similarity and return top matches
       return similar
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, maxSuggestions);
     }
-
+    
     calculateSimilarity(str1, str2) {
       const longer = str1.length > str2.length ? str1 : str2;
       const shorter = str1.length > str2.length ? str2 : str1;
@@ -2389,7 +1140,7 @@ if (!window.supabase) {
       const editDistance = this.levenshteinDistance(longer, shorter);
       return (longer.length - editDistance) / longer.length;
     }
-
+    
     levenshteinDistance(str1, str2) {
       const matrix = [];
       
@@ -2397,7 +1148,7 @@ if (!window.supabase) {
         matrix[i] = [i];
       }
       
-      for (let j = 0 ; j <= str1.length; j++) {
+      for (let j = 0; j <= str1.length; j++) {
         matrix[0][j] = j;
       }
       
@@ -2417,602 +1168,629 @@ if (!window.supabase) {
       
       return matrix[str2.length][str1.length];
     }
-
-    findElementByText(targetText) {
-      const searchText = targetText.toLowerCase().trim();
+    
+    getCompleteElementText(element) {
+      // Get text from multiple sources for better matching
+      const texts = [
+        element.textContent?.trim(),
+        element.innerText?.trim(),
+        element.value?.trim(),
+        element.alt?.trim(),
+        element.title?.trim(),
+        element.placeholder?.trim(),
+        element.getAttribute('aria-label')?.trim(),
+        element.getAttribute('data-text')?.trim(),
+        element.getAttribute('data-title')?.trim(),
+        element.getAttribute('data-original-title')?.trim(), // Bootstrap tooltips
+        element.getAttribute('data-content')?.trim()
+      ].filter(Boolean);
       
-      const clickableSelectors = [
-        'a', 'button', '[role="button"]', '[role="menuitem"]', 
-        'input[type="submit"]', 'input[type="button"]',
-        '[onclick]', '[ng-click]', '[data-click]', '.clickable',
-        '[role="link"]', '[tabindex]'
-      ];
-      
-      const matches = [];
-      
-      for (const selector of clickableSelectors) {
-        try {
-          const elements = document.querySelectorAll(selector);
-          for (const element of elements) {
-            if (!this.isVisible(element)) continue;
-            
-            const elementText = this.getCompleteElementText(element).toLowerCase().trim();
-            
-            if (elementText === searchText) {
-              matches.push(element);
-            }
-          }
-        } catch (e) {
-          console.warn('Element search error:', e);
-        }
-      }
-      
-      if (matches.length === 0) {
-        return null;
-      }
-      
-      // ✅ CRITICAL FIX: Apply priority scoring
-      const scored = this.applyPriorityScoring(matches);
-      return scored[0];
+      return texts.join(' ');
     }
 
-    // ✅ NEW: Centralized priority scoring for element selection
-    applyPriorityScoring(elements) {
-      if (!elements || elements.length === 0) return [];
+    fill_field(params) {
+      const { value, field_hint, field_type, submit_after } = params;
+      console.log('✏️ Filling field:', value, field_hint, field_type);
       
-      const elementsArray = Array.isArray(elements) ? elements : Array.from(elements);
-      
-      elementsArray.forEach(el => {
-        let score = 100; // Base score
-        
-        // BOOST: Dropdown triggers (highest priority)
-        if (el.hasAttribute('aria-haspopup')) score += 50;
-        if (el.hasAttribute('aria-expanded')) score += 50;
-        if (el.getAttribute('role') === 'button') score += 40;
-        if (el.tagName === 'BUTTON') score += 30;
-        
-        // BOOST: Interactive elements
-        if (el.hasAttribute('onclick')) score += 20;
-        if (el.classList.contains('dropdown-toggle')) score += 40;
-        
-        // PENALTY: Navigation links (lower priority)
-        if (el.tagName === 'A' && el.href) {
-          score -= 40;
-          // Extra penalty if href actually navigates somewhere
-          if (el.href && !el.href.includes('#')) {
-            score -= 30;
-          }
-        }
-        
-        el._priorityScore = score;
-      });
-      
-      // Sort by priority score (highest first)
-      elementsArray.sort((a, b) => b._priorityScore - a._priorityScore);
-      
-      if (elementsArray.length > 1) {
-        console.log('[PRIORITY] 🎯 Scored', elementsArray.length, 'elements, top choice:', {
-          element: elementsArray[0].tagName,
-          text: elementsArray[0].textContent?.substring(0, 30),
-          score: elementsArray[0]._priorityScore,
-          hasDropdown: elementsArray[0].hasAttribute('aria-haspopup'),
-          isLink: elementsArray[0].tagName === 'A'
-        });
-      }
-      
-      return elementsArray;
-    }
-
-    findDropdownTrigger(menu) {
-      // Strategy 1: Check aria-labelledby
-      const labelledBy = menu.getAttribute('aria-labelledby');
-      if (labelledBy) {
-        const trigger = document.getElementById(labelledBy);
-        if (trigger) return trigger;
-      }
-
-      // Strategy 2: Check previous sibling
-      let sibling = menu.previousElementSibling;
-      let attempts = 0;
-      while (sibling && attempts < 3) {
-        if (this.looksLikeDropdownTrigger(sibling)) {
-          return sibling;
-        }
-        sibling = sibling.previousElementSibling;
-        attempts++;
-      }
-
-      // Strategy 3: Check parent
-      const parent = menu.parentElement;
-      if (parent) {
-        const triggers = parent.querySelectorAll('[aria-haspopup="true"], [aria-expanded], .dropdown-toggle');
-        if (triggers.length > 0) {
-          return triggers[0];
-        }
-      }
-
-      return null;
-    }
-
-    // NEW: Check if element is a dropdown using context engine data
-    isDropdownFromContext(targetText) {
-      if (!this.contextCache || !this.contextCache.navigation) {
-        return false;
-      }
-      
-      const normalizedTarget = targetText.toLowerCase().trim();
-      
-      // Check topLevel navigation
-      if (this.contextCache.navigation.topLevel) {
-        const found = this.contextCache.navigation.topLevel.find(item => {
-          const itemText = (item.text || '').toLowerCase().trim();
-          return itemText === normalizedTarget && 
-                 (item.type === 'dropdown' || item.hasDropdown === true);
-        });
-        
-        if (found) {
-          console.log('[DROPDOWN] ✅ Context engine confirms this is a dropdown:', targetText);
-          return true;
-        }
-      }
-      
-      return false;
-    }
-
-    looksLikeDropdownTrigger(element) {
-      // Enhanced detection with more patterns
-      const hasAriaDropdown = element.getAttribute('aria-haspopup') === 'true' ||
-                              element.getAttribute('aria-expanded') !== null;
-      
-      const hasDropdownClass = element.classList.contains('dropdown-toggle') ||
-                               /dropdown|menu|nav-item/i.test(element.className);
-      
-      // Check if element has dropdown-related children
-      const hasDropdownChildren = element.querySelector('[role="menu"], [class*="dropdown"], [class*="menu"]') !== null;
-      
-      // CRITICAL FIX: Check for SVG icon (chevron/arrow indicator)
-      const hasSVGIcon = element.querySelector('svg') !== null;
-      
-      // Check common navigation patterns
-      const isNavButtonWithIcon = element.tagName === 'BUTTON' && 
-                                  element.closest('nav') !== null &&
-                                  hasSVGIcon;
-      
-      // Check if nav button with "Resources" or "Courses" text (common dropdown triggers)
-      const isCommonDropdownTrigger = element.tagName === 'BUTTON' &&
-                                      element.closest('nav') !== null &&
-                                      /resources|courses|products|services|solutions/i.test(this.getElementText(element));
-      
-      return hasAriaDropdown || hasDropdownClass || hasDropdownChildren || 
-             isNavButtonWithIcon || isCommonDropdownTrigger;
-    }
-
-    async fill_field(params) {
-      // ✅ FIX: Support both field_name and field_hint parameters (VAPI sends field_hint)
-      const field_name = params.field_name || params.field_hint || params.fieldName || params.fieldHint;
-      const value = params.value;
-      
-      console.log('[FIELD FILL] 🔍 Attempting to fill field:', field_name, 'with:', value);
-      console.log('[FIELD FILL] 📦 Raw params received:', params);
-      
-      // ✅ FIX: Add parameter validation
-      if (!field_name || !value) {
-        console.error('[FIELD FILL] ❌ Missing required parameters:', { field_name, value });
-        this.updateStatus('❌ Invalid field fill parameters');
-        return;
-      }
-      
-      // ✅ FIX: Use smart finder with retry logic for conditionally rendered fields
-      let field = this.findInputField(field_name);
-      
-      // If not found, wait and retry (field might be rendering)
-      if (!field) {
-        console.log('[FIELD FILL] ⏳ Field not found, waiting for render...');
-        await this.waitForReactRender(300);
-        field = this.findInputField(field_name);
-      }
+      // Find form field based on hint, type, or proximity
+      const field = this.findFieldByHint(field_hint || value, field_type);
       
       if (field) {
-        console.log('[FIELD FILL] ✅ Field found, filling...');
-        
-        field.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'center' 
-        });
-        
-        await this.waitForReactRender(300);
-        
-        field.focus();
-        
         // Clear existing value first
         field.value = '';
+        field.dispatchEvent(new Event('input', { bubbles: true }));
         
-        // Set new value
-        field.value = value;
+        // Set focus to field
+        field.focus();
         
-        // Trigger all necessary events for React compatibility
-        const events = ['input', 'change', 'blur'];
+        // Fill the field character by character for better compatibility
+        if (field.tagName === 'INPUT' || field.tagName === 'TEXTAREA') {
+          // Use more robust filling method
+          this.fillFieldRobustly(field, value);
+        } else if (field.tagName === 'SELECT') {
+          // Handle dropdown selection
+          this.selectDropdownOption(field, value);
+        }
+        
+        // Trigger all necessary events
+        const events = ['input', 'change', 'blur', 'keyup'];
         events.forEach(eventType => {
-          const event = new Event(eventType, { bubbles: true, cancelable: true });
-          field.dispatchEvent(event);
+          field.dispatchEvent(new Event(eventType, { 
+            bubbles: true, 
+            cancelable: true 
+          }));
         });
         
-        // Trigger React synthetic events if available
-        const reactPropsKey = Object.keys(field).find(key => 
-          key.startsWith('__reactProps') || key.startsWith('__reactEventHandlers')
+        // Also dispatch KeyboardEvent for better compatibility
+        field.dispatchEvent(new KeyboardEvent('keydown', { 
+          bubbles: true,
+          cancelable: true,
+          key: 'Enter',
+          keyCode: 13
+        }));
+        
+        this.updateStatus(\`✅ Filled field: \${value}\`);
+        
+        // Auto-submit if requested
+        if (submit_after) {
+          setTimeout(() => {
+            this.submitForm(field);
+          }, 500);
+        }
+      } else {
+        this.updateStatus(\`❌ Field not found: \${field_hint || 'any'}\`);
+      }
+    }
+    
+    fillFieldRobustly(field, value) {
+      try {
+        // Method 1: Direct value setting with proper event sequence
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        )?.set;
+        
+        const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype,
+          'value'
+        )?.set;
+        
+        const valueSetter = field.tagName === 'TEXTAREA' ? 
+          nativeTextAreaValueSetter : 
+          nativeInputValueSetter;
+        
+        if (valueSetter) {
+          valueSetter.call(field, value);
+        } else {
+          field.value = value;
+        }
+        
+        // Method 2: Simulate typing for React/Vue/Angular compatibility
+        const inputEvent = new InputEvent('input', {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertText',
+          data: value
+        });
+        field.dispatchEvent(inputEvent);
+        
+        // Method 3: For contenteditable elements
+        if (field.contentEditable === 'true') {
+          field.textContent = value;
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        
+      } catch (error) {
+        console.warn('Robust fill fallback:', error);
+        field.value = value;
+      }
+    }
+    
+    selectDropdownOption(selectField, value) {
+      const valueLower = value.toLowerCase();
+      let optionFound = false;
+      
+      // Try to find option by text or value
+      Array.from(selectField.options).forEach(option => {
+        const optionText = option.textContent.toLowerCase();
+        const optionValue = option.value.toLowerCase();
+        
+        if (optionText.includes(valueLower) || 
+            optionValue.includes(valueLower) ||
+            optionText === valueLower ||
+            optionValue === valueLower) {
+          option.selected = true;
+          optionFound = true;
+        }
+      });
+      
+      if (!optionFound && selectField.options.length > 0) {
+        // Fallback: select first non-empty option
+        for (let i = 0; i < selectField.options.length; i++) {
+          if (selectField.options[i].value) {
+            selectField.options[i].selected = true;
+            break;
+          }
+        }
+      }
+    }
+    
+    submitForm(field) {
+      // Find the parent form
+      const form = field.closest('form');
+      
+      if (form) {
+        // Try to submit the form
+        const submitButton = form.querySelector(
+          'button[type="submit"], input[type="submit"], button:not([type="button"])'
         );
         
-        if (reactPropsKey) {
-          const props = field[reactPropsKey];
-          if (props.onChange) {
-            props.onChange({ target: field, currentTarget: field });
-          }
-          if (props.onInput) {
-            props.onInput({ target: field, currentTarget: field });
-          }
+        if (submitButton) {
+          submitButton.click();
+        } else {
+          form.submit();
         }
         
-        console.log('[FIELD FILL] ✅ Successfully filled field:', field_name);
-        this.updateStatus(\`✅ Filled: \${field_name}\`);
+        this.updateStatus('📤 Form submitted');
       } else {
-        console.error('[FIELD FILL] ❌ Field not found after retry:', field_name);
-        this.updateStatus(\`❌ Field not found: \${field_name}\`);
+        // Look for a nearby submit button
+        const nearbySubmit = this.findNearbySubmitButton(field);
+        if (nearbySubmit) {
+          nearbySubmit.click();
+          this.updateStatus('📤 Triggered submission');
+        }
       }
     }
-
-    findInputField(fieldName) {
-      // ✅ FIX: Add defensive null/undefined check
-      if (!fieldName || typeof fieldName !== 'string') {
-        console.error('[FIELD FILL] Invalid field name:', fieldName);
-        return null;
-      }
+    
+    findNearbySubmitButton(field) {
+      // Look for submit buttons in the same container
+      const container = field.closest('div, section, article, form');
+      if (!container) return null;
       
-      const searchText = fieldName.toLowerCase().trim();
+      const submitSelectors = [
+        'button[type="submit"]',
+        'input[type="submit"]',
+        'button:contains("submit")',
+        'button:contains("search")',
+        'button:contains("go")',
+        'button:contains("enter")',
+        '[role="button"][type="submit"]'
+      ];
       
-      if (searchText.length === 0) {
-        console.error('[FIELD FILL] Empty field name after trim');
-        return null;
-      }
-      
-      const inputs = document.querySelectorAll('input, textarea, select');
-      
-      for (const input of inputs) {
-        if (!this.isVisible(input)) continue;
-        
-        const label = this.findLabelForInput(input) || '';
-        const placeholder = input.placeholder || '';
-        const name = input.name || '';
-        const id = input.id || '';
-        const ariaLabel = input.getAttribute('aria-label') || '';
-        const type = input.type || '';
-        
-        // Build combined text with all possible identifiers
-        const combinedText = (label + ' ' + placeholder + ' ' + name + ' ' + id + ' ' + ariaLabel + ' ' + type).toLowerCase();
-        
-        if (combinedText.includes(searchText)) {
-          console.log('[FIELD FILL] ✅ Found field:', { fieldName, element: input });
-          return input;
+      for (const selector of submitSelectors) {
+        try {
+          const button = container.querySelector(selector);
+          if (button && this.isVisible(button)) {
+            return button;
+          }
+        } catch (e) {
+          // Some selectors might not be valid
+          continue;
         }
       }
       
-      console.log('[FIELD FILL] ❌ Field not found:', fieldName);
-      return null;
-    }
-
-    findLabelForInput(input) {
-      if (input.id) {
-        const label = document.querySelector(\`label[for="\${input.id}"]\`);
-        if (label) return label.textContent || '';
-      }
-      
-      let parent = input.parentElement;
-      let depth = 0;
-      while (parent && depth < 3) {
-        if (parent.tagName === 'LABEL') {
-          return parent.textContent || '';
-        }
-        const label = parent.querySelector('label');
-        if (label) {
-          return label.textContent || '';
-        }
-        parent = parent.parentElement;
-        depth++;
-      }
-      
-      return '';
+      // Fallback: any visible button in container
+      const anyButton = container.querySelector('button:not([disabled])');
+      return anyButton && this.isVisible(anyButton) ? anyButton : null;
     }
 
     toggle_element(params) {
-      const { target_text } = params;
-      console.log('🔄 Toggling element:', target_text);
+      const { target, toggle_state } = params;
+      console.log('🔄 Toggling element:', target, toggle_state);
       
-      const element = this.findToggleElement(target_text);
+      const element = this.findElementByText(target) || 
+                     this.findToggleableElement(target);
       
       if (element) {
-        element.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'center' 
-        });
+        const toggled = this.performToggle(element, toggle_state);
         
-        setTimeout(() => {
-          element.click();
-          this.updateStatus(\`✅ Toggled: \${target_text}\`);
-        }, 300);
+        if (toggled) {
+          this.updateStatus(\`✅ Toggled: \${target}\`);
+        } else {
+          this.updateStatus(\`⚠️ Toggle may not have worked: \${target}\`);
+        }
       } else {
-        this.updateStatus(\`❌ Toggle not found: \${target_text}\`);
+        this.updateStatus(\`❌ Toggle element not found: \${target}\`);
       }
     }
-
-    findToggleElement(targetText) {
-      const searchText = targetText.toLowerCase();
+    
+    performToggle(element, desiredState) {
+      try {
+        let toggled = false;
+        
+        // Handle different types of toggle elements
+        if (element.type === 'checkbox' || element.type === 'radio') {
+          // Checkbox or radio button
+          const previousState = element.checked;
+          
+          if (desiredState === undefined) {
+            element.checked = !element.checked;
+          } else if (desiredState === 'on' || desiredState === true) {
+            element.checked = true;
+          } else if (desiredState === 'off' || desiredState === false) {
+            element.checked = false;
+          }
+          
+          // Trigger change event
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          toggled = element.checked !== previousState;
+          
+        } else if (element.tagName === 'SELECT') {
+          // Dropdown toggle
+          if (element.size > 1 || element.multiple) {
+            // Multi-select
+            const options = element.querySelectorAll('option');
+            options.forEach(option => {
+              option.selected = !option.selected;
+            });
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+            toggled = true;
+          }
+          
+        } else if (element.getAttribute('role') === 'switch' || 
+                   element.classList.contains('switch') ||
+                   element.classList.contains('toggle')) {
+          // ARIA switch or custom toggle
+          const isOn = element.getAttribute('aria-checked') === 'true' ||
+                       element.classList.contains('on') ||
+                       element.classList.contains('active') ||
+                       element.classList.contains('checked');
+          
+          if (desiredState === undefined) {
+            this.setToggleState(element, !isOn);
+          } else {
+            this.setToggleState(element, desiredState === 'on' || desiredState === true);
+          }
+          
+          element.click();
+          toggled = true;
+          
+        } else if (element.hasAttribute('aria-expanded')) {
+          // Expandable/collapsible element
+          const isExpanded = element.getAttribute('aria-expanded') === 'true';
+          element.setAttribute('aria-expanded', !isExpanded);
+          element.click();
+          toggled = true;
+          
+        } else if (element.hasAttribute('aria-pressed')) {
+          // Toggle button
+          const isPressed = element.getAttribute('aria-pressed') === 'true';
+          element.setAttribute('aria-pressed', !isPressed);
+          element.click();
+          toggled = true;
+          
+        } else {
+          // Generic toggle - try various strategies
+          const toggleClasses = ['active', 'on', 'open', 'selected', 'checked', 'expanded'];
+          let hasToggleClass = false;
+          
+          toggleClasses.forEach(className => {
+            if (element.classList.contains(className)) {
+              element.classList.remove(className);
+              hasToggleClass = true;
+            } else if (!hasToggleClass) {
+              element.classList.add(className);
+            }
+          });
+          
+          // Always click to trigger any JavaScript handlers
+          element.click();
+          toggled = true;
+        }
+        
+        // Trigger additional events for better compatibility
+        const events = ['toggle', 'change', 'input'];
+        events.forEach(eventType => {
+          try {
+            element.dispatchEvent(new Event(eventType, { bubbles: true }));
+          } catch (e) {
+            // Some events might not be applicable
+          }
+        });
+        
+        return toggled;
+        
+      } catch (error) {
+        console.error('Toggle error:', error);
+        // Fallback: just click the element
+        element.click();
+        return true;
+      }
+    }
+    
+    setToggleState(element, state) {
+      if (state) {
+        element.classList.add('on', 'active', 'checked');
+        element.classList.remove('off', 'inactive');
+        element.setAttribute('aria-checked', 'true');
+      } else {
+        element.classList.remove('on', 'active', 'checked');
+        element.classList.add('off');
+        element.setAttribute('aria-checked', 'false');
+      }
+    }
+    
+    findToggleableElement(searchText) {
+      const searchLower = searchText.toLowerCase();
       
+      // Specific selectors for toggle elements
       const toggleSelectors = [
         'input[type="checkbox"]',
         'input[type="radio"]',
         '[role="switch"]',
         '[role="checkbox"]',
+        '[aria-checked]',
+        '[aria-pressed]',
+        '[aria-expanded]',
+        '.switch',
         '.toggle',
-        '.switch'
+        '.checkbox',
+        '.radio',
+        '[data-toggle]',
+        '.btn-toggle'
       ];
       
-      for (const selector of toggleSelectors) {
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      toggleSelectors.forEach(selector => {
         try {
-          const elements = document.querySelectorAll(selector);
-          for (const element of elements) {
-            if (!this.isVisible(element)) continue;
+          document.querySelectorAll(selector).forEach(element => {
+            if (!this.isVisible(element)) return;
             
-            const label = this.findLabelForInput(element);
-            const ariaLabel = element.getAttribute('aria-label') || '';
-            const combinedText = (label + ' ' + ariaLabel).toLowerCase();
+            // Get associated label text
+            const labelText = this.getToggleLabelText(element).toLowerCase();
             
-            if (combinedText.includes(searchText)) {
-              return element;
+            if (labelText.includes(searchLower)) {
+              const score = searchLower.length / labelText.length;
+              if (score > bestScore) {
+                bestScore = score;
+                bestMatch = element;
+              }
             }
-          }
+          });
         } catch (e) {
           console.warn('Toggle search error:', e);
         }
+      });
+      
+      return bestMatch;
+    }
+    
+    getToggleLabelText(element) {
+      // Get label text for toggle element
+      let labelText = '';
+      
+      // Check for associated label
+      if (element.id) {
+        const label = document.querySelector(\`label[for="\${element.id}"]\`);
+        if (label) {
+          labelText += label.textContent + ' ';
+        }
       }
       
-      return null;
+      // Check parent label
+      const parentLabel = element.closest('label');
+      if (parentLabel) {
+        labelText += parentLabel.textContent + ' ';
+      }
+      
+      // Check aria-label and other attributes
+      labelText += (element.getAttribute('aria-label') || '') + ' ';
+      labelText += (element.getAttribute('title') || '') + ' ';
+      labelText += (element.getAttribute('data-label') || '') + ' ';
+      
+      // Check nearby text
+      const nextSibling = element.nextElementSibling;
+      if (nextSibling && nextSibling.tagName !== 'INPUT') {
+        labelText += nextSibling.textContent + ' ';
+      }
+      
+      const previousSibling = element.previousElementSibling;
+      if (previousSibling && previousSibling.tagName !== 'INPUT') {
+        labelText += previousSibling.textContent + ' ';
+      }
+      
+      return labelText.trim();
+    }
+
+    // Helper functions for element finding and manipulation
+    
+    findElementByText(targetText) {
+      const searchText = targetText.toLowerCase();
+      let bestElement = null;
+      let bestScore = 0;
+      
+      this.currentPageElements.forEach(item => {
+        const itemText = item.text.toLowerCase();
+        const itemHref = (item.href || '').toLowerCase();
+        
+        // Calculate match score
+        let score = 0;
+        if (itemText.includes(searchText)) {
+          score += searchText.length;
+          if (itemText === searchText) score += 10; // Exact match bonus
+        }
+        if (itemHref.includes(searchText)) {
+          score += searchText.length * 0.5;
+        }
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestElement = item.element;
+        }
+      });
+      
+      return bestElement;
+    }
+
+    findFieldByHint(hint) {
+      const hintLower = hint.toLowerCase();
+      const fields = document.querySelectorAll('input, textarea, select');
+      
+      for (const field of fields) {
+        const fieldText = (
+          field.placeholder + ' ' +
+          field.name + ' ' +
+          field.id + ' ' +
+          (field.labels?.[0]?.textContent || '') + ' ' +
+          (field.previousElementSibling?.textContent || '') + ' ' +
+          (field.nextElementSibling?.textContent || '')
+        ).toLowerCase();
+        
+        if (fieldText.includes(hintLower) || 
+            (hint.includes('email') && field.type === 'email') ||
+            (hint.includes('password') && field.type === 'password') ||
+            (hint.includes('name') && field.name.includes('name'))) {
+          return field;
+        }
+      }
+      
+      // Fallback: return first visible input
+      return document.querySelector('input:not([type="hidden"]):not([disabled])');
+    }
+
+    clickElement(element) {
+      try {
+        console.log('🖱️ Clicking element:', this.getElementText(element));
+        
+        // Scroll element into view first
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Wait a moment then click
+        setTimeout(() => {
+          element.focus();
+          element.click();
+          
+          // Re-analyze page after click (for dynamic content)
+          setTimeout(() => {
+            this.analyzePageContent();
+          }, 1000);
+        }, 300);
+        
+      } catch (error) {
+        console.error('❌ Click failed:', error);
+        this.updateStatus('❌ Click failed');
+      }
     }
 
     analyzePageContent() {
       console.log('🔍 Analyzing page content...');
       this.currentPageElements = [];
       
-      const clickableSelectors = [
-        'a[href]',
-        'button',
-        '[role="button"]',
-        '[role="menuitem"]',
-        '[role="link"]',
-        'input[type="submit"]',
-        'input[type="button"]',
+      // Comprehensive selectors for interactive elements
+      const selectors = [
+        'a[href]:not([href^="#"]):not([href^="javascript:"]):not([href^="mailto:"]):not([href^="tel:"])',
+        'button:not([disabled])',
+        '[role="button"]:not([disabled])',
+        'input[type="submit"]:not([disabled])',
+        'input[type="button"]:not([disabled])',
+        'input[type="checkbox"]',
+        'input[type="radio"]',
+        '.btn:not([disabled])',
+        '.button:not([disabled])',
         '[onclick]',
-        '.btn',
-        '.button'
+        '[data-toggle]',
+        '.toggle',
+        '.switch'
       ];
       
-      clickableSelectors.forEach(selector => {
+      selectors.forEach(selector => {
         try {
-          document.querySelectorAll(selector).forEach(element => {
-            if (!this.isVisible(element)) return;
-            
-            const text = this.getElementText(element);
-            if (text && text.length > 0 && text.length < 200) {
-              this.currentPageElements.push({
-                element: element,
-                text: text,
-                type: element.tagName.toLowerCase(),
-                selector: selector
-              });
+          document.querySelectorAll(selector).forEach(el => {
+            if (this.isVisible(el)) {
+              const text = this.getElementText(el);
+              if (text && text.length > 0) {
+                this.currentPageElements.push({
+                  element: el,
+                  text: text,
+                  href: el.href || ''
+                });
+              }
             }
           });
         } catch (e) {
-          console.warn('Analysis error:', e);
+          console.warn('Selector error:', selector, e);
         }
       });
       
-      console.log(\`📊 Found \${this.currentPageElements.length} interactive elements\`);
-    }
-
-    getElementText(element) {
-      // Priority 1: aria-label
-      const ariaLabel = element.getAttribute('aria-label');
-      if (ariaLabel?.trim()) return ariaLabel.trim();
-      
-      // Priority 2: title
-      const title = element.getAttribute('title');
-      if (title?.trim()) return title.trim();
-      
-      // Priority 3: Input/textarea special handling
-      if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-        return element.placeholder || element.value || '';
-      }
-      
-      // Priority 4: Direct text nodes only (excludes nested elements)
-      let text = '';
-      for (const node of element.childNodes) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const nodeText = node.textContent || '';
-          if (nodeText.trim()) {
-            text += nodeText;
-          }
-        }
-      }
-      
-      // Priority 5: Full text content (fallback)
-      if (!text.trim()) {
-        text = element.textContent || element.innerText || '';
-      }
-      
-      // FIXED: Clean whitespace properly without truncating characters
-      return text.replace(/\s+/g, ' ').trim();
-    }
-
-    getCompleteElementText(element) {
-      const parts = [
-        element.textContent || '',
-        element.getAttribute('aria-label') || '',
-        element.getAttribute('title') || '',
-        element.getAttribute('placeholder') || '',
-        element.getAttribute('alt') || '',
-        element.value || ''
-      ];
-      
-      return parts.join(' ').trim().replace(/\s+/g, ' ');
-    }
-
-    // ========================================
-    // MOBILE NAVIGATION SUPPORT
-    // ========================================
-
-    // NEW: Detect if we're on mobile and if there's a hamburger menu
-    detectMobileMenu() {
-      try {
-        const viewport = window.innerWidth;
-        const isMobile = viewport < 768;
-        
-        // Common hamburger menu selectors
-        const hamburgerSelectors = [
-          '[class*="hamburger"]',
-          '[class*="menu-toggle"]',
-          '[class*="mobile-menu-button"]',
-          '[class*="nav-toggle"]',
-          '[aria-label*="menu" i]',
-          'button[class*="md:hidden"]', // Tailwind mobile-only buttons
-          '.mobile-menu-btn',
-          '#mobile-menu-button'
-        ];
-        
-        let hamburgerElement = null;
-        for (const selector of hamburgerSelectors) {
-          const element = document.querySelector(selector);
-          if (element && this.isVisible(element)) {
-            hamburgerElement = element;
-            break;
-          }
-        }
-        
-        const result = {
-          isMobile,
-          hasHamburger: hamburgerElement !== null,
-          hamburgerElement,
-          viewport
-        };
-        
-        console.log('[MOBILE] Detection:', result);
-        return result;
-      } catch (error) {
-        console.warn('[MOBILE] Detection failed:', error);
-        return { isMobile: false, hasHamburger: false, hamburgerElement: null };
-      }
-    }
-
-    // NEW: Try to open mobile menu if it exists
-    async tryOpenMobileMenu() {
-      if (!this.ENABLE_MOBILE_NAV) {
-        console.log('[MOBILE] Mobile nav disabled by feature flag');
-        return false;
-      }
-
-      if (this.mobileMenuOpen) {
-        console.log('[MOBILE] Mobile menu already open');
-        return true;
-      }
-
-      try {
-        const mobileInfo = this.detectMobileMenu();
-        
-        if (!mobileInfo.hasHamburger) {
-          console.log('[MOBILE] No hamburger menu detected, skipping');
-          return false;
-        }
-        
-        console.log('[MOBILE] 🍔 Opening hamburger menu...');
-        await this.performClick(mobileInfo.hamburgerElement);
-        
-        // Wait for menu animation
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        this.mobileMenuOpen = true;
-        console.log('[MOBILE] ✅ Mobile menu opened successfully');
-        
-        return true;
-      } catch (error) {
-        console.warn('[MOBILE] Failed to open mobile menu:', error);
-        return false;
-      }
-    }
-
-    // NEW: Close mobile menu if open
-    async closeMobileMenu() {
-      if (!this.mobileMenuOpen) {
-        return;
-      }
-
-      try {
-        const mobileInfo = this.detectMobileMenu();
-        
-        if (mobileInfo.hasHamburger) {
-          console.log('[MOBILE] 🍔 Closing hamburger menu...');
-          await this.performClick(mobileInfo.hamburgerElement);
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-        
-        this.mobileMenuOpen = false;
-        console.log('[MOBILE] ✅ Mobile menu closed');
-      } catch (error) {
-        console.warn('[MOBILE] Failed to close mobile menu:', error);
-      }
+      console.log(\`🔍 Found \${this.currentPageElements.length} interactive elements\`);
     }
 
     isVisible(element) {
-      if (!element || !element.offsetParent) {
-        const style = element ? window.getComputedStyle(element) : null;
-        if (!style) return false;
-        if (style.display === 'none') return false;
-        if (style.visibility === 'hidden') return false;
-        if (style.opacity === '0') return false;
+      try {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
         
-        if (!element.offsetParent && element.tagName !== 'BODY') {
-          return false;
-        }
-      }
-      
-      const rect = element.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) {
+        return rect.width > 0 && 
+               rect.height > 0 && 
+               style.display !== 'none' && 
+               style.visibility !== 'hidden' &&
+               parseFloat(style.opacity) > 0;
+      } catch (e) {
         return false;
       }
-      
-      return true;
+    }
+
+    getElementText(element) {
+      try {
+        // Get element text content with fallbacks
+        return element.textContent?.trim() || 
+               element.innerText?.trim() || 
+               element.value?.trim() || 
+               element.alt?.trim() || 
+               element.title?.trim() || 
+               element.placeholder?.trim() || 
+               element.getAttribute('aria-label')?.trim() || 
+               element.className?.trim() || 
+               '';
+      } catch (e) {
+        return '';
+      }
     }
 
     updateStatus(message) {
       if (this.statusEl) {
         this.statusEl.textContent = message;
+        console.log('📊 Status:', message);
       }
-      console.log('📊 Status:', message);
+    }
+
+    // Cleanup method
+    destroy() {
+      if (this.realtimeChannel) {
+        this.realtimeChannel.unsubscribe();
+      }
+      if (this.vapiWidget) {
+        // VAPI cleanup if needed
+      }
     }
   }
 
-  // Initialize when DOM is ready
+  // Initialize the VAPI Command Executor when DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      new VAPICommandExecutor();
+      window.vapiCommandExecutor = new VAPICommandExecutor();
     });
   } else {
-    new VAPICommandExecutor();
+    window.vapiCommandExecutor = new VAPICommandExecutor();
   }
-})();
-`;
+
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', () => {
+    if (window.vapiCommandExecutor) {
+      window.vapiCommandExecutor.destroy();
+    }
+  });
+
+})();`;
 
   return new Response(jsContent, {
     headers: {
       ...corsHeaders,
-      "Content-Type": "application/javascript",
-      "Cache-Control": "public, max-age=300",
-    },
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'Access-Control-Expose-Headers': 'Content-Length'
+    }
   });
 });
