@@ -1054,20 +1054,38 @@ if (!window.supabase) {
           return;
         }
         
-        // Log if cross-origin (but still allow)
         const currentUrl = new URL(window.location.href);
-        if (targetUrl.origin !== currentUrl.origin) {
-          console.warn('⚠️ Cross-origin navigation:', url);
-        }
         
         // Show feedback to user
         this.updateStatus('🧭 Navigating to ' + page_name + '...');
         this.updateWidgetState('active', 'Going to ' + page_name);
         
-        // Navigate after brief delay for feedback
-        setTimeout(() => {
-          window.location.href = url;
-        }, 500);
+        // Check if same origin - use SPA-style navigation to keep bot alive
+        if (targetUrl.origin === currentUrl.origin) {
+          console.log('✅ Same-origin navigation - using pushState (no reload)');
+          
+          // Use history.pushState to change URL without page reload
+          window.history.pushState({}, '', url);
+          
+          // Dispatch popstate event to trigger any SPA router listeners
+          window.dispatchEvent(new PopStateEvent('popstate'));
+          
+          // Scroll to top to mimic page navigation
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          
+          // Update status after navigation
+          setTimeout(() => {
+            this.updateStatus('✅ Navigated to ' + page_name);
+            this.updateWidgetState('idle', 'Ready');
+          }, 800);
+          
+        } else {
+          // Different origin - must use full page load (bot will restart)
+          console.log('⚠️ Cross-origin navigation - full page reload required');
+          setTimeout(() => {
+            window.location.href = url;
+          }, 500);
+        }
         
       } catch (error) {
         console.error('❌ Invalid URL:', error);
