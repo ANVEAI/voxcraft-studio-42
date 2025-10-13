@@ -1061,8 +1061,8 @@ if (!window.supabase) {
         }
         
         // Show feedback to user
-        this.updateStatus(`🧭 Navigating to ${page_name}...`);
-        this.updateWidgetState('active', `Going to ${page_name}`);
+        this.updateStatus('🧭 Navigating to ' + page_name + '...');
+        this.updateWidgetState('active', 'Going to ' + page_name);
         
         // Navigate after brief delay for feedback
         setTimeout(() => {
