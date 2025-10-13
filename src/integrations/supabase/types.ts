@@ -278,6 +278,7 @@ export type Database = {
       embed_mappings: {
         Row: {
           api_key: string
+          assistant_id: string | null
           created_at: string
           domain_whitelist: string[] | null
           embed_id: string
@@ -290,6 +291,7 @@ export type Database = {
         }
         Insert: {
           api_key: string
+          assistant_id?: string | null
           created_at?: string
           domain_whitelist?: string[] | null
           embed_id: string
@@ -302,6 +304,7 @@ export type Database = {
         }
         Update: {
           api_key?: string
+          assistant_id?: string | null
           created_at?: string
           domain_whitelist?: string[] | null
           embed_id?: string
@@ -312,7 +315,65 @@ export type Database = {
           user_id?: string
           vapi_assistant_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "embed_mappings_assistant_id_fkey"
+            columns: ["assistant_id"]
+            isOneToOne: false
+            referencedRelation: "assistants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scraped_websites: {
+        Row: {
+          assistant_id: string | null
+          completed_at: string | null
+          created_at: string | null
+          error_message: string | null
+          id: string
+          pages_scraped: number | null
+          status: string
+          total_size_kb: number | null
+          url: string
+          user_id: string
+          vapi_file_id: string | null
+        }
+        Insert: {
+          assistant_id?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          pages_scraped?: number | null
+          status?: string
+          total_size_kb?: number | null
+          url: string
+          user_id: string
+          vapi_file_id?: string | null
+        }
+        Update: {
+          assistant_id?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          pages_scraped?: number | null
+          status?: string
+          total_size_kb?: number | null
+          url?: string
+          user_id?: string
+          vapi_file_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scraped_websites_assistant_id_fkey"
+            columns: ["assistant_id"]
+            isOneToOne: false
+            referencedRelation: "assistants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

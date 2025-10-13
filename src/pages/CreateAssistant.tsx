@@ -8,10 +8,11 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ArrowLeft, ArrowRight, Upload, Check, Edit, Bot } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Upload, Check, Edit, Bot, Globe } from 'lucide-react'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 
 interface AssistantData {
@@ -408,43 +409,145 @@ const CreateAssistant = () => {
     </div>
   )
 
+  const [websiteUrl, setWebsiteUrl] = useState('')
+  const [isScraping, setIsScraping] = useState(false)
+  const [scrapeProgress, setScrapeProgress] = useState('')
+
+  const handleScrapeWebsite = async () => {
+    setIsScraping(true)
+    setScrapeProgress('🕷️ Starting website scrape...')
+
+    try {
+      const token = await getToken()
+      const { data, error } = await supabase.functions.invoke('scrape-website', {
+        body: { url: websiteUrl, userId: user?.id },
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      if (error) throw error
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to scrape website')
+      }
+
+      setScrapeProgress(`✅ Scraped ${data.pagesScraped} pages (${data.sizeKB}KB)`)
+      
+      // Convert base64 file back to File object
+      const response = await fetch(data.file.data)
+      const blob = await response.blob()
+      const file = new File([blob], data.file.name, { type: 'text/plain' })
+
+      // Add to uploaded files
+      setAssistantData({
+        ...assistantData,
+        uploadedFiles: [...assistantData.uploadedFiles, file]
+      })
+
+      toast({
+        title: "Success!",
+        description: `Scraped ${data.pagesScraped} pages from ${websiteUrl}`,
+      })
+
+      // Clear URL after successful scrape
+      setWebsiteUrl('')
+
+    } catch (error: any) {
+      console.error('Scraping error:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to scrape website",
+        variant: "destructive",
+      })
+    } finally {
+      setIsScraping(false)
+      setScrapeProgress('')
+    }
+  }
+
   const renderStep3 = () => (
     <div className="space-y-6">
-      <div className="text-center">
-        <Upload className="mx-auto h-12 w-12 text-gray-400" />
-        <h3 className="mt-2 text-sm font-medium text-gray-900">Upload Data Files</h3>
-        <p className="mt-1 text-sm text-gray-500">
-          Enhance your assistant's knowledge by uploading documents (Optional)
-        </p>
-        <p className="text-xs text-gray-400 mt-1">
-          Supported formats: PDF, TXT, CSV
-        </p>
-      </div>
-      
-      <div className="mt-6">
-        <input
-          type="file"
-          multiple
-          accept=".pdf,.txt,.csv"
-          onChange={handleFileUpload}
-          className="hidden"
-          id="file-upload"
-        />
-        <label htmlFor="file-upload">
-          <Button variant="outline" className="w-full cursor-pointer" asChild>
-            <span>
-              <Upload className="mr-2 h-4 w-4" />
-              Choose Files
-            </span>
-          </Button>
-        </label>
-      </div>
-      
+      <Tabs defaultValue="upload" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="upload">📁 Upload Files</TabsTrigger>
+          <TabsTrigger value="scrape">🕷️ Scrape Website</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="upload" className="space-y-4 mt-6">
+          <div className="text-center">
+            <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
+            <h3 className="mt-2 text-sm font-medium">Upload Data Files</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Enhance your assistant's knowledge by uploading documents
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Supported formats: PDF, TXT, CSV
+            </p>
+          </div>
+          
+          <div className="mt-6">
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.txt,.csv"
+              onChange={handleFileUpload}
+              className="hidden"
+              id="file-upload"
+            />
+            <label htmlFor="file-upload">
+              <Button variant="outline" className="w-full cursor-pointer" asChild>
+                <span>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Choose Files
+                </span>
+              </Button>
+            </label>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="scrape" className="space-y-4 mt-6">
+          <div className="text-center">
+            <Globe className="mx-auto h-12 w-12 text-muted-foreground" />
+            <h3 className="mt-2 text-sm font-medium">Scrape Website</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Enter a website URL to create a knowledge base
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Max 50 pages • Powered by Firecrawl
+            </p>
+          </div>
+          
+          <div className="mt-6 space-y-4">
+            <Input
+              type="url"
+              value={websiteUrl}
+              onChange={(e) => setWebsiteUrl(e.target.value)}
+              placeholder="https://example.com"
+              disabled={isScraping}
+            />
+            
+            <Button 
+              onClick={handleScrapeWebsite} 
+              disabled={!websiteUrl || isScraping}
+              className="w-full"
+            >
+              {isScraping ? '🕷️ Scraping...' : '🚀 Start Scraping'}
+            </Button>
+
+            {scrapeProgress && (
+              <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded text-sm text-blue-800 dark:text-blue-200">
+                {scrapeProgress}
+              </div>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {/* Show uploaded files (both manual + scraped) */}
       {assistantData.uploadedFiles.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-sm font-medium">Uploaded Files:</h4>
+        <div className="space-y-2 mt-6">
+          <h4 className="text-sm font-medium">Knowledge Base Files:</h4>
           {assistantData.uploadedFiles.map((file, index) => (
-            <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+            <div key={index} className="flex items-center justify-between p-2 bg-muted rounded">
               <span className="text-sm">{file.name}</span>
               <Button variant="ghost" size="sm" onClick={() => removeFile(index)}>
                 ×
