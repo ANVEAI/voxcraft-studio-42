@@ -35,8 +35,8 @@ serve(async (req) => {
 
     console.log(`🕷️ Starting crawl for: ${url}`);
 
-    // Call Firecrawl API to crawl website
-    const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/crawl', {
+    // Step 1: Initiate the crawl job
+    const crawlResponse = await fetch('https://api.firecrawl.dev/v1/crawl', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
@@ -44,22 +44,74 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         url: url,
-        limit: 50, // Max 50 pages
+        limit: 50,
         scrapeOptions: {
           formats: ['markdown'],
           onlyMainContent: true,
-          waitFor: 3000 // Wait 3 seconds for JS to load
+          waitFor: 3000
         }
       }),
     });
 
-    if (!scrapeResponse.ok) {
-      const errorText = await scrapeResponse.text();
+    if (!crawlResponse.ok) {
+      const errorText = await crawlResponse.text();
       console.error('❌ Firecrawl API error:', errorText);
-      throw new Error(`Firecrawl error: ${scrapeResponse.status} - ${errorText}`);
+      throw new Error(`Firecrawl error: ${crawlResponse.status} - ${errorText}`);
     }
 
-    const scrapeData = await scrapeResponse.json();
+    const crawlData = await crawlResponse.json();
+    console.log('📋 Crawl job initiated:', crawlData);
+
+    if (!crawlData.id) {
+      throw new Error('No job ID returned from Firecrawl');
+    }
+
+    const jobId = crawlData.id;
+    console.log(`⏳ Polling job: ${jobId}`);
+
+    // Step 2: Poll for job completion
+    const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max
+    const pollInterval = 2000; // 2 seconds
+    let attempts = 0;
+    let jobStatus = null;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      console.log(`🔄 Poll attempt ${attempts}/${maxAttempts}`);
+
+      const statusResponse = await fetch(`https://api.firecrawl.dev/v1/crawl/${jobId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+        },
+      });
+
+      if (!statusResponse.ok) {
+        const errorText = await statusResponse.text();
+        console.error('❌ Error checking job status:', errorText);
+        throw new Error(`Status check failed: ${statusResponse.status}`);
+      }
+
+      jobStatus = await statusResponse.json();
+      console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}`);
+
+      if (jobStatus.status === 'completed') {
+        console.log('✅ Crawl completed successfully');
+        break;
+      } else if (jobStatus.status === 'failed') {
+        throw new Error('Crawl job failed');
+      }
+
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+
+    if (!jobStatus || jobStatus.status !== 'completed') {
+      throw new Error('Crawl job timed out after 60 seconds');
+    }
+
+    // Step 3: Process the scraped data
+    const scrapeData = jobStatus;
     console.log(`✅ Scraped ${scrapeData.data?.length || 0} pages`);
 
     // Convert scraped data to TXT format
