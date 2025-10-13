@@ -742,6 +742,9 @@ if (!window.supabase) {
           case 'toggle_element':
             this.toggle_element(params);
             break;
+          case 'navigate_to_page':
+            this.navigate_to_page(params);
+            break;
           default:
             console.warn('Unknown function call:', functionName);
             this.updateStatus(\`❓ Unknown command: \${functionName}\`);
@@ -1026,6 +1029,50 @@ if (!window.supabase) {
       } catch (error) {
         console.error('❌ Click failed:', error);
         this.updateStatus('❌ Click failed');
+      }
+    }
+    
+    navigate_to_page(params) {
+      const { url, page_name } = params;
+      console.log('🧭 Navigating to page:', page_name, url);
+      
+      // Validate URL
+      if (!url) {
+        console.error('❌ No URL provided for navigation');
+        this.updateStatus('❌ Navigation failed: No URL');
+        return;
+      }
+      
+      // Security check: Block dangerous protocols
+      try {
+        const targetUrl = new URL(url);
+        
+        // Block javascript: and data: URLs
+        if (targetUrl.protocol === 'javascript:' || targetUrl.protocol === 'data:') {
+          console.error('❌ Blocked dangerous URL protocol:', targetUrl.protocol);
+          this.updateStatus('❌ Navigation blocked: Invalid URL');
+          return;
+        }
+        
+        // Log if cross-origin (but still allow)
+        const currentUrl = new URL(window.location.href);
+        if (targetUrl.origin !== currentUrl.origin) {
+          console.warn('⚠️ Cross-origin navigation:', url);
+        }
+        
+        // Show feedback to user
+        this.updateStatus(`🧭 Navigating to ${page_name}...`);
+        this.updateWidgetState('active', `Going to ${page_name}`);
+        
+        // Navigate after brief delay for feedback
+        setTimeout(() => {
+          window.location.href = url;
+        }, 500);
+        
+      } catch (error) {
+        console.error('❌ Invalid URL:', error);
+        this.updateStatus('❌ Navigation failed: Invalid URL');
+        this.updateWidgetState('idle', 'Navigation error');
       }
     }
     
