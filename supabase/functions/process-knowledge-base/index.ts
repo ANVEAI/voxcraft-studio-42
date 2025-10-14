@@ -76,28 +76,38 @@ RULES:
 4. Identify page hierarchy (main pages vs subpages)
 5. Mark importance based on content depth and relevance
 6. Consolidate duplicate/similar pages
-7. **CRITICAL**: Include ALL pages from the scraped data, especially subpages found in dropdown menus, navigation bars, and footer links
-8. Look at the "links" array for each page to discover related subpages not in main navigation
-9. Do NOT skip pages just because they seem similar - dropdown items are often important navigation targets
-10. For navigation structure, identify dropdown/submenu relationships (e.g., "Products" dropdown contains "Product A", "Product B")
-11. Keep descriptions concise but informative (2-3 sentences max)
-12. Extract meaningful keywords for voice matching
-13. Remove only truly utility pages (privacy, terms) unless explicitly important
-14. Return ONLY valid JSON, no markdown formatting`;
+7. **CRITICAL**: Include EVERY single page from the scraped data - do NOT filter or skip pages
+8. Pages like "Process", "Manufacturing", "How It Works", "Team", "Careers", "Services" are IMPORTANT - include them all
+9. Look at the "links" array for each page to discover related subpages not in main navigation
+10. Do NOT skip pages just because they seem similar - dropdown items are often important navigation targets
+11. For navigation structure, identify dropdown/submenu relationships (e.g., "Products" dropdown contains "Product A", "Product B")
+12. Only skip exact duplicate URLs (same URL appearing multiple times)
+13. If unsure whether to include a page, INCLUDE IT - completeness is more important than brevity
+14. Keep descriptions concise but informative (2-3 sentences max)
+15. Extract meaningful keywords for voice matching
+16. Return ONLY valid JSON, no markdown formatting`;
 
+    const allScrapedUrls = rawPages.map((p: any) => p.url);
+    
     const userPrompt = `Analyze this scraped website data and create a structured knowledge base:
 
 WEBSITE URL: ${websiteUrl}
 TOTAL PAGES SCRAPED: ${pagesData.length}
 TOTAL LINKS DISCOVERED: ${totalLinksDiscovered}
 
+**YOU MUST INCLUDE ALL ${allScrapedUrls.length} OF THESE SCRAPED PAGES IN YOUR OUTPUT:**
+${allScrapedUrls.map((url: string, i: number) => `${i + 1}. ${url}`).join('\n')}
+
 SCRAPED DATA (includes page content + all links found):
 ${JSON.stringify(pagesData, null, 2)}
 
-IMPORTANT INSTRUCTIONS:
+CRITICAL REQUIREMENTS:
+- Every single URL listed above MUST appear in your "pages" array
+- Do NOT skip pages like "Process", "Manufacturing", "How It Works", "Services" - they are important
+- Only exclude exact duplicate URLs (same URL appearing twice)
+- If you're unsure about a page's importance, INCLUDE IT
 - Each page object includes a "links" array showing ALL URLs discovered on that page
 - Navigation dropdowns, submenus, and footer links are included in these link arrays
-- Create entries for ALL unique pages found, not just main navigation items
 - Map dropdown relationships using the "parent" field (e.g., if "Products" page links to "Product A", set parent: "Products")
 
 Focus on:
@@ -159,7 +169,39 @@ Output valid JSON only.`;
       throw new Error('Invalid structured data format from AI');
     }
 
-    console.log(`✅ Structured ${structuredData.pages.length} pages into knowledge base`);
+    // Validation: Ensure all scraped URLs are in the AI output
+    const aiPageUrls = new Set(structuredData.pages.map((p: any) => p.url));
+    const scrapedUrls = rawPages.map((p: any) => p.url);
+    const missingUrls = scrapedUrls.filter((url: string) => !aiPageUrls.has(url));
+
+    console.log(`📊 Scraped URLs: ${scrapedUrls.length}`);
+    console.log(`🤖 AI returned: ${structuredData.pages.length} pages`);
+    console.log(`✅ Coverage: ${Math.round(structuredData.pages.length / scrapedUrls.length * 100)}%`);
+
+    if (missingUrls.length > 0) {
+      console.log(`⚠️ AI missed ${missingUrls.length} pages, adding them manually:`, missingUrls);
+      
+      // Add missing pages with basic data
+      for (const missingUrl of missingUrls) {
+        const rawPage = rawPages.find((p: any) => p.url === missingUrl);
+        const pageName = rawPage?.metadata?.title || 
+                         missingUrl.split('/').pop()?.replace(/-/g, ' ') || 
+                         'Untitled Page';
+        
+        structuredData.pages.push({
+          page_name: pageName,
+          url: missingUrl,
+          category: 'Main',
+          description: rawPage?.metadata?.description || `Information about ${pageName}`,
+          keywords: rawPage?.metadata?.keywords?.split(',').map((k: string) => k.trim()) || [pageName.toLowerCase()],
+          importance: 'medium'
+        });
+      }
+      
+      console.log(`✅ Added ${missingUrls.length} missing pages to knowledge base`);
+    }
+
+    console.log(`✅ Final knowledge base: ${structuredData.pages.length} pages (100% coverage)`);
 
     // Generate formatted TXT knowledge base
     const txtContent = generateKnowledgeBaseTXT(structuredData);
