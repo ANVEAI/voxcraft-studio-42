@@ -50,7 +50,7 @@ serve(async (req) => {
         url: url,
         limit: 30, // Reduced from 50 to prevent timeouts
         scrapeOptions: {
-          formats: ['markdown'],
+          formats: ['markdown', 'links'], // Include links to capture navigation/dropdown URLs
           onlyMainContent: true,
           includeTags: ['nav', 'header', 'meta'],
           waitFor: 3000

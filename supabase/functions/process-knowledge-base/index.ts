@@ -25,14 +25,19 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
-    // Prepare data for AI analysis
+    // Prepare data for AI analysis (including ALL links found on each page)
     const pagesData = rawPages.map((page: any) => ({
       url: page.url,
       title: page.metadata?.title || 'Untitled',
       description: page.metadata?.description || '',
       keywords: page.metadata?.keywords || '',
-      markdown: page.markdown ? page.markdown.substring(0, 1000) : '', // First 1000 chars for context
+      markdown: page.markdown ? page.markdown.substring(0, 2000) : '', // Increased to 2000 chars for better context
+      links: page.links || [], // All links found on this page (dropdowns, navigation, footer)
+      linksFound: page.links?.length || 0
     }));
+
+    const totalLinksDiscovered = pagesData.reduce((sum: number, p: any) => sum + p.linksFound, 0);
+    console.log(`🔗 Total links discovered across all pages: ${totalLinksDiscovered}`);
 
     const systemPrompt = `You are a knowledge base architect specializing in voice navigation systems.
 
@@ -71,24 +76,35 @@ RULES:
 4. Identify page hierarchy (main pages vs subpages)
 5. Mark importance based on content depth and relevance
 6. Consolidate duplicate/similar pages
-7. Remove utility pages (privacy, terms) unless explicitly important
-8. Keep descriptions concise but informative (2-3 sentences max)
-9. Extract meaningful keywords for voice matching
-10. Return ONLY valid JSON, no markdown formatting`;
+7. **CRITICAL**: Include ALL pages from the scraped data, especially subpages found in dropdown menus, navigation bars, and footer links
+8. Look at the "links" array for each page to discover related subpages not in main navigation
+9. Do NOT skip pages just because they seem similar - dropdown items are often important navigation targets
+10. For navigation structure, identify dropdown/submenu relationships (e.g., "Products" dropdown contains "Product A", "Product B")
+11. Keep descriptions concise but informative (2-3 sentences max)
+12. Extract meaningful keywords for voice matching
+13. Remove only truly utility pages (privacy, terms) unless explicitly important
+14. Return ONLY valid JSON, no markdown formatting`;
 
     const userPrompt = `Analyze this scraped website data and create a structured knowledge base:
 
 WEBSITE URL: ${websiteUrl}
-TOTAL PAGES: ${pagesData.length}
+TOTAL PAGES SCRAPED: ${pagesData.length}
+TOTAL LINKS DISCOVERED: ${totalLinksDiscovered}
 
-SCRAPED DATA:
+SCRAPED DATA (includes page content + all links found):
 ${JSON.stringify(pagesData, null, 2)}
 
+IMPORTANT INSTRUCTIONS:
+- Each page object includes a "links" array showing ALL URLs discovered on that page
+- Navigation dropdowns, submenus, and footer links are included in these link arrays
+- Create entries for ALL unique pages found, not just main navigation items
+- Map dropdown relationships using the "parent" field (e.g., if "Products" page links to "Product A", set parent: "Products")
+
 Focus on:
+- Including ALL pages from the data, especially dropdown/submenu items
 - Clear page names for voice commands
-- Accurate, full URLs
-- Meaningful descriptions for each page
-- Logical categorization and hierarchy
+- Accurate, full URLs for every page
+- Logical hierarchy based on link relationships
 - Keywords for fuzzy matching
 
 Output valid JSON only.`;
