@@ -415,27 +415,46 @@ const CreateAssistant = () => {
 
   const handleScrapeWebsite = async () => {
     setIsScraping(true)
-    setScrapeProgress('🕷️ Starting website scrape...')
+    setScrapeProgress('🕷️ Stage 1/2: Scraping website...')
 
     try {
       const token = await getToken()
-      const { data, error } = await supabase.functions.invoke('scrape-website', {
+      
+      // Stage 1: Scrape website
+      const { data: scrapeData, error: scrapeError } = await supabase.functions.invoke('scrape-website', {
         body: { url: websiteUrl, userId: user?.id },
         headers: { Authorization: `Bearer ${token}` }
       })
 
-      if (error) throw error
+      if (scrapeError) throw scrapeError
 
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to scrape website')
+      if (!scrapeData.success) {
+        throw new Error(scrapeData.error || 'Failed to scrape website')
       }
 
-      setScrapeProgress(`✅ Scraped ${data.pagesScraped} pages (${data.sizeKB}KB)`)
+      setScrapeProgress(`✅ Scraped ${scrapeData.pagesScraped} pages\n🤖 Stage 2/2: AI processing...`)
+      
+      // Stage 2: AI-powered knowledge base structuring
+      const { data: processData, error: processError } = await supabase.functions.invoke('process-knowledge-base', {
+        body: { 
+          rawPages: scrapeData.rawPages,
+          websiteUrl: scrapeData.websiteUrl
+        },
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      if (processError) throw processError
+
+      if (!processData.success) {
+        throw new Error(processData.error || 'Failed to process knowledge base')
+      }
+
+      setScrapeProgress(`✅ Processed ${processData.pagesProcessed} pages with AI (${processData.sizeKB}KB)`)
       
       // Convert base64 file back to File object
-      const response = await fetch(data.file.data)
+      const response = await fetch(processData.file.data)
       const blob = await response.blob()
-      const file = new File([blob], data.file.name, { type: 'text/plain' })
+      const file = new File([blob], processData.file.name, { type: 'text/plain' })
 
       // Add to uploaded files
       setAssistantData({
@@ -445,17 +464,17 @@ const CreateAssistant = () => {
 
       toast({
         title: "Success!",
-        description: `Scraped ${data.pagesScraped} pages from ${websiteUrl}`,
+        description: `AI processed ${processData.pagesProcessed} pages into structured knowledge base`,
       })
 
       // Clear URL after successful scrape
       setWebsiteUrl('')
 
     } catch (error: any) {
-      console.error('Scraping error:', error)
+      console.error('Scraping/Processing error:', error)
       toast({
         title: "Error",
-        description: error.message || "Failed to scrape website",
+        description: error.message || "Failed to scrape and process website",
         variant: "destructive",
       })
     } finally {

@@ -45,11 +45,12 @@ serve(async (req) => {
       body: JSON.stringify({
         url: url,
         limit: 50,
-        scrapeOptions: {
-          formats: ['markdown'],
-          onlyMainContent: true,
-          waitFor: 3000
-        }
+      scrapeOptions: {
+        formats: ['markdown'],
+        onlyMainContent: true,
+        includeTags: ['nav', 'header', 'meta'],
+        waitFor: 3000
+      }
       }),
     });
 
@@ -110,34 +111,12 @@ serve(async (req) => {
       throw new Error('Crawl job timed out after 60 seconds');
     }
 
-    // Step 3: Process the scraped data
+    // Step 3: Return raw scraped data for AI processing
     const scrapeData = jobStatus;
     console.log(`✅ Scraped ${scrapeData.data?.length || 0} pages`);
 
-    // Convert scraped data to TXT format
-    let txtContent = `# Knowledge Base for ${url}\n`;
-    txtContent += `Scraped on: ${new Date().toISOString()}\n`;
-    txtContent += `Total Pages: ${scrapeData.data?.length || 0}\n\n`;
-    txtContent += `---\n\n`;
-
-    if (scrapeData.data && scrapeData.data.length > 0) {
-      scrapeData.data.forEach((page: any, index: number) => {
-        txtContent += `## Page ${index + 1}: ${page.metadata?.title || page.url}\n`;
-        txtContent += `URL: ${page.url}\n\n`;
-        txtContent += page.markdown || page.content || '';
-        txtContent += `\n\n---\n\n`;
-      });
-    }
-
-    // Convert to base64
-    const encoder = new TextEncoder();
-    const txtBytes = encoder.encode(txtContent);
-    const base64Content = btoa(String.fromCharCode(...txtBytes));
-    
-    const sizeKB = Math.round(txtBytes.length / 1024);
-    const fileName = `${url.replace(/https?:\/\//, '').replace(/\//g, '_')}_knowledge.txt`;
-
-    console.log(`📦 Generated knowledge base: ${fileName} (${sizeKB}KB)`);
+    // Return raw data without processing - frontend will handle AI processing
+    const rawPages = scrapeData.data || [];
 
     // Save scraping record to database
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -149,7 +128,7 @@ serve(async (req) => {
       url: url,
       status: 'completed',
       pages_scraped: scrapeData.data?.length || 0,
-      total_size_kb: sizeKB,
+      total_size_kb: 0, // Will be updated after AI processing
       completed_at: new Date().toISOString()
     });
 
@@ -159,14 +138,9 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       success: true,
-      file: {
-        name: fileName,
-        data: `data:text/plain;base64,${base64Content}`,
-        type: 'text/plain',
-        size: txtBytes.length
-      },
-      pagesScraped: scrapeData.data?.length || 0,
-      sizeKB: sizeKB
+      rawPages: rawPages,
+      pagesScraped: rawPages.length,
+      websiteUrl: url
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

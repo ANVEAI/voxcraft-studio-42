@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.scrape-website]
 verify_jwt = false
+
+[functions.process-knowledge-base]
+verify_jwt = false
