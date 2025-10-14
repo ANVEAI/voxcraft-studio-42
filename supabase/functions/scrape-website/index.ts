@@ -12,8 +12,12 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Store request body to avoid "Body already consumed" error
+  let requestBody: { url: string; userId: string } | null = null;
+
   try {
-    const { url, userId } = await req.json();
+    requestBody = await req.json();
+    const { url, userId } = requestBody;
     
     console.log(`🕷️ Scrape request - URL: ${url}, User: ${userId}`);
     
@@ -44,13 +48,13 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         url: url,
-        limit: 50,
-      scrapeOptions: {
-        formats: ['markdown'],
-        onlyMainContent: true,
-        includeTags: ['nav', 'header', 'meta'],
-        waitFor: 3000
-      }
+        limit: 30, // Reduced from 50 to prevent timeouts
+        scrapeOptions: {
+          formats: ['markdown'],
+          onlyMainContent: true,
+          includeTags: ['nav', 'header', 'meta'],
+          waitFor: 3000
+        }
       }),
     });
 
@@ -70,8 +74,8 @@ serve(async (req) => {
     const jobId = crawlData.id;
     console.log(`⏳ Polling job: ${jobId}`);
 
-    // Step 2: Poll for job completion
-    const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max
+    // Step 2: Poll for job completion (with partial scrape support)
+    const maxAttempts = 90; // 90 attempts * 2 seconds = 180 seconds max
     const pollInterval = 2000; // 2 seconds
     let attempts = 0;
     let jobStatus = null;
@@ -107,8 +111,19 @@ serve(async (req) => {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
     }
 
-    if (!jobStatus || jobStatus.status !== 'completed') {
-      throw new Error('Crawl job timed out after 60 seconds');
+    // Handle partial scrapes - if we have some data, use it even if not fully completed
+    if (!jobStatus) {
+      throw new Error('Failed to retrieve crawl status');
+    }
+
+    const hasPartialData = jobStatus.data && jobStatus.data.length > 0;
+    
+    if (jobStatus.status !== 'completed' && !hasPartialData) {
+      throw new Error(`Crawl job timed out after 180 seconds with no data scraped`);
+    }
+
+    if (jobStatus.status !== 'completed' && hasPartialData) {
+      console.log(`⚠️ Crawl incomplete but proceeding with ${jobStatus.completed}/${jobStatus.total} pages`);
     }
 
     // Step 3: Return raw scraped data for AI processing
@@ -148,22 +163,24 @@ serve(async (req) => {
   } catch (error) {
     console.error('💥 Scraping error:', error);
     
-    // Try to save error to database
-    try {
-      const { url, userId } = await req.json();
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
+    // Try to save error to database (using stored requestBody to avoid "Body already consumed" error)
+    if (requestBody) {
+      try {
+        const { url, userId } = requestBody;
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
 
-      await supabase.from('scraped_websites').insert({
-        user_id: userId,
-        url: url,
-        status: 'failed',
-        error_message: error instanceof Error ? error.message : 'Unknown error',
-        completed_at: new Date().toISOString()
-      });
-    } catch (dbError) {
-      console.error('⚠️ Failed to save error record:', dbError);
+        await supabase.from('scraped_websites').insert({
+          user_id: userId,
+          url: url,
+          status: 'failed',
+          error_message: error instanceof Error ? error.message : 'Unknown error',
+          completed_at: new Date().toISOString()
+        });
+      } catch (dbError) {
+        console.error('⚠️ Failed to save error record:', dbError);
+      }
     }
 
     return new Response(JSON.stringify({
