@@ -25,23 +25,60 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
-    // Prepare data for AI analysis (including ALL links found on each page)
-    const pagesData = rawPages.map((page: any) => ({
-      url: page.url,
-      title: page.metadata?.title || 'Untitled',
-      description: page.metadata?.description || '',
-      keywords: page.metadata?.keywords || '',
-      markdown: page.markdown ? page.markdown.substring(0, 2000) : '', // Increased to 2000 chars for better context
-      links: page.links || [], // All links found on this page (dropdowns, navigation, footer)
-      linksFound: page.links?.length || 0
-    }));
+    // Pre-create page structure from ALL scraped URLs (guarantees 100% coverage)
+    const preStructuredPages = rawPages.map((page: any, index: number) => {
+      const url = page.url;
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split('/').filter(Boolean);
+      const lastPart = pathParts[pathParts.length - 1] || 'home';
+      
+      // Generate a clean page name from URL
+      const pageName = page.metadata?.title || 
+                       lastPart.replace(/-/g, ' ').replace(/_/g, ' ')
+                         .split(' ')
+                         .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+                         .join(' ') || 'Home';
+      
+      // Clean the links array - only include valid URLs
+      const cleanLinks = (page.links || [])
+        .filter((link: string) => link && link.startsWith('http'))
+        .slice(0, 20);
 
-    const totalLinksDiscovered = pagesData.reduce((sum: number, p: any) => sum + p.linksFound, 0);
-    console.log(`🔗 Total links discovered across all pages: ${totalLinksDiscovered}`);
+      return {
+        id: `page_${index}`,
+        url: url,
+        page_name: pageName,
+        title: page.metadata?.title || '',
+        description: page.metadata?.description || '',
+        keywords: page.metadata?.keywords || '',
+        markdown_preview: page.markdown ? page.markdown.substring(0, 2000) : '',
+        links: cleanLinks,
+        category: 'To be determined by AI',
+        importance: 'medium',
+        parent: null
+      };
+    });
 
-    const systemPrompt = `You are a knowledge base architect specializing in voice navigation systems.
+    console.log(`📋 Pre-structured ${preStructuredPages.length} pages from scraped URLs`);
 
-Your task is to analyze scraped website data and create a structured knowledge base optimized for the Vapi navigate_to_page tool.
+    const systemPrompt = `You are a knowledge base enhancer for voice navigation systems.
+
+You will receive a PRE-STRUCTURED list of pages (with URLs already assigned). Your job is to ENHANCE each page entry, NOT create new ones.
+
+For each page, improve:
+1. **page_name**: Make it clear and voice-friendly (e.g., "Contact Us" not "contact-us-page-title")
+2. **category**: Assign appropriate category (Main/Product/Service/Resource/About/etc)
+3. **description**: Write 2-3 sentences explaining what's on this page
+4. **keywords**: Extract 5-10 relevant keywords for voice matching (as array)
+5. **parent**: If it's a subpage, identify the parent page name
+6. **importance**: Assess as high/medium/low based on content
+
+CRITICAL RULES:
+- DO NOT add new pages
+- DO NOT remove any pages
+- DO NOT change URLs
+- ONLY enhance the existing page entries
+- Return ALL pages you received, just with better data
 
 OUTPUT FORMAT (strict JSON):
 {
@@ -50,72 +87,27 @@ OUTPUT FORMAT (strict JSON):
     "base_url": "https://example.com",
     "description": "Brief site description"
   },
-  "pages": [
-    {
-      "page_name": "Clear, descriptive page name",
-      "url": "https://example.com/full-path",
-      "category": "Main/Product/Blog/About/etc",
-      "description": "2-3 sentence description of page content and purpose",
-      "keywords": ["relevant", "search", "terms"],
-      "parent": "Parent page name (if subpage)",
-      "importance": "high/medium/low"
-    }
-  ],
+  "pages": [ /* ALL pages with enhancements */ ],
   "navigation_structure": {
-    "main_pages": ["Home", "Products", "About"],
-    "subpages": {
-      "Products": ["Product A", "Product B"]
-    }
+    "main_pages": ["Home", "Products"],
+    "subpages": { "Products": ["Product A"] }
   }
-}
+}`;
 
-RULES:
-1. Each page MUST have a clear, human-readable page_name
-2. URLs must be fully qualified (include domain)
-3. Descriptions should explain what users will find on the page
-4. Identify page hierarchy (main pages vs subpages)
-5. Mark importance based on content depth and relevance
-6. Consolidate duplicate/similar pages
-7. **CRITICAL**: Include EVERY single page from the scraped data - do NOT filter or skip pages
-8. Pages like "Process", "Manufacturing", "How It Works", "Team", "Careers", "Services" are IMPORTANT - include them all
-9. Look at the "links" array for each page to discover related subpages not in main navigation
-10. Do NOT skip pages just because they seem similar - dropdown items are often important navigation targets
-11. For navigation structure, identify dropdown/submenu relationships (e.g., "Products" dropdown contains "Product A", "Product B")
-12. Only skip exact duplicate URLs (same URL appearing multiple times)
-13. If unsure whether to include a page, INCLUDE IT - completeness is more important than brevity
-14. Keep descriptions concise but informative (2-3 sentences max)
-15. Extract meaningful keywords for voice matching
-16. Return ONLY valid JSON, no markdown formatting`;
+    const userPrompt = `Enhance this pre-structured knowledge base with better descriptions, categories, and hierarchy.
 
-    const allScrapedUrls = rawPages.map((p: any) => p.url);
-    
-    const userPrompt = `Analyze this scraped website data and create a structured knowledge base:
+WEBSITE: ${websiteUrl}
+PAGES TO ENHANCE: ${preStructuredPages.length}
 
-WEBSITE URL: ${websiteUrl}
-TOTAL PAGES SCRAPED: ${pagesData.length}
-TOTAL LINKS DISCOVERED: ${totalLinksDiscovered}
+PRE-STRUCTURED PAGES (you must return ALL of these with enhancements):
+${JSON.stringify(preStructuredPages, null, 2)}
 
-**YOU MUST INCLUDE ALL ${allScrapedUrls.length} OF THESE SCRAPED PAGES IN YOUR OUTPUT:**
-${allScrapedUrls.map((url: string, i: number) => `${i + 1}. ${url}`).join('\n')}
-
-SCRAPED DATA (includes page content + all links found):
-${JSON.stringify(pagesData, null, 2)}
-
-CRITICAL REQUIREMENTS:
-- Every single URL listed above MUST appear in your "pages" array
-- Do NOT skip pages like "Process", "Manufacturing", "How It Works", "Services" - they are important
-- Only exclude exact duplicate URLs (same URL appearing twice)
-- If you're unsure about a page's importance, INCLUDE IT
-- Each page object includes a "links" array showing ALL URLs discovered on that page
-- Navigation dropdowns, submenus, and footer links are included in these link arrays
-- Map dropdown relationships using the "parent" field (e.g., if "Products" page links to "Product A", set parent: "Products")
-
-Focus on:
-- Including ALL pages from the data, especially dropdown/submenu items
-- Clear page names for voice commands
-- Accurate, full URLs for every page
-- Logical hierarchy based on link relationships
-- Keywords for fuzzy matching
+INSTRUCTIONS:
+- Return ALL ${preStructuredPages.length} pages
+- Improve page names, descriptions, keywords (as arrays), categories
+- Identify parent-child relationships from the links data
+- Do NOT add or remove pages
+- Do NOT change URLs
 
 Output valid JSON only.`;
 
@@ -133,8 +125,7 @@ Output valid JSON only.`;
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.3, // Lower temperature for more structured output
+        ]
       }),
     });
 
@@ -169,39 +160,40 @@ Output valid JSON only.`;
       throw new Error('Invalid structured data format from AI');
     }
 
-    // Validation: Ensure all scraped URLs are in the AI output
-    const aiPageUrls = new Set(structuredData.pages.map((p: any) => p.url));
-    const scrapedUrls = rawPages.map((p: any) => p.url);
-    const missingUrls = scrapedUrls.filter((url: string) => !aiPageUrls.has(url));
+    console.log(`🤖 AI returned ${structuredData.pages?.length || 0} pages`);
 
-    console.log(`📊 Scraped URLs: ${scrapedUrls.length}`);
-    console.log(`🤖 AI returned: ${structuredData.pages.length} pages`);
-    console.log(`✅ Coverage: ${Math.round(structuredData.pages.length / scrapedUrls.length * 100)}%`);
-
-    if (missingUrls.length > 0) {
-      console.log(`⚠️ AI missed ${missingUrls.length} pages, adding them manually:`, missingUrls);
+    // Validate AI didn't drop any pages
+    if (structuredData.pages.length !== preStructuredPages.length) {
+      console.error(`⚠️ AI returned ${structuredData.pages.length} pages but expected ${preStructuredPages.length}`);
       
-      // Add missing pages with basic data
-      for (const missingUrl of missingUrls) {
-        const rawPage = rawPages.find((p: any) => p.url === missingUrl);
-        const pageName = rawPage?.metadata?.title || 
-                         missingUrl.split('/').pop()?.replace(/-/g, ' ') || 
-                         'Untitled Page';
-        
-        structuredData.pages.push({
-          page_name: pageName,
-          url: missingUrl,
-          category: 'Main',
-          description: rawPage?.metadata?.description || `Information about ${pageName}`,
-          keywords: rawPage?.metadata?.keywords?.split(',').map((k: string) => k.trim()) || [pageName.toLowerCase()],
-          importance: 'medium'
-        });
+      // Find missing page IDs
+      const returnedIds = new Set(structuredData.pages.map((p: any) => p.id || p.url));
+      const missingPages = preStructuredPages.filter((p: any) => 
+        !returnedIds.has(p.id) && !returnedIds.has(p.url)
+      );
+      
+      // Re-add missing pages
+      if (missingPages.length > 0) {
+        structuredData.pages.push(...missingPages);
+        console.log(`✅ Re-added ${missingPages.length} missing pages`);
       }
-      
-      console.log(`✅ Added ${missingUrls.length} missing pages to knowledge base`);
     }
 
-    console.log(`✅ Final knowledge base: ${structuredData.pages.length} pages (100% coverage)`);
+    // Ensure no page has undefined URL
+    const validPages = structuredData.pages.filter((p: any) => {
+      if (!p.url || p.url === 'undefined') {
+        console.warn(`⚠️ Removing invalid page: ${p.page_name} (no URL)`);
+        return false;
+      }
+      return true;
+    });
+
+    structuredData.pages = validPages;
+
+    // Final validation
+    console.log(`✅ Final knowledge base contains ${structuredData.pages.length} pages`);
+    console.log(`📊 Coverage: ${Math.round((structuredData.pages.length / rawPages.length) * 100)}% of scraped pages`);
+    console.log(`🔗 Pages with parents: ${structuredData.pages.filter((p: any) => p.parent).length}`);
 
     // Generate formatted TXT knowledge base
     const txtContent = generateKnowledgeBaseTXT(structuredData);
