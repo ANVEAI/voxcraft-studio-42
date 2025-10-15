@@ -27,14 +27,15 @@ serve(async (req) => {
 
     // Filter out pages with invalid URLs
     const validPages = rawPages.filter((page: any) => {
-      return page.url && page.url !== 'undefined' && page.url.trim() !== '';
+      const url = page.metadata?.url || page.url;
+      return url && url !== 'undefined' && url.trim() !== '';
     });
 
     console.log(`📋 Filtered ${validPages.length} valid pages from ${rawPages.length} total`);
 
     // Pre-create structure from ALL scraped URLs to ensure 100% coverage
     const preStructuredPages = validPages.map((page: any, index: number) => {
-      const url = page.url;
+      const url = page.metadata?.url || page.url;
       let pageName: string;
       
       try {
