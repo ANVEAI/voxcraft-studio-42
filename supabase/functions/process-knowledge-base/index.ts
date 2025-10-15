@@ -25,18 +25,67 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
-    // Prepare data for AI analysis
-    const pagesData = rawPages.map((page: any) => ({
-      url: page.url,
-      title: page.metadata?.title || 'Untitled',
-      description: page.metadata?.description || '',
-      keywords: page.metadata?.keywords || '',
-      markdown: page.markdown ? page.markdown.substring(0, 1000) : '', // First 1000 chars for context
-    }));
+    // Filter out pages with invalid URLs
+    const validPages = rawPages.filter((page: any) => {
+      return page.url && page.url !== 'undefined' && page.url.trim() !== '';
+    });
 
-    const systemPrompt = `You are a knowledge base architect specializing in voice navigation systems.
+    console.log(`📋 Filtered ${validPages.length} valid pages from ${rawPages.length} total`);
 
-Your task is to analyze scraped website data and create a structured knowledge base optimized for the Vapi navigate_to_page tool.
+    // Pre-create structure from ALL scraped URLs to ensure 100% coverage
+    const preStructuredPages = validPages.map((page: any, index: number) => {
+      const url = page.url;
+      let pageName: string;
+      
+      try {
+        const urlObj = new URL(url);
+        const pathParts = urlObj.pathname.split('/').filter(Boolean);
+        const lastPart = pathParts[pathParts.length - 1] || 'home';
+        
+        // Generate clean page name from URL or title
+        pageName = page.metadata?.title || 
+                   lastPart.replace(/-/g, ' ').replace(/_/g, ' ')
+                     .split(' ')
+                     .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+                     .join(' ');
+      } catch (e) {
+        pageName = 'Unknown Page';
+      }
+      
+      return {
+        id: `page_${index}`,
+        url: url,
+        page_name: pageName,
+        title: page.metadata?.title || '',
+        description: page.metadata?.description || '',
+        keywords: page.metadata?.keywords || '',
+        markdown_preview: page.markdown ? page.markdown.substring(0, 2000) : '',
+        category: 'To be determined',
+        importance: 'medium',
+        parent: null
+      };
+    });
+
+    console.log(`📋 Pre-structured ${preStructuredPages.length} pages from scraped URLs`);
+
+    const systemPrompt = `You are a knowledge base enhancer for voice navigation systems.
+
+You will receive a PRE-STRUCTURED list of pages with URLs already assigned. Your job is to ENHANCE each page entry, NOT create or remove pages.
+
+For each page, improve:
+1. **page_name**: Make it clear and voice-friendly
+2. **category**: Assign appropriate category (Main/Product/Service/Resource/About/Support/Information/etc)
+3. **description**: Write 2-3 sentences explaining page content and purpose
+4. **keywords**: Extract 5-10 relevant keywords for voice matching (as array)
+5. **parent**: If it's a subpage, identify the parent page name
+6. **importance**: Assess as high/medium/low based on content depth and relevance
+
+CRITICAL RULES:
+- DO NOT add new pages
+- DO NOT remove any pages
+- DO NOT change URLs
+- ONLY enhance the existing page entries
+- Return ALL pages you received, just with better data
 
 OUTPUT FORMAT (strict JSON):
 {
@@ -45,51 +94,29 @@ OUTPUT FORMAT (strict JSON):
     "base_url": "https://example.com",
     "description": "Brief site description"
   },
-  "pages": [
-    {
-      "page_name": "Clear, descriptive page name",
-      "url": "https://example.com/full-path",
-      "category": "Main/Product/Blog/About/etc",
-      "description": "2-3 sentence description of page content and purpose",
-      "keywords": ["relevant", "search", "terms"],
-      "parent": "Parent page name (if subpage)",
-      "importance": "high/medium/low"
-    }
-  ],
+  "pages": [ /* ALL pages with enhancements */ ],
   "navigation_structure": {
-    "main_pages": ["Home", "Products", "About"],
-    "subpages": {
-      "Products": ["Product A", "Product B"]
-    }
+    "main_pages": ["Home", "Products"],
+    "subpages": { "Products": ["Product A"] }
   }
 }
 
-RULES:
-1. Each page MUST have a clear, human-readable page_name
-2. URLs must be fully qualified (include domain)
-3. Descriptions should explain what users will find on the page
-4. Identify page hierarchy (main pages vs subpages)
-5. Mark importance based on content depth and relevance
-6. Consolidate duplicate/similar pages
-7. Remove utility pages (privacy, terms) unless explicitly important
-8. Keep descriptions concise but informative (2-3 sentences max)
-9. Extract meaningful keywords for voice matching
-10. Return ONLY valid JSON, no markdown formatting`;
+Return ONLY valid JSON, no markdown formatting.`;
 
-    const userPrompt = `Analyze this scraped website data and create a structured knowledge base:
+    const userPrompt = `Enhance this pre-structured knowledge base with better descriptions, categories, and hierarchy.
 
-WEBSITE URL: ${websiteUrl}
-TOTAL PAGES: ${pagesData.length}
+WEBSITE: ${websiteUrl}
+PAGES TO ENHANCE: ${preStructuredPages.length}
 
-SCRAPED DATA:
-${JSON.stringify(pagesData, null, 2)}
+PRE-STRUCTURED PAGES (you must return ALL of these with enhancements):
+${JSON.stringify(preStructuredPages, null, 2)}
 
-Focus on:
-- Clear page names for voice commands
-- Accurate, full URLs
-- Meaningful descriptions for each page
-- Logical categorization and hierarchy
-- Keywords for fuzzy matching
+INSTRUCTIONS:
+- Return ALL ${preStructuredPages.length} pages
+- Improve page names, descriptions, keywords (as arrays), categories
+- Identify parent-child relationships from URL structure
+- Do NOT add or remove pages
+- Do NOT change URLs
 
 Output valid JSON only.`;
 
@@ -103,12 +130,11 @@ Output valid JSON only.`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'google/gemini-2.5-pro',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.3, // Lower temperature for more structured output
       }),
     });
 
@@ -143,7 +169,43 @@ Output valid JSON only.`;
       throw new Error('Invalid structured data format from AI');
     }
 
-    console.log(`✅ Structured ${structuredData.pages.length} pages into knowledge base`);
+    // Ensure AI didn't drop any pages (100% coverage validation)
+    if (structuredData.pages.length !== preStructuredPages.length) {
+      console.error(`⚠️ AI returned ${structuredData.pages.length} pages but expected ${preStructuredPages.length}`);
+      
+      // Find missing page URLs
+      const returnedUrls = new Set(structuredData.pages.map((p: any) => p.url));
+      const missingPages = preStructuredPages.filter((p: any) => 
+        !returnedUrls.has(p.url)
+      );
+      
+      // Re-add missing pages with basic data
+      missingPages.forEach((missingPage: any) => {
+        console.warn(`⚠️ Re-adding missing page: ${missingPage.page_name} (${missingPage.url})`);
+        structuredData.pages.push(missingPage);
+      });
+      
+      console.log(`✅ Re-added ${missingPages.length} missing pages`);
+    }
+
+    // Ensure no page has undefined URL
+    structuredData.pages = structuredData.pages.filter((p: any) => {
+      if (!p.url || p.url === 'undefined') {
+        console.warn(`⚠️ Removing invalid page: ${p.page_name} (no URL)`);
+        return false;
+      }
+      return true;
+    });
+
+    // Ensure keywords are arrays
+    structuredData.pages = structuredData.pages.map((p: any) => ({
+      ...p,
+      keywords: Array.isArray(p.keywords) ? p.keywords : 
+                typeof p.keywords === 'string' ? p.keywords.split(',').map((k: string) => k.trim()) :
+                []
+    }));
+
+    console.log(`✅ Final knowledge base contains ${structuredData.pages.length} pages (100% URL coverage)`);
 
     // Generate formatted TXT knowledge base
     const txtContent = generateKnowledgeBaseTXT(structuredData);
