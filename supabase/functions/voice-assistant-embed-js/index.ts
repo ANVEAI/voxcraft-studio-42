@@ -1214,9 +1214,13 @@ if (!window.supabase) {
             if (this.isVisible(el)) {
               const text = this.getElementText(el);
               if (text && text.length > 0 && text.length < 100) {
+                // Get contextual information from parent elements
+                const context = this.getElementContext(el);
+                
                 elements.push({
                   type: el.tagName.toLowerCase(),
-                  text: text
+                  text: text,
+                  context: context || undefined  // Only include if context exists
                 });
               }
             }
@@ -1227,6 +1231,95 @@ if (!window.supabase) {
       });
       
       return elements.slice(0, 30);
+    }
+
+    getElementContext(element) {
+      // Extract contextual information from parent elements
+      const contextParts = [];
+      
+      // Strategy 1: Look for parent container with common product/card classes
+      const parentSelectors = [
+        '.product', '.product-card', '.card', '.item', 
+        '[data-product]', '[data-item]', 
+        'article', '[role="article"]'
+      ];
+      
+      let parentContainer = null;
+      for (const selector of parentSelectors) {
+        parentContainer = element.closest(selector);
+        if (parentContainer) break;
+      }
+      
+      // If no specific parent found, use closest div with reasonable size
+      if (!parentContainer) {
+        let current = element.parentElement;
+        let depth = 0;
+        while (current && depth < 5) {
+          if (current.tagName === 'DIV' || current.tagName === 'ARTICLE' || current.tagName === 'SECTION') {
+            const childCount = current.children.length;
+            if (childCount >= 2 && childCount <= 20) {
+              parentContainer = current;
+              break;
+            }
+          }
+          current = current.parentElement;
+          depth++;
+        }
+      }
+      
+      if (parentContainer) {
+        // Strategy 2: Extract heading text (product name)
+        const heading = parentContainer.querySelector('h1, h2, h3, h4, h5, h6');
+        if (heading) {
+          const headingText = this.getElementText(heading).trim();
+          if (headingText && headingText.length < 100) {
+            contextParts.push(headingText);
+          }
+        }
+        
+        // Strategy 3: Extract price information
+        const priceSelectors = [
+          '.price', '[class*="price"]', '[data-price]',
+          '.cost', '[class*="cost"]'
+        ];
+        
+        for (const priceSelector of priceSelectors) {
+          const priceEl = parentContainer.querySelector(priceSelector);
+          if (priceEl && this.isVisible(priceEl)) {
+            const priceText = this.getElementText(priceEl).trim();
+            if (priceText && priceText.length < 50 && /[\$£€¥₹]|price|cost/i.test(priceText)) {
+              contextParts.push(priceText);
+              break;
+            }
+          }
+        }
+        
+        // Strategy 4: Extract description (first paragraph or short text)
+        const description = parentContainer.querySelector('p, .description, [class*="desc"]');
+        if (description && this.isVisible(description)) {
+          const descText = this.getElementText(description).trim();
+          if (descText && descText.length > 10 && descText.length < 150) {
+            // Take first sentence or first 100 chars
+            const shortDesc = descText.split('.')[0].substring(0, 100);
+            if (shortDesc && shortDesc !== contextParts[0]) {
+              contextParts.push(shortDesc);
+            }
+          }
+        }
+      }
+      
+      // Strategy 5: Check for aria-label or title on element itself
+      const ariaLabel = element.getAttribute('aria-label');
+      if (ariaLabel && ariaLabel.length < 100 && ariaLabel !== this.getElementText(element)) {
+        contextParts.unshift(ariaLabel);
+      }
+      
+      // Combine context parts
+      if (contextParts.length > 0) {
+        return contextParts.join(' - ');
+      }
+      
+      return null;
     }
 
     extractForms() {
