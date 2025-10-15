@@ -745,6 +745,9 @@ if (!window.supabase) {
           case 'navigate_to_page':
             this.navigate_to_page(params);
             break;
+          case 'get_page_context':
+            this.get_page_context(params);
+            break;
           default:
             console.warn('Unknown function call:', functionName);
             this.updateStatus(\`❓ Unknown command: \${functionName}\`);
@@ -1093,12 +1096,207 @@ if (!window.supabase) {
         this.updateWidgetState('idle', 'Navigation error');
       }
     }
+
+    get_page_context(params) {
+      const { detail_level = 'standard', refresh = false } = params;
+      console.log('🔍 Extracting page context:', { detail_level, refresh });
+      
+      try {
+        this.updateStatus('🔍 Analyzing page...');
+        
+        // Extract context based on detail level
+        const context = this.extractPageContext(detail_level);
+        
+        console.log('📊 Page context extracted:', context);
+        
+        // Send context back to VAPI using SDK's send method
+        if (this.vapiWidget && typeof this.vapiWidget.send === 'function') {
+          this.vapiWidget.send({
+            type: 'add-message',
+            message: {
+              role: 'system',
+              content: \`Page Context (\${detail_level}): \${JSON.stringify(context)}\`
+            }
+          });
+          console.log('✅ Context sent to VAPI conversation');
+          this.updateStatus('✅ Page context analyzed');
+        } else {
+          console.warn('⚠️ VAPI widget not available for context injection');
+          this.updateStatus('⚠️ Context extracted but not sent');
+        }
+        
+      } catch (error) {
+        console.error('❌ Context extraction error:', error);
+        this.updateStatus('❌ Failed to extract context');
+      }
+    }
+
+    extractPageContext(detail_level) {
+      const context = {
+        url: window.location.href,
+        title: document.title,
+        timestamp: new Date().toISOString()
+      };
+      
+      // Minimal: Only navigation
+      if (detail_level === 'minimal') {
+        context.navigation = this.extractNavigation();
+        return context;
+      }
+      
+      // Standard: Navigation + interactive elements
+      if (detail_level === 'standard') {
+        context.navigation = this.extractNavigation();
+        context.interactiveElements = this.extractInteractiveElements();
+        context.pageType = this.detectPageType();
+        return context;
+      }
+      
+      // Detailed: Everything including forms and content
+      if (detail_level === 'detailed') {
+        context.navigation = this.extractNavigation();
+        context.interactiveElements = this.extractInteractiveElements();
+        context.forms = this.extractForms();
+        context.contentSections = this.extractContentSections();
+        context.pageType = this.detectPageType();
+        return context;
+      }
+      
+      return context;
+    }
+
+    extractNavigation() {
+      const navigation = { topLevel: [] };
+      const navSelectors = [
+        'nav a[href]',
+        '[role="navigation"] a[href]',
+        'header a[href]',
+        '.nav a[href]',
+        '.navbar a[href]',
+        '.menu a[href]'
+      ];
+      
+      const navLinks = new Set();
+      navSelectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(link => {
+            if (this.isVisible(link) && link.href && !link.href.startsWith('javascript:')) {
+              const text = this.getElementText(link);
+              if (text && text.length > 0 && text.length < 50) {
+                navLinks.add(JSON.stringify({
+                  text: text,
+                  href: link.href
+                }));
+              }
+            }
+          });
+        } catch (e) {
+          console.warn('Nav selector error:', selector, e);
+        }
+      });
+      
+      navigation.topLevel = Array.from(navLinks).map(item => JSON.parse(item)).slice(0, 20);
+      return navigation;
+    }
+
+    extractInteractiveElements() {
+      const elements = [];
+      const selectors = [
+        'button:not([disabled])',
+        'a[href]:not([href^="#"]):not([href^="javascript:"])',
+        'input[type="submit"]:not([disabled])',
+        '[role="button"]:not([disabled])'
+      ];
+      
+      selectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(el => {
+            if (this.isVisible(el)) {
+              const text = this.getElementText(el);
+              if (text && text.length > 0 && text.length < 100) {
+                elements.push({
+                  type: el.tagName.toLowerCase(),
+                  text: text
+                });
+              }
+            }
+          });
+        } catch (e) {
+          console.warn('Element selector error:', selector, e);
+        }
+      });
+      
+      return elements.slice(0, 30);
+    }
+
+    extractForms() {
+      const forms = [];
+      document.querySelectorAll('form').forEach(form => {
+        if (this.isVisible(form)) {
+          const fields = [];
+          form.querySelectorAll('input, textarea, select').forEach(field => {
+            if (this.isVisible(field) && field.type !== 'hidden') {
+              fields.push({
+                type: field.type || field.tagName.toLowerCase(),
+                name: field.name || field.id || '',
+                placeholder: field.placeholder || ''
+              });
+            }
+          });
+          
+          if (fields.length > 0) {
+            forms.push({ fields: fields });
+          }
+        }
+      });
+      
+      return forms.slice(0, 5);
+    }
+
+    extractContentSections() {
+      const sections = [];
+      const sectionSelectors = ['section', 'article', '[role="main"]', 'main'];
+      
+      sectionSelectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(section => {
+            if (this.isVisible(section)) {
+              const heading = section.querySelector('h1, h2, h3');
+              const headingText = heading ? this.getElementText(heading) : '';
+              
+              if (headingText) {
+                sections.push({
+                  heading: headingText,
+                  hasButtons: section.querySelectorAll('button').length > 0
+                });
+              }
+            }
+          });
+        } catch (e) {
+          console.warn('Section selector error:', selector, e);
+        }
+      });
+      
+      return sections.slice(0, 10);
+    }
+
+    detectPageType() {
+      const url = window.location.href.toLowerCase();
+      
+      if (url.includes('/product') || url.includes('/item')) return 'product_page';
+      if (url.includes('/cart') || url.includes('/checkout')) return 'cart_page';
+      if (url.includes('/search') || url.includes('?q=')) return 'search_results';
+      if (url === window.location.origin + '/' || url === window.location.origin) return 'landing_page';
+      
+      return 'general_page';
+    }
     
     findElementByFuzzyMatch(targetText, elementType) {
       const searchTerms = targetText.toLowerCase().split(/\s+/);
       let bestMatch = null;
       let bestScore = 0;
       
+{{ ... }}
       // Define element type filters
       const typeFilters = {
         'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
