@@ -1296,7 +1296,6 @@ if (!window.supabase) {
       let bestMatch = null;
       let bestScore = 0;
       
-{{ ... }}
       // Define element type filters
       const typeFilters = {
         'button': ['button', '[role="button"]', 'input[type="button"]', 'input[type="submit"]', '.btn', '.button'],
