@@ -25,8 +25,25 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
-    // Pre-create page structure from ALL scraped URLs (guarantees 100% coverage)
-    const preStructuredPages = rawPages.map((page: any, index: number) => {
+    // Filter out pages with invalid URLs first
+    const validPagesInput = rawPages.filter((page: any, index: number) => {
+      if (!page.url || page.url === 'undefined' || page.url === '') {
+        console.warn(`⚠️ Skipping page ${index} with invalid URL:`, page.url);
+        return false;
+      }
+      try {
+        new URL(page.url); // Validate URL format
+        return true;
+      } catch (e) {
+        console.warn(`⚠️ Skipping page ${index} with malformed URL:`, page.url);
+        return false;
+      }
+    });
+    
+    console.log(`✅ Filtered ${rawPages.length} raw pages → ${validPagesInput.length} valid pages`);
+
+    // Pre-create page structure from ALL valid scraped URLs (guarantees 100% coverage)
+    const preStructuredPages = validPagesInput.map((page: any, index: number) => {
       const url = page.url;
       const urlObj = new URL(url);
       const pathParts = urlObj.pathname.split('/').filter(Boolean);
