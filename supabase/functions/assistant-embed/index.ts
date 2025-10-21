@@ -136,24 +136,50 @@ serve(async (req) => {
     
     const button = document.createElement('button');
     button.id = 'voice-assistant-btn';
-    button.innerHTML = '🎤';
-    button.style.cssText = \`
-      position: fixed;
-      \${config.position === 'left' ? 'left: 20px' : 'right: 20px'};
-      bottom: 20px;
-      width: 60px;
-      height: 60px;
-      border-radius: 50%;
-      border: none;
-      background: \${config.theme === 'dark' ? '#1f2937' : '#3b82f6'};
-      color: white;
-      font-size: 24px;
-      cursor: pointer;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      z-index: 10000;
-      transition: all 0.3s ease;
-      pointer-events: auto;
+    button.setAttribute('aria-label', 'Voice Assistant - Loading');
+    button.setAttribute('title', 'Voice assistant is loading...');
+    button.innerHTML = \`
+      <svg style="width: 32px; height: 32px; color: white; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+      </svg>
     \`;
+    button.style.cssText = \`
+      position: fixed !important;
+      \${config.position === 'left' ? 'left: max(24px, env(safe-area-inset-left, 24px))' : 'right: max(24px, env(safe-area-inset-right, 24px))'};
+      bottom: max(24px, env(safe-area-inset-bottom, 24px));
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 33%, #8b5cf6 66%, #a855f7 100%);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      color: white;
+      font-size: 0;
+      cursor: pointer;
+      box-shadow: 
+        0 0 20px rgba(59, 130, 246, 0.3),
+        0 8px 32px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      z-index: 2147483647 !important;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform: translateZ(0);
+      will-change: transform, box-shadow;
+    \`;
+    
+    button.onmouseenter = function() {
+      this.style.transform = 'scale(1.08) rotate(3deg) translateZ(0)';
+      this.style.boxShadow = '0 0 30px rgba(59, 130, 246, 0.5), 0 12px 48px rgba(0, 0, 0, 0.3), inset 0 2px 0 rgba(255, 255, 255, 0.3)';
+    };
+    
+    button.onmouseleave = function() {
+      this.style.transform = 'translateZ(0)';
+      this.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.3), 0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
+    };
     
     button.onclick = () => {
       alert('Voice assistant is loading. Please try again in a moment.');

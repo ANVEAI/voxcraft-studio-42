@@ -98,43 +98,77 @@ serve(async (req) => {
     let conversationMemory = JSON.parse(localStorage.getItem(MEMORY_KEY) || '[]');
     console.log('[VoiceAI] Loaded conversation memory:', conversationMemory.length, 'items');
 
-    // Create the voice assistant button
+    // Create the modern voice assistant button
     const button = document.createElement('button');
-    button.innerHTML = '🎤';
-    button.setAttribute('aria-label', 'Voice Assistant');
-    button.setAttribute('title', 'Click to start voice conversation');
+    button.setAttribute('aria-label', 'Voice Assistant - Click to start conversation');
+    button.setAttribute('title', 'Start voice conversation');
+    button.setAttribute('role', 'button');
+    button.setAttribute('tabindex', '0');
+    button.innerHTML = \`
+      <svg style="width: 36px; height: 36px; color: white; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3)); pointer-events: none;" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+      </svg>
+    \`;
     button.style.cssText = \`
-      position: fixed;
-      \${config.position === 'left' ? 'left: 20px' : 'right: 20px'};
-      bottom: 20px;
-      width: 60px;
-      height: 60px;
+      position: fixed !important;
+      \${config.position === 'left' ? 'left: max(24px, env(safe-area-inset-left, 24px))' : 'right: max(24px, env(safe-area-inset-right, 24px))'};
+      bottom: max(24px, env(safe-area-inset-bottom, 24px));
+      width: 72px;
+      height: 72px;
       border-radius: 50%;
-      border: none;
-      background: \${config.theme === 'dark' ? '#1f2937' : '#3b82f6'};
+      border: 2px solid \${config.theme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.3)'};
+      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 33%, #8b5cf6 66%, #a855f7 100%);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
       color: white;
-      font-size: 24px;
+      font-size: 0;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      z-index: 10000;
-      transition: all 0.3s ease;
+      box-shadow: 
+        0 0 20px rgba(59, 130, 246, 0.3),
+        0 0 40px rgba(59, 130, 246, 0.15),
+        0 8px 32px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      z-index: 2147483647 !important;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       pointer-events: auto;
       display: flex;
       align-items: center;
       justify-content: center;
+      transform: translateZ(0);
+      will-change: transform, box-shadow;
+      outline: none;
     \`;
     
+    // Glassmorphism fallback for older browsers
+    if (!CSS.supports('backdrop-filter', 'blur(20px)')) {
+      button.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.95) 0%, rgba(99, 102, 241, 0.95) 33%, rgba(139, 92, 246, 0.95) 66%, rgba(168, 85, 247, 0.95) 100%)';
+    }
+    
     button.onmouseenter = function() { 
-      this.style.transform = 'scale(1.1)'; 
-      this.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.4)';
+      this.style.transform = 'scale(1.08) rotate(3deg) translateZ(0)'; 
+      this.style.boxShadow = '0 0 30px rgba(59, 130, 246, 0.5), 0 0 60px rgba(59, 130, 246, 0.25), 0 12px 48px rgba(0, 0, 0, 0.3), inset 0 2px 0 rgba(255, 255, 255, 0.3)';
     };
     button.onmouseleave = function() { 
-      this.style.transform = 'scale(1)'; 
-      this.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+      this.style.transform = 'translateZ(0)'; 
+      this.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.3), 0 0 40px rgba(59, 130, 246, 0.15), 0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2)';
+    };
+    button.onmousedown = function() {
+      this.style.transform = 'scale(0.95) translateZ(0)';
+    };
+    button.onmouseup = function() {
+      this.style.transform = 'translateZ(0)';
     };
     
+    // Keyboard navigation support
+    button.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.click();
+      }
+    });
+    
     container.appendChild(button);
-    console.log('[VoiceAI] Button added and visible');
+    console.log('[VoiceAI] Modern button added and visible');
 
     let isActive = false;
     let vapi = null;
