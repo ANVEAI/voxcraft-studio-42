@@ -861,6 +861,40 @@ if (!window.supabase) {
             }
           }
           
+          /* Branding text below widget */
+          .voxcraft-branding {
+            position: fixed !important;
+            ${position === 'left' ? 'left' : 'right'}: max(24px, env(safe-area-inset-${position === 'left' ? 'left' : 'right'}, 24px)) !important;
+            bottom: max(12px, calc(env(safe-area-inset-bottom, 24px) - 12px)) !important;
+            font-size: 11px !important;
+            font-weight: 500 !important;
+            color: ${isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)'} !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif !important;
+            letter-spacing: 0.3px !important;
+            z-index: 2147483646 !important;
+            pointer-events: none !important;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            text-align: ${position === 'left' ? 'left' : 'right'} !important;
+            white-space: nowrap !important;
+            transition: all 0.3s ease !important;
+            opacity: 0.8 !important;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+            transform: translateZ(0) !important;
+          }
+
+          .voxcraft-widget-btn:hover ~ .voxcraft-branding {
+            opacity: 1 !important;
+            color: ${isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)'} !important;
+          }
+
+          @media (max-width: 768px) {
+            .voxcraft-branding {
+              font-size: 10px !important;
+              bottom: max(10px, calc(env(safe-area-inset-bottom, 20px) - 10px)) !important;
+            }
+          }
+
           @media (max-width: 480px) {
             .voxcraft-widget-btn {
               width: 64px !important;
@@ -873,6 +907,10 @@ if (!window.supabase) {
             .voxcraft-visualizer {
               min-width: 200px !important;
               max-width: calc(100vw - 32px) !important;
+            }
+            .voxcraft-branding {
+              font-size: 9px !important;
+              bottom: max(8px, calc(env(safe-area-inset-bottom, 16px) - 8px)) !important;
             }
           }
         </style>
@@ -906,6 +944,9 @@ if (!window.supabase) {
             <div class="voxcraft-bar"></div>
             <div class="voxcraft-bar"></div>
           </div>
+        </div>
+        <div class="voxcraft-branding" id="voxcraft-branding">
+          Powered by Anve Voice
         </div>
       \`;
 

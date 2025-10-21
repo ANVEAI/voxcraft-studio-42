@@ -168,6 +168,28 @@ serve(async (req) => {
     });
     
     container.appendChild(button);
+
+    // Add branding below widget
+    const branding = document.createElement('div');
+    branding.style.cssText = `
+      position: fixed !important;
+      ${config.position === 'left' ? 'left' : 'right'}: max(24px, env(safe-area-inset-${config.position === 'left' ? 'left' : 'right'}, 24px));
+      bottom: max(12px, calc(env(safe-area-inset-bottom, 24px) - 12px));
+      font-size: 11px;
+      font-weight: 500;
+      color: ${config.theme === 'dark' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)'};
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      letter-spacing: 0.3px;
+      z-index: 2147483646 !important;
+      pointer-events: none;
+      user-select: none;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+      opacity: 0.8;
+      white-space: nowrap;
+    `;
+    branding.textContent = 'Powered by Anve Voice';
+    container.appendChild(branding);
+    
     console.log('[VoiceAI] Modern button added and visible');
 
     let isActive = false;
