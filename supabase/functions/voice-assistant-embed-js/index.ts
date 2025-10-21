@@ -430,129 +430,308 @@ if (!window.supabase) {
         \${BOT_CONFIG.position === 'bottom-left' ? 'left: 24px;' : 'right: 24px;'}
         bottom: 24px;
         z-index: 999999;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Roboto, sans-serif;
       \`;
 
       const isDark = BOT_CONFIG.theme === 'dark';
       
       const widgetHTML = \`
         <style>
+          /* Base button styling with glassmorphism */
           .voxcraft-widget-btn {
-            width: 64px;
-            height: 64px;
+            width: 72px;
+            height: 72px;
             border-radius: 50%;
             background: \${isDark 
-              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(139, 92, 246, 0.9))'
-              : 'linear-gradient(135deg, rgb(59, 130, 246), rgb(139, 92, 246))'};
-            backdrop-filter: blur(20px);
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+              ? 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #a855f7 100%)'
+              : 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #a855f7 100%)'};
+            backdrop-filter: blur(20px) saturate(180%);
+            border: 2px solid \${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.3)'};
+            box-shadow: 
+              0 8px 32px rgba(0, 0, 0, 0.25),
+              0 0 0 0 rgba(59, 130, 246, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
-            overflow: hidden;
+            overflow: visible;
+            outline: none;
           }
+          
+          /* Shimmer effect overlay */
+          .voxcraft-widget-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+          }
+          
+          .voxcraft-widget-btn:hover::before {
+            left: 100%;
+          }
+          
+          /* Hover state */
           .voxcraft-widget-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 0 8px rgba(59, 130, 246, 0.2);
+            transform: scale(1.08) rotate(2deg);
+            box-shadow: 
+              0 12px 48px rgba(0, 0, 0, 0.3),
+              0 0 0 6px rgba(59, 130, 246, 0.15),
+              inset 0 1px 0 rgba(255, 255, 255, 0.3);
           }
+          
+          /* Active/Click state */
+          .voxcraft-widget-btn:active {
+            transform: scale(0.95);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+          }
+          
+          /* Multi-ring pulse for active states */
           .voxcraft-widget-btn.active {
-            animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            animation: multi-pulse-blue 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
           }
+          
           .voxcraft-widget-btn.listening {
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(16, 185, 129, 0.9));
-            animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            background: linear-gradient(135deg, #10b981 0%, #14b8a6 50%, #06b6d4 100%);
+            animation: multi-pulse-green 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
           }
+          
           .voxcraft-widget-btn.speaking {
-            background: linear-gradient(135deg, rgba(249, 115, 22, 0.9), rgba(234, 88, 12, 0.9));
+            background: linear-gradient(135deg, #f59e0b 0%, #f97316 50%, #ef4444 100%);
+            animation: multi-pulse-orange 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
           }
-          @keyframes pulse-ring {
-            0% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 0 rgba(59, 130, 246, 0.7); }
-            50% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 12px rgba(59, 130, 246, 0); }
-            100% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 0 rgba(59, 130, 246, 0); }
+          
+          /* Multi-layer pulse animations */
+          @keyframes multi-pulse-blue {
+            0% { 
+              box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                0 0 0 0 rgba(59, 130, 246, 0.7),
+                0 0 0 0 rgba(59, 130, 246, 0.4);
+            }
+            50% { 
+              box-shadow: 
+                0 12px 40px rgba(0, 0, 0, 0.3),
+                0 0 0 12px rgba(59, 130, 246, 0.2),
+                0 0 0 24px rgba(59, 130, 246, 0);
+            }
+            100% { 
+              box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                0 0 0 0 rgba(59, 130, 246, 0),
+                0 0 0 0 rgba(59, 130, 246, 0);
+            }
           }
+          
+          @keyframes multi-pulse-green {
+            0% { 
+              box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                0 0 0 0 rgba(16, 185, 129, 0.7),
+                0 0 0 0 rgba(16, 185, 129, 0.4);
+            }
+            50% { 
+              box-shadow: 
+                0 12px 40px rgba(0, 0, 0, 0.3),
+                0 0 0 12px rgba(16, 185, 129, 0.2),
+                0 0 0 24px rgba(16, 185, 129, 0);
+            }
+            100% { 
+              box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                0 0 0 0 rgba(16, 185, 129, 0),
+                0 0 0 0 rgba(16, 185, 129, 0);
+            }
+          }
+          
+          @keyframes multi-pulse-orange {
+            0% { 
+              box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                0 0 0 0 rgba(249, 115, 22, 0.7),
+                0 0 0 0 rgba(249, 115, 22, 0.4);
+            }
+            50% { 
+              box-shadow: 
+                0 12px 40px rgba(0, 0, 0, 0.3),
+                0 0 0 12px rgba(249, 115, 22, 0.2),
+                0 0 0 24px rgba(249, 115, 22, 0);
+            }
+            100% { 
+              box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                0 0 0 0 rgba(249, 115, 22, 0),
+                0 0 0 0 rgba(249, 115, 22, 0);
+            }
+          }
+          
+          /* Breathing animation for idle state */
+          @keyframes breathe {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+          }
+          
+          .voxcraft-widget-btn.idle {
+            animation: breathe 3s ease-in-out infinite;
+          }
+          
+          /* Icon styling */
           .voxcraft-icon {
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
             color: white;
             position: relative;
             z-index: 2;
-            transition: transform 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
           }
+          
           .voxcraft-widget-btn:hover .voxcraft-icon {
-            transform: scale(1.1);
+            transform: scale(1.15);
           }
+          
+          /* Enhanced visualizer panel with glassmorphism */
           .voxcraft-visualizer {
             position: absolute;
             bottom: 100%;
             \${BOT_CONFIG.position === 'bottom-left' ? 'left: 0;' : 'right: 0;'}
-            margin-bottom: 12px;
+            margin-bottom: 16px;
             background: \${isDark
-              ? 'rgba(30, 30, 46, 0.95)'
-              : 'rgba(255, 255, 255, 0.95)'};
-            backdrop-filter: blur(20px);
+              ? 'rgba(15, 23, 42, 0.9)'
+              : 'rgba(255, 255, 255, 0.9)'};
+            backdrop-filter: blur(20px) saturate(180%);
             border: 1px solid \${isDark
               ? 'rgba(255, 255, 255, 0.1)'
-              : 'rgba(0, 0, 0, 0.1)'};
-            border-radius: 16px;
-            padding: 16px 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+              : 'rgba(0, 0, 0, 0.08)'};
+            border-radius: 24px;
+            padding: 20px 24px;
+            box-shadow: 
+              0 8px 32px rgba(0, 0, 0, 0.2),
+              inset 0 1px 0 \${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.8)'};
             display: none;
             flex-direction: column;
-            gap: 12px;
-            min-width: 240px;
+            gap: 14px;
+            min-width: 260px;
             opacity: 0;
-            transform: translateY(8px);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateY(-16px);
+            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
           }
+          
           .voxcraft-visualizer.show {
             display: flex;
             opacity: 1;
             transform: translateY(0);
           }
+          
+          /* Status text */
           .voxcraft-status {
-            font-size: 13px;
-            font-weight: 500;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
             color: \${isDark ? '#e5e7eb' : '#1f2937'};
             text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
           }
+          
+          /* Enhanced audio bars */
           .voxcraft-bars {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 4px;
-            height: 32px;
+            gap: 5px;
+            height: 40px;
           }
+          
           .voxcraft-bar {
-            width: 4px;
+            width: 5px;
             height: 8px;
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-            border-radius: 2px;
-            animation: wave 1s ease-in-out infinite;
+            background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+            border-radius: 3px;
+            animation: wave-advanced 1.2s ease-in-out infinite;
+            transition: background 0.3s ease;
           }
+          
+          .voxcraft-widget-btn.listening ~ .voxcraft-visualizer .voxcraft-bar {
+            background: linear-gradient(180deg, #10b981, #14b8a6);
+          }
+          
+          .voxcraft-widget-btn.speaking ~ .voxcraft-visualizer .voxcraft-bar {
+            background: linear-gradient(180deg, #f59e0b, #f97316);
+            animation: wave-advanced 0.8s ease-in-out infinite;
+          }
+          
+          .voxcraft-bar:nth-child(1) { animation-delay: 0s; }
           .voxcraft-bar:nth-child(2) { animation-delay: 0.1s; }
           .voxcraft-bar:nth-child(3) { animation-delay: 0.2s; }
           .voxcraft-bar:nth-child(4) { animation-delay: 0.3s; }
-          .voxcraft-bar:nth-child(5) { animation-delay: 0.4s; }
-          @keyframes wave {
-            0%, 100% { height: 8px; }
-            50% { height: 24px; }
+          .voxcraft-bar:nth-child(5) { animation-delay: 0.2s; }
+          .voxcraft-bar:nth-child(6) { animation-delay: 0.1s; }
+          .voxcraft-bar:nth-child(7) { animation-delay: 0s; }
+          
+          @keyframes wave-advanced {
+            0%, 100% { 
+              height: 8px;
+              opacity: 0.6;
+            }
+            50% { 
+              height: 32px;
+              opacity: 1;
+            }
+          }
+          
+          /* Accessibility - focus state */
+          .voxcraft-widget-btn:focus-visible {
+            outline: 3px solid rgba(59, 130, 246, 0.5);
+            outline-offset: 4px;
+          }
+          
+          /* Reduced motion support */
+          @media (prefers-reduced-motion: reduce) {
+            .voxcraft-widget-btn,
+            .voxcraft-icon,
+            .voxcraft-visualizer,
+            .voxcraft-bar {
+              animation: none !important;
+              transition: none !important;
+            }
+          }
+          
+          /* Mobile optimization */
+          @media (max-width: 768px) {
+            .voxcraft-widget-btn {
+              width: 68px;
+              height: 68px;
+            }
+            .voxcraft-visualizer {
+              min-width: 220px;
+            }
           }
         </style>
         
-        <button class="voxcraft-widget-btn" id="voxcraft-btn" aria-label="Voice Assistant">
-          <svg class="voxcraft-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+        <button class="voxcraft-widget-btn idle" id="voxcraft-btn" aria-label="Voice Assistant" role="button" tabindex="0">
+          <svg class="voxcraft-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" 
                   d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
           </svg>
         </button>
         
-        <div class="voxcraft-visualizer" id="voxcraft-visualizer">
-          <div class="voxcraft-status" id="voxcraft-status">Ready to assist</div>
-          <div class="voxcraft-bars">
+        <div class="voxcraft-visualizer" id="voxcraft-visualizer" role="status" aria-live="polite">
+          <div class="voxcraft-status" id="voxcraft-status">
+            <span>✨</span>
+            <span>Ready to assist</span>
+          </div>
+          <div class="voxcraft-bars" aria-hidden="true">
+            <div class="voxcraft-bar"></div>
+            <div class="voxcraft-bar"></div>
             <div class="voxcraft-bar"></div>
             <div class="voxcraft-bar"></div>
             <div class="voxcraft-bar"></div>

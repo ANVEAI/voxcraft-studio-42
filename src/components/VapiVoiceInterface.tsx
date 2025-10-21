@@ -719,57 +719,126 @@ const VapiVoiceInterface: React.FC<VapiVoiceInterfaceProps> = ({
 
   const buttonState = getButtonState();
 
+  const getGradient = () => {
+    if (isConnected && isSpeaking) return 'linear-gradient(135deg, #f59e0b 0%, #f97316 50%, #ef4444 100%)';
+    if (isConnected && isListening) return 'linear-gradient(135deg, #10b981 0%, #14b8a6 50%, #06b6d4 100%)';
+    if (isConnected) return 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)';
+    return 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #a855f7 100%)';
+  };
+
   return (
-    <div style={{ position: 'fixed', [position]: '20px', bottom: '20px', zIndex: 10000 }}>
-      <button
-        onClick={isConnected ? endCall : startCall}
-        style={{
-          width: '60px',
-          height: '60px',
-          borderRadius: '50%',
-          border: 'none',
-          background: buttonState.color,
-          color: 'white',
-          fontSize: '24px',
-          cursor: 'pointer',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-          transition: 'all 0.3s ease',
-          transform: 'scale(1)',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'scale(1.1)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'scale(1)';
-        }}
-        title={buttonState.text}
-      >
-        {buttonState.icon}
-      </button>
-      
-      {/* Status indicator */}
-      {isConnected && (
-        <div style={{
-          position: 'absolute',
-          top: '-8px',
-          right: '-8px',
-          width: '20px',
-          height: '20px',
-          borderRadius: '50%',
-          backgroundColor: isSpeaking ? '#f59e0b' : (isListening ? '#10b981' : '#ef4444'),
-          animation: (isSpeaking || isListening) ? 'pulse 1.5s infinite' : 'none',
-        }} />
-      )}
-      
+    <>
       <style>
         {`
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+          @keyframes vapi-multi-pulse {
+            0% { 
+              box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                0 0 0 0 rgba(59, 130, 246, 0.7),
+                0 0 0 0 rgba(59, 130, 246, 0.4);
+            }
+            50% { 
+              box-shadow: 
+                0 12px 40px rgba(0, 0, 0, 0.3),
+                0 0 0 12px rgba(59, 130, 246, 0.2),
+                0 0 0 24px rgba(59, 130, 246, 0);
+            }
+            100% { 
+              box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                0 0 0 0 rgba(59, 130, 246, 0),
+                0 0 0 0 rgba(59, 130, 246, 0);
+            }
+          }
+          
+          @keyframes vapi-breathe {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+          }
+          
+          .vapi-voice-btn {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            background: ${getGradient()};
+            backdrop-filter: blur(20px) saturate(180%);
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+            box-shadow: 
+              0 8px 32px rgba(0, 0, 0, 0.25),
+              0 0 0 0 rgba(59, 130, 246, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: visible;
+            outline: none;
+          }
+          
+          .vapi-voice-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+          }
+          
+          .vapi-voice-btn:hover::before {
+            left: 100%;
+          }
+          
+          .vapi-voice-btn:hover {
+            transform: scale(1.08) rotate(2deg) !important;
+            box-shadow: 
+              0 12px 48px rgba(0, 0, 0, 0.3),
+              0 0 0 6px rgba(59, 130, 246, 0.15),
+              inset 0 1px 0 rgba(255, 255, 255, 0.3);
+          }
+          
+          .vapi-voice-btn:active {
+            transform: scale(0.95) !important;
+          }
+          
+          .vapi-voice-btn.active {
+            animation: vapi-multi-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+          
+          .vapi-voice-btn.idle {
+            animation: vapi-breathe 3s ease-in-out infinite;
+          }
+          
+          .vapi-voice-btn:focus-visible {
+            outline: 3px solid rgba(59, 130, 246, 0.5);
+            outline-offset: 4px;
+          }
+          
+          @media (prefers-reduced-motion: reduce) {
+            .vapi-voice-btn {
+              animation: none !important;
+              transition: none !important;
+            }
           }
         `}
       </style>
-    </div>
+      <div style={{ position: 'fixed', [position]: '24px', bottom: '24px', zIndex: 10000 }}>
+        <button
+          className={`vapi-voice-btn ${isConnected ? 'active' : 'idle'}`}
+          onClick={isConnected ? endCall : startCall}
+          title={buttonState.text}
+          aria-label={buttonState.text}
+          role="button"
+        >
+          {buttonState.icon}
+        </button>
+      </div>
+    </>
   );
 };
 
