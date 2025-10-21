@@ -189,9 +189,10 @@ serve(async (req) => {
 
     // Add branding below widget
     const branding = document.createElement('div');
+    const brandingPosition = config.position === 'left' ? 'left' : 'right';
     branding.style.cssText = `
       position: fixed !important;
-      ${config.position === 'left' ? 'left' : 'right'}: max(24px, env(safe-area-inset-${config.position === 'left' ? 'left' : 'right'}, 24px));
+      ${brandingPosition}: max(24px, env(safe-area-inset-${brandingPosition}, 24px));
       bottom: max(12px, calc(env(safe-area-inset-bottom, 24px) - 12px));
       font-size: 11px;
       font-weight: 500;

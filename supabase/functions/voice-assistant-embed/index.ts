@@ -171,13 +171,15 @@ serve(async (req) => {
 
     // Add branding below widget
     const branding = document.createElement('div');
+    const brandingPosition = config.position === 'left' ? 'left' : 'right';
+    const brandingColor = config.theme === 'dark' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
     branding.style.cssText = `
       position: fixed !important;
-      ${config.position === 'left' ? 'left' : 'right'}: max(24px, env(safe-area-inset-${config.position === 'left' ? 'left' : 'right'}, 24px));
+      ${brandingPosition}: max(24px, env(safe-area-inset-${brandingPosition}, 24px));
       bottom: max(12px, calc(env(safe-area-inset-bottom, 24px) - 12px));
       font-size: 11px;
       font-weight: 500;
-      color: ${config.theme === 'dark' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)'};
+      color: ${brandingColor};
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       letter-spacing: 0.3px;
       z-index: 2147483646 !important;
