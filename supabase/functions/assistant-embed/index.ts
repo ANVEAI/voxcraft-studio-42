@@ -190,9 +190,9 @@ serve(async (req) => {
     // Add branding below widget
     const branding = document.createElement('div');
     const brandingPosition = config.position === 'left' ? 'left' : 'right';
-    branding.style.cssText = `
+    branding.style.cssText = \`
       position: fixed !important;
-      ${brandingPosition}: max(24px, env(safe-area-inset-${brandingPosition}, 24px));
+      \${brandingPosition}: max(24px, env(safe-area-inset-\${brandingPosition}, 24px));
       bottom: max(12px, calc(env(safe-area-inset-bottom, 24px) - 12px));
       font-size: 11px;
       font-weight: 500;
@@ -205,7 +205,7 @@ serve(async (req) => {
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
       opacity: 0.8;
       white-space: nowrap;
-    `;
+    \`;
     branding.textContent = 'Powered by Anve Voice';
     document.body.appendChild(branding);
     

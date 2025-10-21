@@ -173,13 +173,13 @@ serve(async (req) => {
     const branding = document.createElement('div');
     const brandingPosition = config.position === 'left' ? 'left' : 'right';
     const brandingColor = config.theme === 'dark' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)';
-    branding.style.cssText = `
+    branding.style.cssText = \`
       position: fixed !important;
-      ${brandingPosition}: max(24px, env(safe-area-inset-${brandingPosition}, 24px));
+      \${brandingPosition}: max(24px, env(safe-area-inset-\${brandingPosition}, 24px));
       bottom: max(12px, calc(env(safe-area-inset-bottom, 24px) - 12px));
       font-size: 11px;
       font-weight: 500;
-      color: ${brandingColor};
+      color: \${brandingColor};
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       letter-spacing: 0.3px;
       z-index: 2147483646 !important;
@@ -188,7 +188,7 @@ serve(async (req) => {
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
       opacity: 0.8;
       white-space: nowrap;
-    `;
+    \`;
     branding.textContent = 'Powered by Anve Voice';
     container.appendChild(branding);
     

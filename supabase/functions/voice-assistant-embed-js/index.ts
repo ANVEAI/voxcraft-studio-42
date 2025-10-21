@@ -864,18 +864,18 @@ if (!window.supabase) {
           /* Branding text below widget */
           .voxcraft-branding {
             position: fixed !important;
-            ${position === 'left' ? 'left' : 'right'}: max(24px, env(safe-area-inset-${position === 'left' ? 'left' : 'right'}, 24px)) !important;
+            \${BOT_CONFIG.position === 'bottom-left' ? 'left: max(24px, env(safe-area-inset-left, 24px)) !important;' : 'right: max(24px, env(safe-area-inset-right, 24px)) !important;'}
             bottom: max(12px, calc(env(safe-area-inset-bottom, 24px) - 12px)) !important;
             font-size: 11px !important;
             font-weight: 500 !important;
-            color: ${isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)'} !important;
+            color: \${isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)'} !important;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif !important;
             letter-spacing: 0.3px !important;
             z-index: 2147483646 !important;
             pointer-events: none !important;
             user-select: none !important;
             -webkit-user-select: none !important;
-            text-align: ${position === 'left' ? 'left' : 'right'} !important;
+            text-align: \${BOT_CONFIG.position === 'bottom-left' ? 'left' : 'right'} !important;
             white-space: nowrap !important;
             transition: all 0.3s ease !important;
             opacity: 0.8 !important;
@@ -885,7 +885,7 @@ if (!window.supabase) {
 
           .voxcraft-widget-btn:hover ~ .voxcraft-branding {
             opacity: 1 !important;
-            color: ${isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)'} !important;
+            color: \${isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)'} !important;
           }
 
           @media (max-width: 768px) {
