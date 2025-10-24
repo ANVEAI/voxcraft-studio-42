@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.process-knowledge-base]
 verify_jwt = false
+
+[functions.check-scrape-status]
+verify_jwt = false

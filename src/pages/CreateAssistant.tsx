@@ -452,23 +452,38 @@ const CreateAssistant = () => {
 
       // Stage 2: Poll for status every 5 seconds
       let attempts = 0
+      let consecutiveErrors = 0
       const maxAttempts = 120 // 10 minutes max (120 * 5 seconds)
+      const maxConsecutiveErrors = 3
       
       const interval = setInterval(async () => {
         attempts++
         
         try {
           const { data: statusData, error: statusError } = await supabase.functions.invoke('check-scrape-status', {
-            body: { jobId, userId: user?.id, recordId },
-            headers: { Authorization: `Bearer ${token}` }
+            body: { jobId, userId: user?.id, recordId }
           })
 
           if (statusError) {
             console.error('Status check error:', statusError)
+            consecutiveErrors++
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+              clearInterval(interval)
+              setIsScraping(false)
+              toast({
+                title: "Error",
+                description: "Failed to check scraping status. Please try again.",
+                variant: "destructive"
+              })
+            }
             return
           }
 
+          // Reset error counter on success
+          consecutiveErrors = 0
+
           const { status, completed, total, data: scrapedData } = statusData
+          console.log(`Scrape status: ${status}, ${completed}/${total} pages`)
 
           // Update progress message
           setScrapeProgress(`🔄 Scraping: ${completed}/${total} pages (${Math.round((completed/total) * 100)}%)`)
