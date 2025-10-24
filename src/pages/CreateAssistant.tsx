@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth, useUser } from '@clerk/clerk-react'
 import { useForm } from 'react-hook-form'
@@ -412,15 +412,27 @@ const CreateAssistant = () => {
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [isScraping, setIsScraping] = useState(false)
   const [scrapeProgress, setScrapeProgress] = useState('')
+  const [scrapeJobId, setScrapeJobId] = useState<string | null>(null)
+  const [scrapeRecordId, setScrapeRecordId] = useState<string | null>(null)
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+      }
+    }
+  }, [pollingInterval])
 
   const handleScrapeWebsite = async () => {
     setIsScraping(true)
-    setScrapeProgress('🕷️ Stage 1/2: Scraping website...')
+    setScrapeProgress('🕷️ Starting website scrape...')
 
     try {
       const token = await getToken()
       
-      // Stage 1: Scrape website
+      // Stage 1: Start scrape (returns immediately with job ID)
       const { data: scrapeData, error: scrapeError } = await supabase.functions.invoke('scrape-website', {
         body: { url: websiteUrl, userId: user?.id },
         headers: { Authorization: `Bearer ${token}` }
@@ -429,57 +441,133 @@ const CreateAssistant = () => {
       if (scrapeError) throw scrapeError
 
       if (!scrapeData.success) {
-        throw new Error(scrapeData.error || 'Failed to scrape website')
+        throw new Error(scrapeData.error || 'Failed to start scraping')
       }
 
-      setScrapeProgress(`✅ Scraped ${scrapeData.pagesScraped} pages\n🤖 Stage 2/2: AI processing...`)
+      const jobId = scrapeData.jobId
+      const recordId = scrapeData.recordId
+      setScrapeJobId(jobId)
+      setScrapeRecordId(recordId)
+      setScrapeProgress('🔄 Scraping in progress (0 pages)...')
+
+      // Stage 2: Poll for status every 5 seconds
+      let attempts = 0
+      const maxAttempts = 120 // 10 minutes max (120 * 5 seconds)
       
-      // Stage 2: AI-powered knowledge base structuring
-      const { data: processData, error: processError } = await supabase.functions.invoke('process-knowledge-base', {
-        body: { 
-          rawPages: scrapeData.rawPages,
-          websiteUrl: scrapeData.websiteUrl
-        },
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      const interval = setInterval(async () => {
+        attempts++
+        
+        try {
+          const { data: statusData, error: statusError } = await supabase.functions.invoke('check-scrape-status', {
+            body: { jobId, userId: user?.id, recordId },
+            headers: { Authorization: `Bearer ${token}` }
+          })
 
-      if (processError) throw processError
+          if (statusError) {
+            console.error('Status check error:', statusError)
+            return
+          }
 
-      if (!processData.success) {
-        throw new Error(processData.error || 'Failed to process knowledge base')
-      }
+          const { status, completed, total, data: scrapedData } = statusData
 
-      setScrapeProgress(`✅ Processed ${processData.pagesProcessed} pages with AI (${processData.sizeKB}KB)`)
-      
-      // Convert base64 file back to File object
-      const response = await fetch(processData.file.data)
-      const blob = await response.blob()
-      const file = new File([blob], processData.file.name, { type: 'text/plain' })
+          // Update progress message
+          setScrapeProgress(`🔄 Scraping: ${completed}/${total} pages (${Math.round((completed/total) * 100)}%)`)
 
-      // Add to uploaded files
-      setAssistantData({
-        ...assistantData,
-        uploadedFiles: [...assistantData.uploadedFiles, file]
-      })
+          // Check if completed
+          if (status === 'completed') {
+            clearInterval(interval)
+            setPollingInterval(null)
+            
+            setScrapeProgress('✅ Scrape complete! Processing knowledge base with AI...')
 
-      toast({
-        title: "Success!",
-        description: `AI processed ${processData.pagesProcessed} pages into structured knowledge base`,
-      })
+            // Stage 3: AI-powered knowledge base structuring
+            const { data: processData, error: processError } = await supabase.functions.invoke('process-knowledge-base', {
+              body: { 
+                rawPages: scrapedData,
+                websiteUrl: websiteUrl
+              },
+              headers: { Authorization: `Bearer ${token}` }
+            })
 
-      // Clear URL after successful scrape
-      setWebsiteUrl('')
+            if (processError) throw processError
+
+            if (!processData.success) {
+              throw new Error(processData.error || 'Failed to process knowledge base')
+            }
+
+            setScrapeProgress(`✅ Processed ${processData.pagesProcessed} pages with AI (${processData.sizeKB}KB)`)
+            
+            // Convert base64 file back to File object
+            const response = await fetch(processData.file.data)
+            const blob = await response.blob()
+            const file = new File([blob], processData.file.name, { type: 'text/plain' })
+
+            // Add to uploaded files
+            setAssistantData({
+              ...assistantData,
+              uploadedFiles: [...assistantData.uploadedFiles, file]
+            })
+
+            toast({
+              title: "Success!",
+              description: `AI processed ${processData.pagesProcessed} pages into structured knowledge base`,
+            })
+
+            // Clear state
+            setWebsiteUrl('')
+            setIsScraping(false)
+            setScrapeProgress('')
+            setScrapeJobId(null)
+            setScrapeRecordId(null)
+          } 
+          // Check if failed
+          else if (status === 'failed') {
+            clearInterval(interval)
+            setPollingInterval(null)
+            throw new Error('Scraping job failed')
+          }
+          // Check timeout
+          else if (attempts >= maxAttempts) {
+            clearInterval(interval)
+            setPollingInterval(null)
+            throw new Error('Scraping timed out after 10 minutes. Please try a smaller website.')
+          }
+
+        } catch (pollingError: any) {
+          clearInterval(interval)
+          setPollingInterval(null)
+          setIsScraping(false)
+          setScrapeProgress('')
+          
+          toast({
+            title: "Error",
+            description: pollingError.message || "Failed during scraping",
+            variant: "destructive",
+          })
+        }
+      }, 5000) // Poll every 5 seconds
+
+      setPollingInterval(interval)
 
     } catch (error: any) {
-      console.error('Scraping/Processing error:', error)
+      console.error('Scraping error:', error)
+      
+      // Clear any polling
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+        setPollingInterval(null)
+      }
+      
       toast({
         title: "Error",
-        description: error.message || "Failed to scrape and process website",
+        description: error.message || "Failed to scrape website",
         variant: "destructive",
       })
-    } finally {
+      
       setIsScraping(false)
       setScrapeProgress('')
+      setScrapeJobId(null)
+      setScrapeRecordId(null)
     }
   }
 

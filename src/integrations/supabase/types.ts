@@ -331,8 +331,11 @@ export type Database = {
           completed_at: string | null
           created_at: string | null
           error_message: string | null
+          firecrawl_job_id: string | null
           id: string
+          last_checked_at: string | null
           pages_scraped: number | null
+          raw_data: Json | null
           status: string
           total_size_kb: number | null
           url: string
@@ -344,8 +347,11 @@ export type Database = {
           completed_at?: string | null
           created_at?: string | null
           error_message?: string | null
+          firecrawl_job_id?: string | null
           id?: string
+          last_checked_at?: string | null
           pages_scraped?: number | null
+          raw_data?: Json | null
           status?: string
           total_size_kb?: number | null
           url: string
@@ -357,8 +363,11 @@ export type Database = {
           completed_at?: string | null
           created_at?: string | null
           error_message?: string | null
+          firecrawl_job_id?: string | null
           id?: string
+          last_checked_at?: string | null
           pages_scraped?: number | null
+          raw_data?: Json | null
           status?: string
           total_size_kb?: number | null
           url?: string

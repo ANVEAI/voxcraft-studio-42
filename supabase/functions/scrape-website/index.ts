@@ -72,90 +72,35 @@ serve(async (req) => {
     }
 
     const jobId = crawlData.id;
-    console.log(`⏳ Polling job: ${jobId}`);
+    console.log(`✅ Crawl job initiated: ${jobId}`);
 
-    // Step 2: Poll for job completion (with partial scrape support)
-    const maxAttempts = 90; // 90 attempts * 2 seconds = 180 seconds max
-    const pollInterval = 2000; // 2 seconds
-    let attempts = 0;
-    let jobStatus = null;
-
-    while (attempts < maxAttempts) {
-      attempts++;
-      console.log(`🔄 Poll attempt ${attempts}/${maxAttempts}`);
-
-      const statusResponse = await fetch(`https://api.firecrawl.dev/v1/crawl/${jobId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
-        },
-      });
-
-      if (!statusResponse.ok) {
-        const errorText = await statusResponse.text();
-        console.error('❌ Error checking job status:', errorText);
-        throw new Error(`Status check failed: ${statusResponse.status}`);
-      }
-
-      jobStatus = await statusResponse.json();
-      console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}`);
-
-      if (jobStatus.status === 'completed') {
-        console.log('✅ Crawl completed successfully');
-        break;
-      } else if (jobStatus.status === 'failed') {
-        throw new Error('Crawl job failed');
-      }
-
-      // Wait before next poll
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-    }
-
-    // Handle partial scrapes - if we have some data, use it even if not fully completed
-    if (!jobStatus) {
-      throw new Error('Failed to retrieve crawl status');
-    }
-
-    const hasPartialData = jobStatus.data && jobStatus.data.length > 0;
-    
-    if (jobStatus.status !== 'completed' && !hasPartialData) {
-      throw new Error(`Crawl job timed out after 180 seconds with no data scraped`);
-    }
-
-    if (jobStatus.status !== 'completed' && hasPartialData) {
-      console.log(`⚠️ Crawl incomplete but proceeding with ${jobStatus.completed}/${jobStatus.total} pages`);
-    }
-
-    // Step 3: Return raw scraped data for AI processing
-    const scrapeData = jobStatus;
-    console.log(`✅ Scraped ${scrapeData.data?.length || 0} pages`);
-
-    // Return raw data without processing - frontend will handle AI processing
-    const rawPages = scrapeData.data || [];
-
-    // Save scraping record to database
+    // Save initial scraping record to database
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { error: dbError } = await supabase.from('scraped_websites').insert({
+    const { data: dbRecord, error: dbError } = await supabase.from('scraped_websites').insert({
       user_id: userId,
       url: url,
-      status: 'completed',
-      pages_scraped: scrapeData.data?.length || 0,
-      total_size_kb: 0, // Will be updated after AI processing
-      completed_at: new Date().toISOString()
-    });
+      status: 'scraping',
+      firecrawl_job_id: jobId,
+      pages_scraped: 0,
+      total_size_kb: 0,
+      last_checked_at: new Date().toISOString()
+    }).select().single();
 
     if (dbError) {
       console.error('⚠️ Failed to save scraping record:', dbError);
     }
 
+    // Return job ID and status immediately (no waiting!)
     return new Response(JSON.stringify({
       success: true,
-      rawPages: rawPages,
-      pagesScraped: rawPages.length,
-      websiteUrl: url
+      jobId: jobId,
+      recordId: dbRecord?.id,
+      status: 'scraping',
+      websiteUrl: url,
+      message: 'Scraping started successfully. Use check-scrape-status to poll for results.'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -176,7 +121,8 @@ serve(async (req) => {
           url: url,
           status: 'failed',
           error_message: error instanceof Error ? error.message : 'Unknown error',
-          completed_at: new Date().toISOString()
+          completed_at: new Date().toISOString(),
+          last_checked_at: new Date().toISOString()
         });
       } catch (dbError) {
         console.error('⚠️ Failed to save error record:', dbError);
