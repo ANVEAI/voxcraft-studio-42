@@ -1721,9 +1721,11 @@ if (!window.supabase) {
         contextParts.unshift(ariaLabel);
       }
       
-      // Combine context parts
+      // Return only the first context part (typically the title/heading)
+      // This ensures consistent matching since titles are always present in DOM
+      // Full context with separators often doesn't match exact DOM text
       if (contextParts.length > 0) {
-        return contextParts.join(' - ');
+        return contextParts[0];  // Just the title for reliable matching
       }
       
       return null;
