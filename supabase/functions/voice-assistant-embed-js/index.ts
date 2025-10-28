@@ -1138,12 +1138,12 @@ if (!window.supabase) {
             break;
           default:
             console.warn('Unknown function call:', functionName);
-            this.updateStatus(\`❓ Unknown command: \${functionName}\`);
+            this.updateStatus('❓ Unknown command: ' + functionName);
         }
-        this.updateStatus(\`✅ Executed \${functionName}\`);
+        this.updateStatus('✅ Executed ' + functionName);
       } catch (error) {
         console.error('❌ Function execution error:', error);
-        this.updateStatus(\`❌ Error executing \${functionName}\`);
+        this.updateStatus('❌ Error executing ' + functionName);
       }
     }
 
@@ -1157,7 +1157,7 @@ if (!window.supabase) {
       if (target_section) {
         const sectionFound = this.scrollToSection(target_section);
         if (sectionFound) {
-          this.updateStatus(\`📜 Scrolled to \${target_section}\`);
+          this.updateStatus('📜 Scrolled to ' + target_section);
           return;
         }
       }
@@ -1222,14 +1222,14 @@ if (!window.supabase) {
                 block: 'start',
                 inline: 'nearest'
               });
-              this.updateStatus(\`📜 Scrolled to \${direction}\`);
+              this.updateStatus('📜 Scrolled to ' + direction);
               return;
             }
           }
           window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
       }
       
-      this.updateStatus(\`📜 Scrolled \${direction || 'down'}\`);
+      this.updateStatus('📜 Scrolled ' + (direction || 'down'));
     }
     
     scrollToSection(sectionName) {
@@ -1332,33 +1332,52 @@ if (!window.supabase) {
     }
 
     click_element(params) {
-      const { target_text, element_type, nth_match } = params;
-      console.log('🖱️ Finding element to click:', target_text, element_type, nth_match);
+      const { target_text, element_type, nth_match, context_text, parent_contains, element_index } = params;
+      console.log('🖱️ Finding element to click:', { target_text, element_type, nth_match, context_text, parent_contains, element_index });
       
-      // Try multiple strategies to find the element
-      let element = this.findElementByText(target_text);
+      // ENHANCED: Context-aware element finding
+      let element = null;
       
-      // If not found, try more aggressive search
+      // Strategy 1: If context_text or parent_contains provided, use context-aware search
+      if (context_text || parent_contains) {
+        element = this.findElementByTextWithContext(target_text, {
+          context_text,
+          parent_contains,
+          element_index: element_index || nth_match
+        });
+        
+        if (element) {
+          console.log('✅ Found element using context-aware search');
+        }
+      }
+      
+      // Strategy 2: Try standard text search if no context or context search failed
+      if (!element) {
+        element = this.findElementByText(target_text);
+      }
+      
+      // Strategy 3: If not found, try more aggressive search
       if (!element) {
         element = this.findElementByFuzzyMatch(target_text, element_type);
       }
       
-      // If still not found, try by partial match
+      // Strategy 4: If still not found, try by partial match
       if (!element) {
-        element = this.findElementByPartialMatch(target_text, nth_match || 0);
+        element = this.findElementByPartialMatch(target_text, nth_match || element_index || 0);
       }
       
       if (element) {
         this.performClick(element);
-        this.updateStatus(\`✅ Clicked: \${target_text}\`);
+        const contextInfo = context_text ? ' (context: ' + context_text + ')' : '';
+        this.updateStatus('✅ Clicked: ' + target_text + contextInfo);
       } else {
         // Try to provide helpful feedback
         const suggestions = this.getSimilarElements(target_text);
         if (suggestions.length > 0) {
           console.log('🔍 Similar elements found:', suggestions.map(s => s.text));
-          this.updateStatus(\`❌ Not found. Try: \${suggestions[0].text}\`);
+          this.updateStatus('❌ Not found. Try: ' + suggestions[0].text);
         } else {
-          this.updateStatus(\`❌ Element not found: \${target_text}\`);
+          this.updateStatus('❌ Element not found: ' + target_text);
         }
       }
     }
@@ -1372,7 +1391,7 @@ if (!window.supabase) {
           inline: 'center'
         });
         
-        // Wait for scroll to complete
+        // Wait a moment then click
         setTimeout(() => {
           // Try multiple click strategies
           element.focus();
@@ -1503,7 +1522,7 @@ if (!window.supabase) {
             type: 'add-message',
             message: {
               role: 'system',
-              content: \`Page Context (\${detail_level}): \${JSON.stringify(context)}\`
+              content: 'Page Context (' + detail_level + '): ' + JSON.stringify(context)
             }
           });
           console.log('✅ Context sent to VAPI conversation');
@@ -1804,7 +1823,7 @@ if (!window.supabase) {
               if (elementText.includes(term)) {
                 score += term.length;
                 // Bonus for word boundary matches
-                if (new RegExp(\`\\\\b\${term}\\\\b\`).test(elementText)) {
+                if (new RegExp('\\b' + term + '\\b').test(elementText)) {
                   score += term.length * 0.5;
                 }
               }
@@ -1972,7 +1991,7 @@ if (!window.supabase) {
           keyCode: 13
         }));
         
-        this.updateStatus(\`✅ Filled field: \${value}\`);
+        this.updateStatus('✅ Filled field: ' + value);
         
         // Auto-submit if requested
         if (submit_after) {
@@ -1981,7 +2000,7 @@ if (!window.supabase) {
           }, 500);
         }
       } else {
-        this.updateStatus(\`❌ Field not found: \${field_hint || 'any'}\`);
+        this.updateStatus('❌ Field not found: ' + (field_hint || 'any'));
       }
     }
     
@@ -2128,12 +2147,12 @@ if (!window.supabase) {
         const toggled = this.performToggle(element, toggle_state);
         
         if (toggled) {
-          this.updateStatus(\`✅ Toggled: \${target}\`);
+          this.updateStatus('✅ Toggled: ' + target);
         } else {
-          this.updateStatus(\`⚠️ Toggle may not have worked: \${target}\`);
+          this.updateStatus('⚠️ Toggle may not have worked: ' + target);
         }
       } else {
-        this.updateStatus(\`❌ Toggle element not found: \${target}\`);
+        this.updateStatus('❌ Toggle element not found: ' + target);
       }
     }
     
@@ -2306,7 +2325,7 @@ if (!window.supabase) {
       
       // Check for associated label
       if (element.id) {
-        const label = document.querySelector(\`label[for="\${element.id}"]\`);
+        const label = document.querySelector('label[for="' + element.id + '"]');
         if (label) {
           labelText += label.textContent + ' ';
         }
@@ -2365,6 +2384,83 @@ if (!window.supabase) {
       });
       
       return bestElement;
+    }
+
+    // ENHANCED: Context-aware element finding for disambiguating repeated elements
+    findElementByTextWithContext(targetText, options = {}) {
+      const { context_text, parent_contains, element_index } = options;
+      const searchText = targetText.toLowerCase();
+      const contextSearchText = (context_text || parent_contains || '').toLowerCase();
+      
+      console.log('🔍 Context-aware search:', { targetText, contextSearchText, element_index });
+      
+      // Find all elements matching the target text
+      const matchingElements = [];
+      
+      this.currentPageElements.forEach(item => {
+        const itemText = item.text.toLowerCase();
+        
+        if (itemText.includes(searchText) || itemText === searchText) {
+          matchingElements.push(item.element);
+        }
+      });
+      
+      // Also search in DOM for elements not in currentPageElements
+      const allElements = document.querySelectorAll('button, a, [role="button"], [onclick], input[type="button"], input[type="submit"]');
+      allElements.forEach(el => {
+        const elText = this.getElementText(el).toLowerCase();
+        if ((elText.includes(searchText) || elText === searchText) && !matchingElements.includes(el)) {
+          matchingElements.push(el);
+        }
+      });
+      
+      console.log('🔍 Found ' + matchingElements.length + ' elements matching "' + targetText + '"');
+      
+      // If no context provided or only one match, return first match
+      if (!contextSearchText || matchingElements.length <= 1) {
+        return matchingElements[element_index || 0] || matchingElements[0] || null;
+      }
+      
+      // Filter by context: find elements whose parent/ancestor contains the context text
+      const contextMatches = [];
+      
+      matchingElements.forEach(element => {
+        // Search up the DOM tree for context text
+        let currentNode = element.parentElement;
+        let maxDepth = 10; // Limit how far up we search
+        let depth = 0;
+        
+        while (currentNode && depth < maxDepth) {
+          const parentText = currentNode.textContent?.toLowerCase() || '';
+          
+          if (parentText.includes(contextSearchText)) {
+            // Calculate a score based on how close the context is
+            const score = maxDepth - depth; // Closer parents get higher scores
+            contextMatches.push({ element, score, depth });
+            console.log('✅ Found context match at depth ' + depth + ':', {
+              element: this.getElementText(element),
+              context: currentNode.textContent?.substring(0, 100)
+            });
+            break;
+          }
+          
+          currentNode = currentNode.parentElement;
+          depth++;
+        }
+      });
+      
+      if (contextMatches.length === 0) {
+        console.warn('⚠️ No context matches found for "' + contextSearchText + '", falling back to first match');
+        return matchingElements[element_index || 0] || matchingElements[0] || null;
+      }
+      
+      // Sort by score (closer context = higher score) and return the best match
+      contextMatches.sort((a, b) => b.score - a.score);
+      
+      const selectedMatch = contextMatches[element_index || 0] || contextMatches[0];
+      console.log('✅ Selected element with context at depth ' + selectedMatch.depth);
+      
+      return selectedMatch.element;
     }
 
     findFieldByHint(hint) {
