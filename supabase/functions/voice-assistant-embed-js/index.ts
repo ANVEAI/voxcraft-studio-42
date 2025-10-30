@@ -1535,11 +1535,7 @@ if (!window.supabase) {
         context.forms = this.extractForms();
         context.contentSections = this.extractContentSections();
         context.pageType = this.detectPageType();
-        
-        // Extract cart-specific data if on cart page
-        if (context.pageType === 'cart_page') {
-          context.cartItems = this.extractCartItems();
-        }
+        context.deepContext = this.extractDeepContext();
         
         return context;
       }
@@ -1860,142 +1856,345 @@ if (!window.supabase) {
       return 'general_page';
     }
     
-    extractCartItems() {
-      // Extract detailed cart item information including quantities
-      const cartItems = [];
+    extractDeepContext() {
+      // Extract comprehensive, deep context from the entire page
+      const deepContext = {
+        semanticStructure: this.extractSemanticStructure(),
+        textContent: this.extractAllTextContent(),
+        dataAttributes: this.extractDataAttributes(),
+        inputFields: this.extractAllInputFields(),
+        visualHierarchy: this.extractVisualHierarchy()
+      };
       
-      // Strategy 1: Look for common cart item container patterns
-      const cartItemSelectors = [
-        '.cart-item',
-        '[data-cart-item]',
-        '.product-item',
-        '[class*="cart"][class*="item"]',
-        'article',
-        '.item',
-        '[role="article"]'
+      return deepContext;
+    }
+    
+    extractSemanticStructure() {
+      // Extract semantic HTML structure and relationships
+      const structure = [];
+      
+      // Find all semantic containers
+      const semanticSelectors = [
+        'main', 'article', 'section', 'aside', 'header', 'footer', 'nav',
+        '[role="main"]', '[role="article"]', '[role="complementary"]',
+        '[role="navigation"]', '[role="contentinfo"]'
       ];
       
-      let foundItems = [];
-      
-      for (const selector of cartItemSelectors) {
-        const items = document.querySelectorAll(selector);
-        if (items.length > 0 && items.length < 50) { // Reasonable cart size
-          foundItems = Array.from(items);
-          break;
-        }
-      }
-      
-      // If no specific cart items found, try to find product cards
-      if (foundItems.length === 0) {
-        foundItems = Array.from(document.querySelectorAll('[class*="product"], [class*="book"]'));
-      }
-      
-      foundItems.forEach((item, index) => {
-        if (!this.isVisible(item)) return;
-        
-        const itemData = {
-          index: index + 1
-        };
-        
-        // Extract item name/title
-        const titleSelectors = ['h1', 'h2', 'h3', 'h4', '.title', '.name', '[class*="title"]', '[class*="name"]', 'a'];
-        for (const selector of titleSelectors) {
-          const titleEl = item.querySelector(selector);
-          if (titleEl) {
-            const titleText = this.getElementText(titleEl).trim();
-            if (titleText && titleText.length > 0 && titleText.length < 200) {
-              itemData.name = titleText;
-              break;
-            }
-          }
-        }
-        
-        // Extract quantity - CRITICAL for cart operations
-        const quantitySelectors = [
-          'input[type="number"]',
-          '[class*="quantity"] input',
-          '[class*="qty"] input',
-          '.quantity',
-          '.qty',
-          '[data-quantity]'
-        ];
-        
-        for (const selector of quantitySelectors) {
-          const qtyEl = item.querySelector(selector);
-          if (qtyEl) {
-            if (qtyEl.tagName === 'INPUT') {
-              itemData.quantity = parseInt(qtyEl.value) || 1;
-              itemData.quantityInputId = qtyEl.id || qtyEl.name || undefined;
-            } else {
-              const qtyText = this.getElementText(qtyEl).trim();
-              const qtyMatch = qtyText.match(/\d+/);
-              if (qtyMatch) {
-                itemData.quantity = parseInt(qtyMatch[0]);
+      semanticSelectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(element => {
+            if (!this.isVisible(element)) return;
+            
+            const elementInfo = {
+              tag: element.tagName.toLowerCase(),
+              role: element.getAttribute('role') || undefined,
+              id: element.id || undefined,
+              classes: element.className ? element.className.split(' ').filter(c => c.length > 0).slice(0, 5) : undefined,
+              ariaLabel: element.getAttribute('aria-label') || undefined,
+              headings: [],
+              lists: [],
+              tables: []
+            };
+            
+            // Extract headings within this section
+            element.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+              if (this.isVisible(heading)) {
+                const text = this.getElementText(heading).trim();
+                if (text && text.length < 200) {
+                  elementInfo.headings.push({
+                    level: heading.tagName.toLowerCase(),
+                    text: text
+                  });
+                }
               }
+            });
+            
+            // Extract lists
+            element.querySelectorAll('ul, ol').forEach(list => {
+              if (this.isVisible(list) && list.children.length > 0 && list.children.length < 20) {
+                const items = [];
+                Array.from(list.children).slice(0, 10).forEach(li => {
+                  const text = this.getElementText(li).trim();
+                  if (text && text.length < 200) {
+                    items.push(text);
+                  }
+                });
+                if (items.length > 0) {
+                  elementInfo.lists.push({
+                    type: list.tagName.toLowerCase(),
+                    items: items
+                  });
+                }
+              }
+            });
+            
+            // Extract tables
+            element.querySelectorAll('table').forEach(table => {
+              if (this.isVisible(table)) {
+                const headers = [];
+                table.querySelectorAll('th').forEach(th => {
+                  const text = this.getElementText(th).trim();
+                  if (text) headers.push(text);
+                });
+                
+                if (headers.length > 0) {
+                  elementInfo.tables.push({ headers: headers.slice(0, 10) });
+                }
+              }
+            });
+            
+            // Only add if we found meaningful content
+            if (elementInfo.headings.length > 0 || elementInfo.lists.length > 0 || elementInfo.tables.length > 0) {
+              structure.push(elementInfo);
             }
-            break;
-          }
-        }
-        
-        // If no quantity found, look for text patterns like "Qty: 2" or "Quantity: 3"
-        if (!itemData.quantity) {
-          const itemText = this.getElementText(item);
-          const qtyPatterns = [
-            /qty[:\s]*(\d+)/i,
-            /quantity[:\s]*(\d+)/i,
-            /amount[:\s]*(\d+)/i,
-            /count[:\s]*(\d+)/i
-          ];
-          
-          for (const pattern of qtyPatterns) {
-            const match = itemText.match(pattern);
-            if (match) {
-              itemData.quantity = parseInt(match[1]);
-              break;
-            }
-          }
-        }
-        
-        // Default quantity if still not found
-        if (!itemData.quantity) {
-          itemData.quantity = 1;
-        }
-        
-        // Extract price
-        const priceSelectors = ['.price', '[class*="price"]', '[data-price]'];
-        for (const selector of priceSelectors) {
-          const priceEl = item.querySelector(selector);
-          if (priceEl && this.isVisible(priceEl)) {
-            const priceText = this.getElementText(priceEl).trim();
-            if (priceText && /[\$£€¥₹\d]/.test(priceText)) {
-              itemData.price = priceText;
-              break;
-            }
-          }
-        }
-        
-        // Find quantity control buttons (+ and -)
-        const buttons = item.querySelectorAll('button');
-        buttons.forEach(btn => {
-          const btnText = this.getElementText(btn).trim();
-          const ariaLabel = btn.getAttribute('aria-label') || '';
-          
-          if (btnText === '+' || ariaLabel.toLowerCase().includes('increase')) {
-            itemData.increaseButton = btnText || 'Increase';
-          } else if (btnText === '-' || ariaLabel.toLowerCase().includes('decrease')) {
-            itemData.decreaseButton = btnText || 'Decrease';
-          } else if (btnText === '×' || btnText.toLowerCase().includes('remove') || ariaLabel.toLowerCase().includes('remove')) {
-            itemData.removeButton = btnText || 'Remove';
-          }
-        });
-        
-        // Only add if we found at least a name
-        if (itemData.name) {
-          cartItems.push(itemData);
+          });
+        } catch (e) {
+          console.warn('Semantic structure extraction error:', selector, e);
         }
       });
       
-      return cartItems;
+      return structure.slice(0, 20);
+    }
+    
+    extractAllTextContent() {
+      // Extract all meaningful text content with context
+      const textBlocks = [];
+      
+      // Get all text-containing elements
+      const textSelectors = [
+        'p', 'span', 'div', 'li', 'td', 'th', 'label',
+        '[class*="text"]', '[class*="content"]', '[class*="description"]',
+        '[class*="title"]', '[class*="name"]', '[class*="label"]'
+      ];
+      
+      const seenTexts = new Set();
+      
+      textSelectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(element => {
+            if (!this.isVisible(element)) return;
+            
+            // Get direct text content (not from children)
+            const text = Array.from(element.childNodes)
+              .filter(node => node.nodeType === Node.TEXT_NODE)
+              .map(node => node.textContent.trim())
+              .join(' ')
+              .trim();
+            
+            if (text && text.length > 3 && text.length < 500 && !seenTexts.has(text)) {
+              seenTexts.add(text);
+              
+              // Get context from parent or siblings
+              const context = [];
+              
+              // Check for nearby labels
+              const label = element.closest('label') || element.previousElementSibling;
+              if (label && label.tagName === 'LABEL') {
+                const labelText = this.getElementText(label).trim();
+                if (labelText && labelText !== text) {
+                  context.push(labelText);
+                }
+              }
+              
+              // Check for data attributes that provide context
+              const dataAttrs = [];
+              Array.from(element.attributes).forEach(attr => {
+                if (attr.name.startsWith('data-') && attr.value && attr.value.length < 50) {
+                  dataAttrs.push(attr.name + ':' + attr.value);
+                }
+              });
+              
+              textBlocks.push({
+                text: text,
+                context: context.length > 0 ? context : undefined,
+                dataAttributes: dataAttrs.length > 0 ? dataAttrs : undefined,
+                classes: element.className ? element.className.split(' ').filter(c => c.length > 0).slice(0, 3) : undefined
+              });
+            }
+          });
+        } catch (e) {
+          console.warn('Text content extraction error:', selector, e);
+        }
+      });
+      
+      return textBlocks.slice(0, 100);
+    }
+    
+    extractDataAttributes() {
+      // Extract all data-* attributes from the page for deep context
+      const dataMap = {};
+      
+      try {
+        document.querySelectorAll('[data-*]').forEach(element => {
+          if (!this.isVisible(element)) return;
+          
+          Array.from(element.attributes).forEach(attr => {
+            if (attr.name.startsWith('data-')) {
+              const key = attr.name;
+              const value = attr.value;
+              
+              // Store unique values
+              if (!dataMap[key]) {
+                dataMap[key] = new Set();
+              }
+              
+              if (value && value.length < 200) {
+                dataMap[key].add(value);
+              }
+            }
+          });
+        });
+        
+        // Convert Sets to Arrays and limit
+        const result = {};
+        Object.keys(dataMap).slice(0, 50).forEach(key => {
+          result[key] = Array.from(dataMap[key]).slice(0, 10);
+        });
+        
+        return result;
+      } catch (e) {
+        console.warn('Data attributes extraction error:', e);
+        return {};
+      }
+    }
+    
+    extractAllInputFields() {
+      // Extract ALL input fields with their current values and context
+      const inputs = [];
+      
+      try {
+        document.querySelectorAll('input, textarea, select').forEach(input => {
+          if (!this.isVisible(input) || input.type === 'hidden' || input.type === 'password') return;
+          
+          const inputInfo = {
+            type: input.type || input.tagName.toLowerCase(),
+            name: input.name || undefined,
+            id: input.id || undefined,
+            placeholder: input.placeholder || undefined,
+            value: input.value || undefined,
+            checked: input.checked || undefined,
+            ariaLabel: input.getAttribute('aria-label') || undefined
+          };
+          
+          // Get associated label
+          let labelEl = null;
+          if (input.id) {
+            labelEl = document.querySelector('label[for="' + input.id + '"]');
+          }
+          if (!labelEl) {
+            labelEl = input.closest('label');
+          }
+          
+          if (labelEl) {
+            inputInfo.label = this.getElementText(labelEl).trim();
+          }
+          
+          // Get nearby context text
+          const parent = input.parentElement;
+          if (parent) {
+            const siblingText = Array.from(parent.childNodes)
+              .filter(node => node.nodeType === Node.TEXT_NODE)
+              .map(node => node.textContent.trim())
+              .join(' ')
+              .trim();
+            
+            if (siblingText && siblingText.length < 100) {
+              inputInfo.nearbyText = siblingText;
+            }
+          }
+          
+          inputs.push(inputInfo);
+        });
+      } catch (e) {
+        console.warn('Input fields extraction error:', e);
+      }
+      
+      return inputs.slice(0, 50);
+    }
+    
+    extractVisualHierarchy() {
+      // Extract visual hierarchy and groupings
+      const hierarchy = [];
+      
+      try {
+        // Find all container elements that group content
+        const containerSelectors = [
+          '[class*="card"]', '[class*="item"]', '[class*="product"]',
+          '[class*="row"]', '[class*="col"]', '[class*="grid"]',
+          '[class*="container"]', '[class*="wrapper"]', '[class*="box"]'
+        ];
+        
+        const seenContainers = new Set();
+        
+        containerSelectors.forEach(selector => {
+          try {
+            document.querySelectorAll(selector).forEach(container => {
+              if (!this.isVisible(container) || seenContainers.has(container)) return;
+              
+              // Skip if too large (likely a layout container, not content)
+              const rect = container.getBoundingClientRect();
+              if (rect.width > window.innerWidth * 0.9) return;
+              
+              seenContainers.add(container);
+              
+              const containerInfo = {
+                classes: container.className ? container.className.split(' ').filter(c => c.length > 0).slice(0, 3) : undefined,
+                children: []
+              };
+              
+              // Extract key information from children
+              const heading = container.querySelector('h1, h2, h3, h4, h5, h6');
+              if (heading && this.isVisible(heading)) {
+                containerInfo.heading = this.getElementText(heading).trim();
+              }
+              
+              // Extract all text content
+              const allText = this.getElementText(container).trim();
+              if (allText && allText.length < 500) {
+                containerInfo.text = allText;
+              }
+              
+              // Extract buttons within
+              const buttons = container.querySelectorAll('button, a[href], [role="button"]');
+              const buttonTexts = [];
+              buttons.forEach(btn => {
+                if (this.isVisible(btn)) {
+                  const btnText = this.getElementText(btn).trim();
+                  if (btnText && btnText.length < 50) {
+                    buttonTexts.push(btnText);
+                  }
+                }
+              });
+              if (buttonTexts.length > 0) {
+                containerInfo.buttons = buttonTexts.slice(0, 5);
+              }
+              
+              // Extract input fields within
+              const inputs = container.querySelectorAll('input, select, textarea');
+              const inputTypes = [];
+              inputs.forEach(input => {
+                if (this.isVisible(input) && input.type !== 'hidden') {
+                  inputTypes.push(input.type || 'text');
+                }
+              });
+              if (inputTypes.length > 0) {
+                containerInfo.inputs = inputTypes;
+              }
+              
+              // Only add if we found meaningful content
+              if (containerInfo.heading || containerInfo.buttons || containerInfo.inputs) {
+                hierarchy.push(containerInfo);
+              }
+            });
+          } catch (e) {
+            console.warn('Container extraction error:', selector, e);
+          }
+        });
+      } catch (e) {
+        console.warn('Visual hierarchy extraction error:', e);
+      }
+      
+      return hierarchy.slice(0, 30);
     }
     
     findElementByFuzzyMatch(targetText, elementType) {
