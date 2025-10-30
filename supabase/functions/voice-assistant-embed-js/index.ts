@@ -1589,23 +1589,47 @@ if (!window.supabase) {
           document.querySelectorAll(selector).forEach(el => {
             if (this.isVisible(el)) {
               // Get text from multiple sources (text content, aria-label, title, etc.)
-              const text = this.getElementText(el);
+              const text = this.getElementText(el).trim();
               
               // Also check for aria-label and title explicitly for icon-only buttons
               const ariaLabel = el.getAttribute('aria-label');
               const title = el.getAttribute('title');
-              const displayText = text || ariaLabel || title;
+              const role = el.getAttribute('role');
               
-              if (displayText && displayText.length > 0 && displayText.length < 100) {
-                // Get contextual information from parent elements
-                const context = this.getElementContext(el);
-                
-                elements.push({
+              // Get the actual visible text (what user sees)
+              const actualText = text || ariaLabel || title || '';
+              
+              // Get contextual information from parent elements
+              const context = this.getElementContext(el);
+              
+              // Detect button purpose/intent for VAPI
+              const buttonPurpose = this.detectButtonPurpose(el, actualText, ariaLabel);
+              
+              // Only include if we have some identifying information
+              if (actualText.length > 0 && actualText.length < 100) {
+                const elementData = {
                   type: el.tagName.toLowerCase(),
-                  text: displayText,
-                  ariaLabel: ariaLabel || undefined,  // Include aria-label separately for better matching
-                  context: context || undefined  // Only include if context exists
-                });
+                  text: actualText,  // What the button actually shows
+                  purpose: buttonPurpose,  // Detected intent (e.g., "increase_quantity", "add_to_cart")
+                  nearbyContext: context || undefined  // Nearby text (e.g., product name)
+                };
+                
+                // Add aria-label separately if it's different from text (for better VAPI understanding)
+                if (ariaLabel && ariaLabel !== actualText) {
+                  elementData.ariaLabel = ariaLabel;
+                }
+                
+                // Add title if it provides additional context
+                if (title && title !== actualText && title !== ariaLabel) {
+                  elementData.title = title;
+                }
+                
+                // Add role if specified
+                if (role) {
+                  elementData.role = role;
+                }
+                
+                elements.push(elementData);
               }
             }
           });
@@ -1615,6 +1639,66 @@ if (!window.supabase) {
       });
       
       return elements.slice(0, 50);  // Increased from 30 to 50 to include more icon buttons
+    }
+    
+    detectButtonPurpose(element, text, ariaLabel) {
+      // Detect common button purposes to help VAPI understand intent
+      const combinedText = (text + ' ' + (ariaLabel || '')).toLowerCase();
+      
+      // Quantity controls
+      if (combinedText.includes('increase') || combinedText.includes('plus') || text === '+' || text === '＋') {
+        return 'increase_quantity';
+      }
+      if (combinedText.includes('decrease') || combinedText.includes('minus') || text === '-' || text === '−') {
+        return 'decrease_quantity';
+      }
+      
+      // Shopping actions
+      if (combinedText.includes('add to cart') || combinedText.includes('add to bag')) {
+        return 'add_to_cart';
+      }
+      if (combinedText.includes('remove') && combinedText.includes('cart')) {
+        return 'remove_from_cart';
+      }
+      if (combinedText.includes('checkout') || combinedText.includes('proceed')) {
+        return 'checkout';
+      }
+      
+      // Common actions
+      if (combinedText.includes('delete') || combinedText.includes('trash')) {
+        return 'delete';
+      }
+      if (combinedText.includes('edit') || combinedText.includes('modify')) {
+        return 'edit';
+      }
+      if (combinedText.includes('close') || combinedText.includes('dismiss') || text === '×' || text === '✕') {
+        return 'close';
+      }
+      if (combinedText.includes('save')) {
+        return 'save';
+      }
+      if (combinedText.includes('cancel')) {
+        return 'cancel';
+      }
+      if (combinedText.includes('submit')) {
+        return 'submit';
+      }
+      
+      // Wishlist/favorites
+      if (combinedText.includes('wishlist') || combinedText.includes('favorite') || combinedText.includes('like')) {
+        return 'add_to_wishlist';
+      }
+      
+      // Navigation
+      if (combinedText.includes('next') || combinedText.includes('forward')) {
+        return 'navigate_next';
+      }
+      if (combinedText.includes('previous') || combinedText.includes('back')) {
+        return 'navigate_previous';
+      }
+      
+      // Default: use the text as-is
+      return 'action';
     }
 
     getElementContext(element) {
