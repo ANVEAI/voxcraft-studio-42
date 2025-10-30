@@ -1535,6 +1535,12 @@ if (!window.supabase) {
         context.forms = this.extractForms();
         context.contentSections = this.extractContentSections();
         context.pageType = this.detectPageType();
+        
+        // Extract cart-specific data if on cart page
+        if (context.pageType === 'cart_page') {
+          context.cartItems = this.extractCartItems();
+        }
+        
         return context;
       }
       
@@ -1852,6 +1858,144 @@ if (!window.supabase) {
       if (url === window.location.origin + '/' || url === window.location.origin) return 'landing_page';
       
       return 'general_page';
+    }
+    
+    extractCartItems() {
+      // Extract detailed cart item information including quantities
+      const cartItems = [];
+      
+      // Strategy 1: Look for common cart item container patterns
+      const cartItemSelectors = [
+        '.cart-item',
+        '[data-cart-item]',
+        '.product-item',
+        '[class*="cart"][class*="item"]',
+        'article',
+        '.item',
+        '[role="article"]'
+      ];
+      
+      let foundItems = [];
+      
+      for (const selector of cartItemSelectors) {
+        const items = document.querySelectorAll(selector);
+        if (items.length > 0 && items.length < 50) { // Reasonable cart size
+          foundItems = Array.from(items);
+          break;
+        }
+      }
+      
+      // If no specific cart items found, try to find product cards
+      if (foundItems.length === 0) {
+        foundItems = Array.from(document.querySelectorAll('[class*="product"], [class*="book"]'));
+      }
+      
+      foundItems.forEach((item, index) => {
+        if (!this.isVisible(item)) return;
+        
+        const itemData = {
+          index: index + 1
+        };
+        
+        // Extract item name/title
+        const titleSelectors = ['h1', 'h2', 'h3', 'h4', '.title', '.name', '[class*="title"]', '[class*="name"]', 'a'];
+        for (const selector of titleSelectors) {
+          const titleEl = item.querySelector(selector);
+          if (titleEl) {
+            const titleText = this.getElementText(titleEl).trim();
+            if (titleText && titleText.length > 0 && titleText.length < 200) {
+              itemData.name = titleText;
+              break;
+            }
+          }
+        }
+        
+        // Extract quantity - CRITICAL for cart operations
+        const quantitySelectors = [
+          'input[type="number"]',
+          '[class*="quantity"] input',
+          '[class*="qty"] input',
+          '.quantity',
+          '.qty',
+          '[data-quantity]'
+        ];
+        
+        for (const selector of quantitySelectors) {
+          const qtyEl = item.querySelector(selector);
+          if (qtyEl) {
+            if (qtyEl.tagName === 'INPUT') {
+              itemData.quantity = parseInt(qtyEl.value) || 1;
+              itemData.quantityInputId = qtyEl.id || qtyEl.name || undefined;
+            } else {
+              const qtyText = this.getElementText(qtyEl).trim();
+              const qtyMatch = qtyText.match(/\d+/);
+              if (qtyMatch) {
+                itemData.quantity = parseInt(qtyMatch[0]);
+              }
+            }
+            break;
+          }
+        }
+        
+        // If no quantity found, look for text patterns like "Qty: 2" or "Quantity: 3"
+        if (!itemData.quantity) {
+          const itemText = this.getElementText(item);
+          const qtyPatterns = [
+            /qty[:\s]*(\d+)/i,
+            /quantity[:\s]*(\d+)/i,
+            /amount[:\s]*(\d+)/i,
+            /count[:\s]*(\d+)/i
+          ];
+          
+          for (const pattern of qtyPatterns) {
+            const match = itemText.match(pattern);
+            if (match) {
+              itemData.quantity = parseInt(match[1]);
+              break;
+            }
+          }
+        }
+        
+        // Default quantity if still not found
+        if (!itemData.quantity) {
+          itemData.quantity = 1;
+        }
+        
+        // Extract price
+        const priceSelectors = ['.price', '[class*="price"]', '[data-price]'];
+        for (const selector of priceSelectors) {
+          const priceEl = item.querySelector(selector);
+          if (priceEl && this.isVisible(priceEl)) {
+            const priceText = this.getElementText(priceEl).trim();
+            if (priceText && /[\$£€¥₹\d]/.test(priceText)) {
+              itemData.price = priceText;
+              break;
+            }
+          }
+        }
+        
+        // Find quantity control buttons (+ and -)
+        const buttons = item.querySelectorAll('button');
+        buttons.forEach(btn => {
+          const btnText = this.getElementText(btn).trim();
+          const ariaLabel = btn.getAttribute('aria-label') || '';
+          
+          if (btnText === '+' || ariaLabel.toLowerCase().includes('increase')) {
+            itemData.increaseButton = btnText || 'Increase';
+          } else if (btnText === '-' || ariaLabel.toLowerCase().includes('decrease')) {
+            itemData.decreaseButton = btnText || 'Decrease';
+          } else if (btnText === '×' || btnText.toLowerCase().includes('remove') || ariaLabel.toLowerCase().includes('remove')) {
+            itemData.removeButton = btnText || 'Remove';
+          }
+        });
+        
+        // Only add if we found at least a name
+        if (itemData.name) {
+          cartItems.push(itemData);
+        }
+      });
+      
+      return cartItems;
     }
     
     findElementByFuzzyMatch(targetText, elementType) {
