@@ -1588,14 +1588,22 @@ if (!window.supabase) {
         try {
           document.querySelectorAll(selector).forEach(el => {
             if (this.isVisible(el)) {
+              // Get text from multiple sources (text content, aria-label, title, etc.)
               const text = this.getElementText(el);
-              if (text && text.length > 0 && text.length < 100) {
+              
+              // Also check for aria-label and title explicitly for icon-only buttons
+              const ariaLabel = el.getAttribute('aria-label');
+              const title = el.getAttribute('title');
+              const displayText = text || ariaLabel || title;
+              
+              if (displayText && displayText.length > 0 && displayText.length < 100) {
                 // Get contextual information from parent elements
                 const context = this.getElementContext(el);
                 
                 elements.push({
                   type: el.tagName.toLowerCase(),
-                  text: text,
+                  text: displayText,
+                  ariaLabel: ariaLabel || undefined,  // Include aria-label separately for better matching
                   context: context || undefined  // Only include if context exists
                 });
               }
@@ -1606,7 +1614,7 @@ if (!window.supabase) {
         }
       });
       
-      return elements.slice(0, 30);
+      return elements.slice(0, 50);  // Increased from 30 to 50 to include more icon buttons
     }
 
     getElementContext(element) {
@@ -2380,7 +2388,18 @@ if (!window.supabase) {
       const allElements = document.querySelectorAll('button, a, [role="button"], [onclick], input[type="button"], input[type="submit"]');
       allElements.forEach(el => {
         const elText = this.getElementText(el).toLowerCase();
-        if ((elText.includes(searchText) || elText === searchText) && !matchingElements.includes(el)) {
+        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+        const title = (el.getAttribute('title') || '').toLowerCase();
+        
+        // Match against text content, aria-label, or title
+        const matches = elText.includes(searchText) || 
+                       elText === searchText ||
+                       ariaLabel.includes(searchText) ||
+                       ariaLabel === searchText ||
+                       title.includes(searchText) ||
+                       title === searchText;
+        
+        if (matches && !matchingElements.includes(el)) {
           matchingElements.push(el);
         }
       });
