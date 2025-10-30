@@ -2093,7 +2093,32 @@ if (!window.supabase) {
             inputInfo.label = this.getElementText(labelEl).trim();
           }
           
-          // Get nearby context text
+          // Get nearby context text - search up the DOM tree for item context
+          let contextText = '';
+          let currentElement = input.parentElement;
+          let depth = 0;
+          
+          // Search up to 5 levels for meaningful context (like product name)
+          while (currentElement && depth < 5) {
+            // Look for headings that might indicate the item name
+            const heading = currentElement.querySelector('h1, h2, h3, h4, h5, h6, a[href*="product"], a[href*="item"], [class*="title"], [class*="name"]');
+            if (heading && this.isVisible(heading)) {
+              const headingText = this.getElementText(heading).trim();
+              if (headingText && headingText.length > 0 && headingText.length < 200) {
+                contextText = headingText;
+                break;
+              }
+            }
+            
+            currentElement = currentElement.parentElement;
+            depth++;
+          }
+          
+          if (contextText) {
+            inputInfo.itemContext = contextText;
+          }
+          
+          // Also get immediate parent text
           const parent = input.parentElement;
           if (parent) {
             const siblingText = Array.from(parent.childNodes)
