@@ -1393,42 +1393,11 @@ if (!window.supabase) {
         
         // Wait a moment then click
         setTimeout(() => {
-          // Try multiple click strategies
+          // Focus element for accessibility
           element.focus();
           
-          // Dispatch mouse events for better compatibility
-          const mouseEvents = ['mousedown', 'mouseup', 'click'];
-          mouseEvents.forEach(eventType => {
-            const event = new MouseEvent(eventType, {
-              view: window,
-              bubbles: true,
-              cancelable: true,
-              buttons: 1
-            });
-            element.dispatchEvent(event);
-          });
-          
-          // Also try native click
+          // Single native click - prevents duplicate cart additions
           element.click();
-          
-          // Handle special cases
-          if (element.tagName === 'A' && element.href) {
-            // For links that might use preventDefault
-            const clickEvent = new MouseEvent('click', {
-              view: window,
-              bubbles: true,
-              cancelable: true,
-              ctrlKey: false,
-              metaKey: false
-            });
-            
-            if (!element.dispatchEvent(clickEvent)) {
-              // If prevented, try navigation
-              if (element.href && !element.href.startsWith('javascript:')) {
-                window.location.href = element.href;
-              }
-            }
-          }
           
           // Re-analyze page after click for dynamic content
           setTimeout(() => {
