@@ -2025,11 +2025,15 @@ if (!window.supabase) {
       const dataMap = {};
       
       try {
-        document.querySelectorAll('[data-*]').forEach(element => {
+        // Get all elements and check for data attributes
+        document.querySelectorAll('*').forEach(element => {
           if (!this.isVisible(element)) return;
           
+          // Check if element has any data attributes
+          let hasDataAttr = false;
           Array.from(element.attributes).forEach(attr => {
             if (attr.name.startsWith('data-')) {
+              hasDataAttr = true;
               const key = attr.name;
               const value = attr.value;
               
