@@ -2142,7 +2142,7 @@ if (!window.supabase) {
     }
     
     extractVisualHierarchy() {
-      // Extract visual hierarchy and groupings
+      // Extract visual hierarchy and groupings with quantity control mechanisms
       const hierarchy = [];
       
       try {
@@ -2172,7 +2172,7 @@ if (!window.supabase) {
               };
               
               // Extract key information from children
-              const heading = container.querySelector('h1, h2, h3, h4, h5, h6');
+              const heading = container.querySelector('h1, h2, h3, h4, h5, h6, a[href*="product"], a[href*="item"]');
               if (heading && this.isVisible(heading)) {
                 containerInfo.heading = this.getElementText(heading).trim();
               }
@@ -2183,35 +2183,54 @@ if (!window.supabase) {
                 containerInfo.text = allText;
               }
               
-              // Extract buttons within
-              const buttons = container.querySelectorAll('button, a[href], [role="button"]');
-              const buttonTexts = [];
-              buttons.forEach(btn => {
-                if (this.isVisible(btn)) {
-                  const btnText = this.getElementText(btn).trim();
-                  if (btnText && btnText.length < 50) {
-                    buttonTexts.push(btnText);
+              // Extract ALL clickable elements with their attributes
+              const clickables = container.querySelectorAll('button, a[href], [role="button"], [onclick], [class*="btn"], [class*="button"]');
+              const clickableElements = [];
+              clickables.forEach(el => {
+                if (this.isVisible(el)) {
+                  const elInfo = {
+                    text: this.getElementText(el).trim(),
+                    ariaLabel: el.getAttribute('aria-label') || undefined,
+                    title: el.getAttribute('title') || undefined,
+                    classes: el.className ? el.className.split(' ').filter(c => c.length > 0).slice(0, 3) : undefined
+                  };
+                  
+                  // Only add if has some identifying info
+                  if (elInfo.text || elInfo.ariaLabel || elInfo.title) {
+                    clickableElements.push(elInfo);
                   }
                 }
               });
-              if (buttonTexts.length > 0) {
-                containerInfo.buttons = buttonTexts.slice(0, 5);
+              if (clickableElements.length > 0) {
+                containerInfo.clickableElements = clickableElements.slice(0, 10);
               }
               
-              // Extract input fields within
+              // Extract input fields with their current values
               const inputs = container.querySelectorAll('input, select, textarea');
-              const inputTypes = [];
+              const inputFields = [];
               inputs.forEach(input => {
-                if (this.isVisible(input) && input.type !== 'hidden') {
-                  inputTypes.push(input.type || 'text');
+                if (this.isVisible(input) && input.type !== 'hidden' && input.type !== 'password') {
+                  inputFields.push({
+                    type: input.type || input.tagName.toLowerCase(),
+                    value: input.value || undefined,
+                    placeholder: input.placeholder || undefined,
+                    name: input.name || undefined,
+                    id: input.id || undefined
+                  });
                 }
               });
-              if (inputTypes.length > 0) {
-                containerInfo.inputs = inputTypes;
+              if (inputFields.length > 0) {
+                containerInfo.inputFields = inputFields;
+              }
+              
+              // Detect quantity control patterns
+              const quantityControls = this.detectQuantityControls(container);
+              if (quantityControls) {
+                containerInfo.quantityControls = quantityControls;
               }
               
               // Only add if we found meaningful content
-              if (containerInfo.heading || containerInfo.buttons || containerInfo.inputs) {
+              if (containerInfo.heading || containerInfo.clickableElements || containerInfo.inputFields) {
                 hierarchy.push(containerInfo);
               }
             });
@@ -2224,6 +2243,83 @@ if (!window.supabase) {
       }
       
       return hierarchy.slice(0, 30);
+    }
+    
+    detectQuantityControls(container) {
+      // Detect all possible quantity control mechanisms in a container
+      const controls = {};
+      
+      try {
+        // Look for quantity input fields
+        const qtyInputs = container.querySelectorAll('input[type="number"], input[name*="quantity"], input[name*="qty"], input[id*="quantity"], input[id*="qty"]');
+        if (qtyInputs.length > 0) {
+          const input = qtyInputs[0];
+          if (this.isVisible(input)) {
+            controls.inputField = {
+              type: 'number_input',
+              currentValue: input.value || '1',
+              id: input.id || undefined,
+              name: input.name || undefined,
+              min: input.min || undefined,
+              max: input.max || undefined
+            };
+          }
+        }
+        
+        // Look for increment/decrement buttons near quantity inputs
+        if (controls.inputField) {
+          const nearbyButtons = container.querySelectorAll('button, [role="button"], [onclick]');
+          nearbyButtons.forEach(btn => {
+            if (!this.isVisible(btn)) return;
+            
+            const btnText = this.getElementText(btn).trim();
+            const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+            const title = (btn.getAttribute('title') || '').toLowerCase();
+            const classes = (btn.className || '').toLowerCase();
+            
+            // Detect increase button
+            if (btnText === '+' || btnText === '＋' || 
+                ariaLabel.includes('increase') || ariaLabel.includes('increment') || ariaLabel.includes('add') ||
+                title.includes('increase') || title.includes('increment') ||
+                classes.includes('increase') || classes.includes('increment') || classes.includes('plus')) {
+              controls.increaseButton = {
+                text: btnText || 'Increase',
+                ariaLabel: btn.getAttribute('aria-label') || undefined,
+                method: 'click'
+              };
+            }
+            
+            // Detect decrease button
+            if (btnText === '-' || btnText === '－' || btnText === '−' ||
+                ariaLabel.includes('decrease') || ariaLabel.includes('decrement') || ariaLabel.includes('remove') ||
+                title.includes('decrease') || title.includes('decrement') ||
+                classes.includes('decrease') || classes.includes('decrement') || classes.includes('minus')) {
+              controls.decreaseButton = {
+                text: btnText || 'Decrease',
+                ariaLabel: btn.getAttribute('aria-label') || undefined,
+                method: 'click'
+              };
+            }
+          });
+        }
+        
+        // Look for select dropdown for quantity
+        const qtySelects = container.querySelectorAll('select[name*="quantity"], select[name*="qty"], select[id*="quantity"]');
+        if (qtySelects.length > 0 && this.isVisible(qtySelects[0])) {
+          const options = Array.from(qtySelects[0].options).map(opt => opt.value);
+          controls.selectDropdown = {
+            type: 'select',
+            currentValue: qtySelects[0].value,
+            options: options.slice(0, 10)
+          };
+        }
+        
+        // Return only if we found any controls
+        return Object.keys(controls).length > 0 ? controls : null;
+      } catch (e) {
+        console.warn('Quantity controls detection error:', e);
+        return null;
+      }
     }
     
     findElementByFuzzyMatch(targetText, elementType) {
