@@ -3080,11 +3080,15 @@ if (!window.supabase) {
           document.querySelectorAll(selector).forEach(el => {
             if (this.isVisible(el)) {
               const text = this.getElementText(el);
-              if (text && text.length > 0) {
+              if (text && text.length > 0 && text.length < 200) {
+                // CRITICAL FIX: Extract itemContext for each button
+                const itemContext = this.getElementContext(el);
+                
                 this.currentPageElements.push({
                   element: el,
                   text: text,
-                  href: el.href || ''
+                  href: el.href || '',
+                  itemContext: itemContext || undefined  // Product/item name this element belongs to
                 });
               }
             }
@@ -3094,7 +3098,7 @@ if (!window.supabase) {
         }
       });
       
-      console.log(\`🔍 Found \${this.currentPageElements.length} interactive elements\`);
+      console.log('🔍 Found ' + this.currentPageElements.length + ' interactive elements');
     }
 
     isVisible(element) {
@@ -3114,15 +3118,24 @@ if (!window.supabase) {
 
     getElementText(element) {
       try {
-        // Get element text content with fallbacks
-        return element.textContent?.trim() || 
-               element.innerText?.trim() || 
-               element.value?.trim() || 
+        // CRITICAL FIX: Prioritize aria-label for icon buttons
+        // Priority: aria-label > textContent > title > placeholder
+        const ariaLabel = element.getAttribute('aria-label')?.trim();
+        if (ariaLabel) {
+          return ariaLabel;
+        }
+        
+        // Then try visible text content
+        const textContent = element.textContent?.trim() || element.innerText?.trim();
+        if (textContent) {
+          return textContent;
+        }
+        
+        // Then other attributes
+        return element.value?.trim() || 
                element.alt?.trim() || 
                element.title?.trim() || 
                element.placeholder?.trim() || 
-               element.getAttribute('aria-label')?.trim() || 
-               element.className?.trim() || 
                '';
       } catch (e) {
         return '';
