@@ -1591,38 +1591,37 @@ if (!window.supabase) {
           document.querySelectorAll(selector).forEach(el => {
             if (this.isVisible(el)) {
               // Get text from multiple sources (text content, aria-label, title, etc.)
-              const text = this.getElementText(el).trim();
-              
-              // Also check for aria-label and title explicitly for icon-only buttons
+              const textContent = this.getElementText(el).trim();
               const ariaLabel = el.getAttribute('aria-label');
               const title = el.getAttribute('title');
               const role = el.getAttribute('role');
               
-              // Get the actual visible text (what user sees)
-              const actualText = text || ariaLabel || title || '';
+              // CRITICAL FIX: Use aria-label as PRIMARY text for icon buttons
+              // Priority: aria-label > textContent > title
+              const primaryText = ariaLabel || textContent || title || '';
               
-              // Get contextual information from parent elements
-              const context = this.getElementContext(el);
+              // Get contextual information from parent elements (product name, etc.)
+              const itemContext = this.getElementContext(el);
               
               // Detect button purpose/intent for VAPI
-              const buttonPurpose = this.detectButtonPurpose(el, actualText, ariaLabel);
+              const buttonPurpose = this.detectButtonPurpose(el, primaryText, ariaLabel);
               
               // Only include if we have some identifying information
-              if (actualText.length > 0 && actualText.length < 100) {
+              if (primaryText.length > 0 && primaryText.length < 200) {
                 const elementData = {
                   type: el.tagName.toLowerCase(),
-                  text: actualText,  // What the button actually shows
+                  text: primaryText,  // FIXED: Now uses aria-label as primary identifier
                   purpose: buttonPurpose,  // Detected intent (e.g., "increase_quantity", "add_to_cart")
-                  nearbyContext: context || undefined  // Nearby text (e.g., product name)
+                  itemContext: itemContext || undefined  // CRITICAL: Product/item name this button belongs to
                 };
                 
-                // Add aria-label separately if it's different from text (for better VAPI understanding)
-                if (ariaLabel && ariaLabel !== actualText) {
-                  elementData.ariaLabel = ariaLabel;
+                // Add textContent separately if it's different from aria-label (for additional context)
+                if (textContent && textContent !== primaryText && textContent.length < 50) {
+                  elementData.visibleText = textContent;
                 }
                 
                 // Add title if it provides additional context
-                if (title && title !== actualText && title !== ariaLabel) {
+                if (title && title !== primaryText && title !== ariaLabel && title.length < 100) {
                   elementData.title = title;
                 }
                 
@@ -1640,7 +1639,7 @@ if (!window.supabase) {
         }
       });
       
-      return elements.slice(0, 50);  // Increased from 30 to 50 to include more icon buttons
+      return elements.slice(0, 100);  // Increased to 100 to capture all buttons with context
     }
     
     detectButtonPurpose(element, text, ariaLabel) {
