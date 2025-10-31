@@ -17,6 +17,9 @@ serve(async (req) => {
 
   try {
     requestBody = await req.json();
+    if (!requestBody) {
+      throw new Error('Request body is required');
+    }
     const { url, userId } = requestBody;
     
     console.log(`🕷️ Scrape request - URL: ${url}, User: ${userId}`);

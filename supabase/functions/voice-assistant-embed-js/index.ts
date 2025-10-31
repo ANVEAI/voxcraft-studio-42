@@ -69,7 +69,7 @@ serve(async (req) => {
       const referer = req.headers.get('Referer');
       if (mapping.domain_whitelist && mapping.domain_whitelist.length > 0 && referer) {
         const refererDomain = new URL(referer).hostname;
-        const isAllowed = mapping.domain_whitelist.some(domain => 
+        const isAllowed = mapping.domain_whitelist.some((domain: string) =>
           refererDomain === domain || refererDomain.endsWith(`.${domain}`)
         );
         
