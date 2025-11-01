@@ -200,13 +200,13 @@ serve(async (req) => {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       letter-spacing: 0.3px;
       z-index: 2147483646 !important;
-      pointer-events: none;
+      pointer-events: auto;
       user-select: none;
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
       opacity: 0.8;
       white-space: nowrap;
     \`;
-    branding.textContent = 'Powered by Anve Voice';
+    branding.innerHTML = 'Powered by <a href="https://anvevoice.app" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none; border-bottom: 1px solid currentColor; transition: opacity 0.2s ease;">AnveVoice</a>';
     document.body.appendChild(branding);
     
     console.log('[VoiceAI] Basic voice button created');

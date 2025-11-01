@@ -872,7 +872,7 @@ if (!window.supabase) {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif !important;
             letter-spacing: 0.3px !important;
             z-index: 2147483646 !important;
-            pointer-events: none !important;
+            pointer-events: auto !important;
             user-select: none !important;
             -webkit-user-select: none !important;
             text-align: \${BOT_CONFIG.position === 'bottom-left' ? 'left' : 'right'} !important;
@@ -881,6 +881,19 @@ if (!window.supabase) {
             opacity: 0.8 !important;
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
             transform: translateZ(0) !important;
+          }
+
+          .voxcraft-branding a {
+            color: inherit !important;
+            text-decoration: none !important;
+            border-bottom: 1px solid currentColor !important;
+            transition: opacity 0.2s ease !important;
+            pointer-events: auto !important;
+          }
+
+          .voxcraft-branding a:hover {
+            opacity: 1 !important;
+            border-bottom-width: 1.5px !important;
           }
 
           .voxcraft-widget-btn:hover ~ .voxcraft-branding {
@@ -946,7 +959,7 @@ if (!window.supabase) {
           </div>
         </div>
         <div class="voxcraft-branding" id="voxcraft-branding">
-          Powered by Anve Voice
+          Powered by <a href="https://anvevoice.app" target="_blank" rel="noopener noreferrer">AnveVoice</a>
         </div>
       \`;
 
