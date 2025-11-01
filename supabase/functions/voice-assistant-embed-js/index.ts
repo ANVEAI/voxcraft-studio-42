@@ -1367,7 +1367,7 @@ if (!window.supabase) {
       }
       
       if (element) {
-        this.performClick(element);
+        this.performClick(element, { target_text, context_text, element_type });
         const contextInfo = context_text ? ' (context: ' + context_text + ')' : '';
         this.updateStatus('✅ Clicked: ' + target_text + contextInfo);
       } else {
@@ -1379,11 +1379,25 @@ if (!window.supabase) {
         } else {
           this.updateStatus('❌ Element not found: ' + target_text);
         }
+        
+        // Send failure feedback to VAPI
+        if (this.vapiWidget && typeof this.vapiWidget.send === 'function') {
+          this.vapiWidget.send({
+            type: 'add-message',
+            message: {
+              role: 'system',
+              content: 'Element not found: "' + target_text + '". The element may not exist on the current page.'
+            }
+          });
+        }
       }
     }
     
-    performClick(element) {
+    performClick(element, context = {}) {
       try {
+        // Capture element state BEFORE clicking
+        const beforeState = this.captureElementState(element);
+        
         // Ensure element is in view
         element.scrollIntoView({ 
           behavior: 'smooth', 
@@ -1399,15 +1413,209 @@ if (!window.supabase) {
           // Single native click - prevents duplicate cart additions
           element.click();
           
-          // Re-analyze page after click for dynamic content
+          // Wait for DOM changes, then detect and report them
           setTimeout(() => {
-            this.analyzePageContent();
-          }, 500);
+            this.detectAndReportChanges(element, beforeState, context);
+          }, 1000);
         }, 300);
         
       } catch (error) {
         console.error('❌ Click failed:', error);
         this.updateStatus('❌ Click failed');
+      }
+    }
+    
+    captureElementState(element) {
+      // Capture current state of element and surrounding context
+      try {
+        return {
+          text: this.getElementText(element),
+          ariaLabel: element.getAttribute('aria-label'),
+          className: element.className,
+          disabled: element.disabled,
+          visible: this.isVisible(element),
+          parentText: element.parentElement?.textContent?.substring(0, 200),
+          // Capture cart badge if exists
+          cartCount: this.getCartCount(),
+          // Capture any success notifications
+          notifications: this.getVisibleNotifications()
+        };
+      } catch (e) {
+        return {};
+      }
+    }
+    
+    getCartCount() {
+      // Try to find cart count badge
+      const cartSelectors = [
+        '[data-cart-count]',
+        '.cart-count',
+        '.cart-badge',
+        '[class*="cart"] [class*="badge"]',
+        '[class*="cart"] [class*="count"]',
+        'a[href*="cart"] span',
+        'button[aria-label*="cart"] span'
+      ];
+      
+      for (const selector of cartSelectors) {
+        try {
+          const badge = document.querySelector(selector);
+          if (badge && this.isVisible(badge)) {
+            const text = badge.textContent?.trim();
+            const number = parseInt(text);
+            if (!isNaN(number)) {
+              return number;
+            }
+          }
+        } catch (e) {
+          // Continue to next selector
+        }
+      }
+      return null;
+    }
+    
+    getVisibleNotifications() {
+      // Capture any toast/notification messages
+      const notificationSelectors = [
+        '.toast',
+        '.notification',
+        '.alert',
+        '.snackbar',
+        '[role="alert"]',
+        '[class*="toast"]',
+        '[class*="notification"]'
+      ];
+      
+      const notifications = [];
+      for (const selector of notificationSelectors) {
+        try {
+          const elements = document.querySelectorAll(selector);
+          elements.forEach(el => {
+            if (this.isVisible(el)) {
+              notifications.push(el.textContent?.trim());
+            }
+          });
+        } catch (e) {
+          // Continue
+        }
+      }
+      return notifications;
+    }
+    
+    detectAndReportChanges(element, beforeState, context) {
+      try {
+        // Capture state AFTER clicking
+        const afterState = this.captureElementState(element);
+        
+        // Detect what changed
+        const changes = {
+          element_changed: false,
+          cart_count_changed: false,
+          notification_appeared: false,
+          element_disappeared: false,
+          details: {}
+        };
+        
+        // Check if element text/state changed
+        if (beforeState.text !== afterState.text) {
+          changes.element_changed = true;
+          changes.details.text_change = {
+            before: beforeState.text,
+            after: afterState.text
+          };
+        }
+        
+        // Check if element disappeared (common for modals/dialogs)
+        if (beforeState.visible && !afterState.visible) {
+          changes.element_disappeared = true;
+        }
+        
+        // Check if cart count changed
+        if (beforeState.cartCount !== null && afterState.cartCount !== null) {
+          if (beforeState.cartCount !== afterState.cartCount) {
+            changes.cart_count_changed = true;
+            changes.details.cart_change = {
+              before: beforeState.cartCount,
+              after: afterState.cartCount
+            };
+          }
+        }
+        
+        // Check for new notifications
+        const newNotifications = afterState.notifications.filter(
+          n => !beforeState.notifications.includes(n)
+        );
+        if (newNotifications.length > 0) {
+          changes.notification_appeared = true;
+          changes.details.notifications = newNotifications;
+        }
+        
+        // Log changes for debugging
+        console.log('🔍 Post-action changes detected:', changes);
+        
+        // Send rich feedback to VAPI
+        this.sendActionFeedbackToVAPI(context, changes, beforeState, afterState);
+        
+        // Re-analyze page to update cache
+        this.analyzePageContent();
+        
+      } catch (error) {
+        console.error('❌ Change detection failed:', error);
+      }
+    }
+    
+    sendActionFeedbackToVAPI(context, changes, beforeState, afterState) {
+      try {
+        // Build human-readable feedback message
+        let feedbackMessage = 'Action completed. ';
+        
+        if (changes.element_changed) {
+          feedbackMessage += 'Button changed from "' + beforeState.text + '" to "' + afterState.text + '". ';
+        }
+        
+        if (changes.cart_count_changed) {
+          feedbackMessage += 'Cart updated from ' + beforeState.cartCount + ' to ' + afterState.cartCount + ' items. ';
+        }
+        
+        if (changes.notification_appeared) {
+          feedbackMessage += 'Notification: ' + changes.details.notifications.join(', ') + '. ';
+        }
+        
+        if (changes.element_disappeared) {
+          feedbackMessage += 'Element removed from page. ';
+        }
+        
+        // If no changes detected, still confirm action
+        if (!changes.element_changed && !changes.cart_count_changed && !changes.notification_appeared && !changes.element_disappeared) {
+          feedbackMessage += 'Element clicked successfully. ';
+        }
+        
+        // Add context if available
+        if (context.target_text) {
+          feedbackMessage += 'Target: "' + context.target_text + '"';
+        }
+        if (context.context_text) {
+          feedbackMessage += ' for "' + context.context_text + '"';
+        }
+        
+        console.log('📤 Sending feedback to VAPI:', feedbackMessage);
+        
+        // Send to VAPI as system message
+        if (this.vapiWidget && typeof this.vapiWidget.send === 'function') {
+          this.vapiWidget.send({
+            type: 'add-message',
+            message: {
+              role: 'system',
+              content: feedbackMessage
+            }
+          });
+          console.log('✅ Feedback sent to VAPI');
+        } else {
+          console.warn('⚠️ VAPI widget not available for feedback');
+        }
+        
+      } catch (error) {
+        console.error('❌ Failed to send feedback to VAPI:', error);
       }
     }
     
