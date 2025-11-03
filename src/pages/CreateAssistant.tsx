@@ -453,7 +453,7 @@ const CreateAssistant = () => {
       // Stage 2: Poll for status every 5 seconds
       let attempts = 0
       let consecutiveErrors = 0
-      const maxAttempts = 240 // 20 minutes max (240 * 5 seconds) - increased for larger crawls
+      const maxAttempts = 360 // 30 minutes max (360 * 5 seconds) - increased for deep crawls with 500 pages
       const maxConsecutiveErrors = 3
       
       const interval = setInterval(async () => {

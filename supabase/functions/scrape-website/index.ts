@@ -42,27 +42,32 @@ serve(async (req) => {
 
     console.log(`🕷️ Starting crawl for: ${url}`);
 
-    // Enhanced crawl configuration for comprehensive site coverage
+    // Enhanced crawl configuration for deep comprehensive site coverage
     const crawlConfig = {
       url: url,
-      limit: 200,                    // Increased from 30 to capture more pages
-      maxDepth: 5,                   // Crawl 5 levels deep to reach nested pages
-      allowBackwardLinks: true,      // Follow backward navigation to discover more pages
+      limit: 500,                    // Increased to 500 to allow deeper exploration
+      maxDepth: 10,                  // Increased to 10 for very deep hierarchies
+      maxDiscoveryDepth: 10,         // Explicit discovery depth to find all nested pages
+      allowBackwardLinks: false,     // Disabled to prioritize depth-first crawling
       allowExternalLinks: false,     // Stay within the same domain
+      crawlEntireDomain: false,      // Stay focused on the given URL pattern
       ignoreSitemap: false,          // Use sitemap for additional page discovery
+      delay: 500,                    // 500ms delay between requests to prevent rate limiting
       scrapeOptions: {
         formats: ['markdown'],
-        onlyMainContent: false,      // Capture navigation elements too
-        includeTags: ['nav', 'header', 'footer', 'aside', 'menu', 'a', 'meta'], // Navigation elements
-        waitFor: 5000                // Wait longer for JavaScript-heavy sites
+        onlyMainContent: false,      // Capture all navigation elements
+        waitFor: 8000                // Increased wait time for complex JavaScript navigation
       }
     };
 
-    console.log(`📊 Crawl configuration:`, {
+    console.log(`📊 Deep crawl configuration:`, {
       limit: crawlConfig.limit,
       maxDepth: crawlConfig.maxDepth,
+      maxDiscoveryDepth: crawlConfig.maxDiscoveryDepth,
       allowBackwardLinks: crawlConfig.allowBackwardLinks,
-      captureNavigation: true
+      delay: crawlConfig.delay,
+      waitFor: crawlConfig.scrapeOptions.waitFor,
+      strategy: 'depth-first'
     });
 
     // Step 1: Initiate the crawl job
