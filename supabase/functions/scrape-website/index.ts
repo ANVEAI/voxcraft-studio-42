@@ -45,7 +45,7 @@ serve(async (req) => {
     // Enhanced crawl configuration for deep comprehensive site coverage
     const crawlConfig = {
       url: url,
-      limit: 500,                    // Increased to 500 to allow deeper exploration
+      limit: 200,                    // Increased to 500 to allow deeper exploration
       maxDepth: 10,                  // Increased to 10 for very deep hierarchies
       maxDiscoveryDepth: 10,         // Explicit discovery depth to find all nested pages
       allowBackwardLinks: false,     // Disabled to prioritize depth-first crawling
