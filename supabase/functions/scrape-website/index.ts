@@ -53,11 +53,11 @@ serve(async (req) => {
       crawlEntireDomain: false,      // Stay focused on the given URL pattern
       ignoreSitemap: false,          // Use sitemap for additional page discovery
       delay: 100,                    // 100ms delay - optimal balance of speed and rate limiting
-      timeout: 15000,                // 15s timeout per page to prevent hanging
       scrapeOptions: {
         formats: ['markdown'],
         onlyMainContent: false,      // Capture all navigation elements
-        waitFor: 3000                // 3s wait time - sufficient for most JS rendering
+        waitFor: 3000,               // 3s wait time - sufficient for most JS rendering
+        timeout: 15000               // 15s timeout per page to prevent hanging
       }
     };
 
@@ -67,7 +67,7 @@ serve(async (req) => {
       maxDiscoveryDepth: crawlConfig.maxDiscoveryDepth,
       allowBackwardLinks: crawlConfig.allowBackwardLinks,
       delay: crawlConfig.delay,
-      timeout: crawlConfig.timeout,
+      timeout: crawlConfig.scrapeOptions.timeout,
       waitFor: crawlConfig.scrapeOptions.waitFor,
       strategy: 'depth-first-optimized'
     });
