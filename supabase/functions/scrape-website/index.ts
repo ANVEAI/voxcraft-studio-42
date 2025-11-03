@@ -42,43 +42,47 @@ serve(async (req) => {
 
     console.log(`🕷️ Starting crawl for: ${url}`);
 
-    // Enhanced crawl configuration for deep comprehensive site coverage
+    // High-speed crawl configuration optimized for fast scraping
     const crawlConfig = {
       url: url,
-      limit: 200,                    // Fits within 300 credit budget
-      maxDepth: 7,                   // Optimal depth for nested pages
-      maxDiscoveryDepth: 10,         // Explicit discovery depth to find all nested pages
-      allowBackwardLinks: false,     // Disabled to prioritize depth-first crawling
-      allowExternalLinks: false,     // Stay within the same domain
-      allowSubdomains: false,        // Stay on same subdomain
-      crawlEntireDomain: false,      // Stay focused on the given URL pattern
-      ignoreSitemap: false,          // Use sitemap for additional page discovery
-      ignoreQueryParameters: true,   // Avoid duplicate pages with different query params
-      delay: 100,                    // 100ms delay - optimal balance of speed and rate limiting
-      maxConcurrency: 4,             // Scrape 4 pages in parallel for 3-5x speed boost
+      limit: 200,
+      maxDepth: 7,
+      maxDiscoveryDepth: 10,
+      allowBackwardLinks: false,
+      allowExternalLinks: false,
+      allowSubdomains: false,
+      crawlEntireDomain: false,
+      ignoreSitemap: false,
+      ignoreQueryParameters: true,
+      delay: 50,                     // 50ms delay for faster processing
+      maxConcurrency: 8,             // 8 parallel pages for maximum speed
+      excludePaths: [
+        "/cart", "/checkout", "/account", "/login", "/signup", "/auth",
+        "/wp-json", "/feed", "/sitemap", "/tag/", "/author/", "/search"
+      ],
       scrapeOptions: {
         formats: ['markdown'],
-        onlyMainContent: false,      // Capture all navigation elements
-        waitFor: 3000,               // 3s wait time - sufficient for most JS rendering
-        timeout: 15000,              // 15s timeout per page to prevent hanging
-        blockAds: true,              // Skip ad content for cleaner data
-        removeBase64Images: true,    // Reduce payload size
-        parsePDF: false,             // Skip PDF parsing for speed
-        storeInCache: true           // Enable Firecrawl caching
+        onlyMainContent: true,       // Extract only main content for 3-5x speed boost
+        waitFor: 1000,               // 1s wait - much faster while still rendering JS
+        timeout: 10000,              // 10s timeout for faster failure handling
+        blockAds: true,
+        removeBase64Images: true,
+        parsePDF: false,
+        storeInCache: true
       }
     };
 
-    console.log(`📊 Deep crawl configuration:`, {
+    console.log(`🚀 High-speed crawl configuration:`, {
       limit: crawlConfig.limit,
       maxDepth: crawlConfig.maxDepth,
       maxDiscoveryDepth: crawlConfig.maxDiscoveryDepth,
-      allowBackwardLinks: crawlConfig.allowBackwardLinks,
-      ignoreQueryParameters: crawlConfig.ignoreQueryParameters,
-      delay: crawlConfig.delay,
       maxConcurrency: crawlConfig.maxConcurrency,
-      timeout: crawlConfig.scrapeOptions.timeout,
+      delay: crawlConfig.delay,
+      onlyMainContent: crawlConfig.scrapeOptions.onlyMainContent,
       waitFor: crawlConfig.scrapeOptions.waitFor,
-      strategy: 'parallel-optimized'
+      timeout: crawlConfig.scrapeOptions.timeout,
+      excludePaths: crawlConfig.excludePaths?.length || 0,
+      strategy: 'ultra-fast-parallel'
     });
 
     // Step 1: Initiate the crawl job (with retries for transient Firecrawl 5xx)

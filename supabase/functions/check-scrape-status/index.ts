@@ -91,6 +91,24 @@ serve(async (req) => {
       }
 
       jobStatus = await statusResponse.json();
+      console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}, Credits: ${jobStatus.creditsUsed || 0}`);
+      
+      // Handle queued status gracefully
+      if (jobStatus.status === 'queued') {
+        console.log('⏳ Crawl is queued; Firecrawl will start shortly.');
+        return new Response(JSON.stringify({
+          success: true,
+          status: 'queued',
+          completed: jobStatus.completed || 0,
+          total: jobStatus.total || 0,
+          data: null,
+          creditsUsed: 0,
+          degraded: true,
+          note: 'Crawl is queued; Firecrawl will start shortly.'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     } catch (error) {
       // Firecrawl is temporarily unavailable - fall back to last-known DB state
       console.warn('⚠️ Firecrawl status fetch failed after retries. Using degraded mode with last-known DB state.');
@@ -136,7 +154,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}, Credits: ${jobStatus.creditsUsed || 0}`);
 
     let dbStatus = 'scraping';
     let updateData: any = {
