@@ -42,6 +42,29 @@ serve(async (req) => {
 
     console.log(`🕷️ Starting crawl for: ${url}`);
 
+    // Enhanced crawl configuration for comprehensive site coverage
+    const crawlConfig = {
+      url: url,
+      limit: 200,                    // Increased from 30 to capture more pages
+      maxDepth: 5,                   // Crawl 5 levels deep to reach nested pages
+      allowBackwardLinks: true,      // Follow backward navigation to discover more pages
+      allowExternalLinks: false,     // Stay within the same domain
+      ignoreSitemap: false,          // Use sitemap for additional page discovery
+      scrapeOptions: {
+        formats: ['markdown'],
+        onlyMainContent: false,      // Capture navigation elements too
+        includeTags: ['nav', 'header', 'footer', 'aside', 'menu', 'a', 'meta'], // Navigation elements
+        waitFor: 5000                // Wait longer for JavaScript-heavy sites
+      }
+    };
+
+    console.log(`📊 Crawl configuration:`, {
+      limit: crawlConfig.limit,
+      maxDepth: crawlConfig.maxDepth,
+      allowBackwardLinks: crawlConfig.allowBackwardLinks,
+      captureNavigation: true
+    });
+
     // Step 1: Initiate the crawl job
     const crawlResponse = await fetch('https://api.firecrawl.dev/v1/crawl', {
       method: 'POST',
@@ -49,16 +72,7 @@ serve(async (req) => {
         'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        url: url,
-        limit: 30, // Reduced from 50 to prevent timeouts
-        scrapeOptions: {
-          formats: ['markdown'],
-          onlyMainContent: true,
-          includeTags: ['nav', 'header', 'meta'],
-          waitFor: 3000
-        }
-      }),
+      body: JSON.stringify(crawlConfig),
     });
 
     if (!crawlResponse.ok) {
