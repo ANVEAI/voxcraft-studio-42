@@ -7,6 +7,47 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Retry helper for Firecrawl status checks with exponential backoff
+const fetchWithRetries = async (input: string, init: RequestInit, retries = 3, baseDelayMs = 1000): Promise<Response> => {
+  let attempt = 0;
+  let lastError: any = null;
+  
+  while (attempt <= retries) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout per attempt
+      const resp = await fetch(input, { ...init, signal: controller.signal });
+      clearTimeout(timeout);
+
+      // If OK, return immediately
+      if (resp.ok) return resp;
+
+      // For 5xx and 429, retry with backoff
+      if ((resp.status >= 500 && resp.status < 600) || resp.status === 429) {
+        const errorText = await resp.text().catch(() => '');
+        console.warn(`⚠️ Firecrawl transient error (status ${resp.status}) on attempt #${attempt + 1}:`, errorText);
+        lastError = new Error(`Firecrawl error: ${resp.status} - ${errorText}`);
+      } else {
+        // Non-retriable error, return the response to handle elsewhere
+        return resp;
+      }
+    } catch (err) {
+      // Network/timeout/abort errors are retriable
+      lastError = err;
+      console.warn(`⚠️ Firecrawl request failed on attempt #${attempt + 1}:`, err instanceof Error ? err.message : err);
+    }
+
+    // Backoff with jitter before next attempt
+    attempt++;
+    if (attempt <= retries) {
+      const delay = baseDelayMs * Math.pow(2, attempt - 1);
+      const jitter = Math.floor(Math.random() * 250);
+      await new Promise((res) => setTimeout(res, delay + jitter));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Unknown Firecrawl error after retries');
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -26,27 +67,76 @@ serve(async (req) => {
       throw new Error('FIRECRAWL_API_KEY not configured');
     }
 
-    // Check Firecrawl job status
-    const statusResponse = await fetch(`https://api.firecrawl.dev/v1/crawl/${jobId}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
-      },
-    });
-
-    if (!statusResponse.ok) {
-      const errorText = await statusResponse.text();
-      console.error('❌ Firecrawl API error:', errorText);
-      throw new Error(`Firecrawl error: ${statusResponse.status} - ${errorText}`);
-    }
-
-    const jobStatus = await statusResponse.json();
-    console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}, Credits: ${jobStatus.creditsUsed || 0}`);
-
-    // Update database record
+    // Initialize Supabase client (for fallback queries if needed)
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    let jobStatus: any = null;
+    let degraded = false;
+
+    // Check Firecrawl job status with retries
+    try {
+      const statusResponse = await fetchWithRetries(`https://api.firecrawl.dev/v1/crawl/${jobId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+        },
+      });
+
+      if (!statusResponse.ok) {
+        const errorText = await statusResponse.text();
+        console.error('❌ Firecrawl API error after retries:', errorText);
+        throw new Error(`Firecrawl error: ${statusResponse.status} - ${errorText}`);
+      }
+
+      jobStatus = await statusResponse.json();
+    } catch (error) {
+      // Firecrawl is temporarily unavailable - fall back to last-known DB state
+      console.warn('⚠️ Firecrawl status fetch failed after retries. Using degraded mode with last-known DB state.');
+      degraded = true;
+
+      // Query last-known state from database
+      if (recordId) {
+        const { data: dbRecord } = await supabase
+          .from('scraped_websites')
+          .select('pages_scraped, status')
+          .eq('id', recordId)
+          .eq('user_id', userId)
+          .single();
+
+        if (dbRecord) {
+          // Return degraded response with last-known state
+          return new Response(JSON.stringify({
+            success: true,
+            status: dbRecord.status || 'scraping',
+            completed: dbRecord.pages_scraped || 0,
+            total: 0,
+            data: null,
+            creditsUsed: 0,
+            degraded: true,
+            note: 'Temporary Firecrawl status issue. Continue polling.'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      // No DB record available - return minimal degraded response
+      return new Response(JSON.stringify({
+        success: true,
+        status: 'scraping',
+        completed: 0,
+        total: 0,
+        data: null,
+        creditsUsed: 0,
+        degraded: true,
+        note: 'Temporary Firecrawl status issue. Continue polling.'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}, Credits: ${jobStatus.creditsUsed || 0}`);
 
     let dbStatus = 'scraping';
     let updateData: any = {
@@ -99,6 +189,7 @@ serve(async (req) => {
       data: jobStatus.status === 'completed' ? jobStatus.data : null,
       creditsUsed: jobStatus.creditsUsed || 0,
       expiresAt: jobStatus.expiresAt,
+      degraded: degraded,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

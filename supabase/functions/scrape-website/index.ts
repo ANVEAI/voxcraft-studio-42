@@ -50,14 +50,21 @@ serve(async (req) => {
       maxDiscoveryDepth: 10,         // Explicit discovery depth to find all nested pages
       allowBackwardLinks: false,     // Disabled to prioritize depth-first crawling
       allowExternalLinks: false,     // Stay within the same domain
+      allowSubdomains: false,        // Stay on same subdomain
       crawlEntireDomain: false,      // Stay focused on the given URL pattern
       ignoreSitemap: false,          // Use sitemap for additional page discovery
+      ignoreQueryParameters: true,   // Avoid duplicate pages with different query params
       delay: 100,                    // 100ms delay - optimal balance of speed and rate limiting
+      maxConcurrency: 4,             // Scrape 4 pages in parallel for 3-5x speed boost
       scrapeOptions: {
         formats: ['markdown'],
         onlyMainContent: false,      // Capture all navigation elements
         waitFor: 3000,               // 3s wait time - sufficient for most JS rendering
-        timeout: 15000               // 15s timeout per page to prevent hanging
+        timeout: 15000,              // 15s timeout per page to prevent hanging
+        blockAds: true,              // Skip ad content for cleaner data
+        removeBase64Images: true,    // Reduce payload size
+        parsePDF: false,             // Skip PDF parsing for speed
+        storeInCache: true           // Enable Firecrawl caching
       }
     };
 
@@ -66,10 +73,12 @@ serve(async (req) => {
       maxDepth: crawlConfig.maxDepth,
       maxDiscoveryDepth: crawlConfig.maxDiscoveryDepth,
       allowBackwardLinks: crawlConfig.allowBackwardLinks,
+      ignoreQueryParameters: crawlConfig.ignoreQueryParameters,
       delay: crawlConfig.delay,
+      maxConcurrency: crawlConfig.maxConcurrency,
       timeout: crawlConfig.scrapeOptions.timeout,
       waitFor: crawlConfig.scrapeOptions.waitFor,
-      strategy: 'depth-first-optimized'
+      strategy: 'parallel-optimized'
     });
 
     // Step 1: Initiate the crawl job (with retries for transient Firecrawl 5xx)
