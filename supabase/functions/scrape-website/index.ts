@@ -115,20 +115,21 @@ serve(async (req) => {
       waitFor: 800,
       timeout: 8000,
       blockAds: true,
-      removeBase64Images: true,
-      parsePDF: false,
-      storeInCache: true,
-      proxy: 'auto',
       location: { country: 'US', languages: ['en-US'] }
     };
 
+    // Sanitize payload to only include v2-supported keys
+    const allowedKeys = ['urls', 'maxConcurrency', 'formats', 'onlyMainContent', 'waitFor', 'timeout', 'blockAds', 'location'];
+    const sanitizedPayload = Object.fromEntries(
+      Object.entries(scrapeConfig).filter(([key]) => allowedKeys.includes(key))
+    );
+
     console.log(`🚀 Batch scrape config:`, {
       urlCount: discoveredUrls.length,
-      maxConcurrency: scrapeConfig.maxConcurrency,
-      waitFor: scrapeConfig.waitFor,
-      timeout: scrapeConfig.timeout,
-      onlyMainContent: scrapeConfig.onlyMainContent,
-      proxy: scrapeConfig.proxy,
+      maxConcurrency: sanitizedPayload.maxConcurrency,
+      waitFor: sanitizedPayload.waitFor,
+      timeout: sanitizedPayload.timeout,
+      onlyMainContent: sanitizedPayload.onlyMainContent,
       strategy: 'v2-map-batch-ultra-fast'
     });
 
@@ -138,7 +139,7 @@ serve(async (req) => {
         'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(scrapeConfig),
+      body: JSON.stringify(sanitizedPayload),
     });
 
     const batchData = await batchResponse.json();
