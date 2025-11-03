@@ -70,8 +70,47 @@ serve(async (req) => {
       strategy: 'depth-first'
     });
 
-    // Step 1: Initiate the crawl job
-    const crawlResponse = await fetch('https://api.firecrawl.dev/v1/crawl', {
+    // Step 1: Initiate the crawl job (with retries for transient Firecrawl 5xx)
+    const fetchWithRetries = async (input: string, init: RequestInit, retries = 4, baseDelayMs = 1000): Promise<Response> => {
+      let attempt = 0;
+      let lastError: any = null;
+      while (attempt <= retries) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout per attempt
+          const resp = await fetch(input, { ...init, signal: controller.signal });
+          clearTimeout(timeout);
+
+          // If OK, return immediately
+          if (resp.ok) return resp;
+
+          // For 5xx and 429, retry with backoff. For others, break early
+          if ((resp.status >= 500 && resp.status < 600) || resp.status === 429) {
+            const errorText = await resp.text().catch(() => '');
+            console.warn(`⚠️ Firecrawl transient error (status ${resp.status}) on attempt #${attempt + 1}:`, errorText);
+            lastError = new Error(`Firecrawl error: ${resp.status} - ${errorText}`);
+          } else {
+            const errorText = await resp.text().catch(() => '');
+            throw new Error(`Firecrawl non-retriable error: ${resp.status} - ${errorText}`);
+          }
+        } catch (err) {
+          // Network/timeout/abort errors are retriable
+          lastError = err;
+          console.warn(`⚠️ Firecrawl request failed on attempt #${attempt + 1}:`, err instanceof Error ? err.message : err);
+        }
+
+        // Backoff with jitter before next attempt
+        attempt++;
+        if (attempt <= retries) {
+          const delay = baseDelayMs * Math.pow(2, attempt - 1);
+          const jitter = Math.floor(Math.random() * 250);
+          await new Promise((res) => setTimeout(res, delay + jitter));
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error('Unknown Firecrawl error after retries');
+    };
+
+    const crawlResponse = await fetchWithRetries('https://api.firecrawl.dev/v1/crawl', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
@@ -79,12 +118,6 @@ serve(async (req) => {
       },
       body: JSON.stringify(crawlConfig),
     });
-
-    if (!crawlResponse.ok) {
-      const errorText = await crawlResponse.text();
-      console.error('❌ Firecrawl API error:', errorText);
-      throw new Error(`Firecrawl error: ${crawlResponse.status} - ${errorText}`);
-    }
 
     const crawlData = await crawlResponse.json();
     console.log('📋 Crawl job initiated:', crawlData);
