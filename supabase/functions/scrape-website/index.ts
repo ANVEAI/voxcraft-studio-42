@@ -45,18 +45,19 @@ serve(async (req) => {
     // Enhanced crawl configuration for deep comprehensive site coverage
     const crawlConfig = {
       url: url,
-      limit: 200,                    // Increased to 500 to allow deeper exploration
-      maxDepth: 10,                  // Increased to 10 for very deep hierarchies
+      limit: 200,                    // Fits within 300 credit budget
+      maxDepth: 7,                   // Optimal depth for nested pages
       maxDiscoveryDepth: 10,         // Explicit discovery depth to find all nested pages
       allowBackwardLinks: false,     // Disabled to prioritize depth-first crawling
       allowExternalLinks: false,     // Stay within the same domain
       crawlEntireDomain: false,      // Stay focused on the given URL pattern
       ignoreSitemap: false,          // Use sitemap for additional page discovery
-      delay: 500,                    // 500ms delay between requests to prevent rate limiting
+      delay: 100,                    // 100ms delay - optimal balance of speed and rate limiting
+      timeout: 15000,                // 15s timeout per page to prevent hanging
       scrapeOptions: {
         formats: ['markdown'],
         onlyMainContent: false,      // Capture all navigation elements
-        waitFor: 8000                // Increased wait time for complex JavaScript navigation
+        waitFor: 3000                // 3s wait time - sufficient for most JS rendering
       }
     };
 
@@ -66,8 +67,9 @@ serve(async (req) => {
       maxDiscoveryDepth: crawlConfig.maxDiscoveryDepth,
       allowBackwardLinks: crawlConfig.allowBackwardLinks,
       delay: crawlConfig.delay,
+      timeout: crawlConfig.timeout,
       waitFor: crawlConfig.scrapeOptions.waitFor,
-      strategy: 'depth-first'
+      strategy: 'depth-first-optimized'
     });
 
     // Step 1: Initiate the crawl job (with retries for transient Firecrawl 5xx)

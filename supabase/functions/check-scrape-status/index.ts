@@ -41,7 +41,7 @@ serve(async (req) => {
     }
 
     const jobStatus = await statusResponse.json();
-    console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}`);
+    console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}, Credits: ${jobStatus.creditsUsed || 0}`);
 
     // Update database record
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
