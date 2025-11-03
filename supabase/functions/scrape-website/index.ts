@@ -110,27 +110,25 @@ serve(async (req) => {
     const scrapeConfig = {
       urls: discoveredUrls,
       maxConcurrency: 10,
-      scrapeOptions: {
-        formats: ['markdown'],
-        onlyMainContent: true,
-        waitFor: 800,
-        timeout: 8000,
-        blockAds: true,
-        removeBase64Images: true,
-        parsePDF: false,
-        storeInCache: true,
-        proxy: 'auto',
-        location: { country: 'US', languages: ['en-US'] }
-      }
+      formats: ['markdown'],
+      onlyMainContent: true,
+      waitFor: 800,
+      timeout: 8000,
+      blockAds: true,
+      removeBase64Images: true,
+      parsePDF: false,
+      storeInCache: true,
+      proxy: 'auto',
+      location: { country: 'US', languages: ['en-US'] }
     };
 
     console.log(`🚀 Batch scrape config:`, {
       urlCount: discoveredUrls.length,
       maxConcurrency: scrapeConfig.maxConcurrency,
-      waitFor: scrapeConfig.scrapeOptions.waitFor,
-      timeout: scrapeConfig.scrapeOptions.timeout,
-      onlyMainContent: scrapeConfig.scrapeOptions.onlyMainContent,
-      proxy: scrapeConfig.scrapeOptions.proxy,
+      waitFor: scrapeConfig.waitFor,
+      timeout: scrapeConfig.timeout,
+      onlyMainContent: scrapeConfig.onlyMainContent,
+      proxy: scrapeConfig.proxy,
       strategy: 'v2-map-batch-ultra-fast'
     });
 
