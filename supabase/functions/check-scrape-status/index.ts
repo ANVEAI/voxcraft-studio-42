@@ -15,29 +15,24 @@ const fetchWithRetries = async (input: string, init: RequestInit, retries = 3, b
   while (attempt <= retries) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout per attempt
+      const timeout = setTimeout(() => controller.abort(), 30000);
       const resp = await fetch(input, { ...init, signal: controller.signal });
       clearTimeout(timeout);
 
-      // If OK, return immediately
       if (resp.ok) return resp;
 
-      // For 5xx and 429, retry with backoff
       if ((resp.status >= 500 && resp.status < 600) || resp.status === 429) {
         const errorText = await resp.text().catch(() => '');
         console.warn(`⚠️ Firecrawl transient error (status ${resp.status}) on attempt #${attempt + 1}:`, errorText);
         lastError = new Error(`Firecrawl error: ${resp.status} - ${errorText}`);
       } else {
-        // Non-retriable error, return the response to handle elsewhere
         return resp;
       }
     } catch (err) {
-      // Network/timeout/abort errors are retriable
       lastError = err;
       console.warn(`⚠️ Firecrawl request failed on attempt #${attempt + 1}:`, err instanceof Error ? err.message : err);
     }
 
-    // Backoff with jitter before next attempt
     attempt++;
     if (attempt <= retries) {
       const delay = baseDelayMs * Math.pow(2, attempt - 1);
@@ -67,54 +62,102 @@ serve(async (req) => {
       throw new Error('FIRECRAWL_API_KEY not configured');
     }
 
-    // Initialize Supabase client (for fallback queries if needed)
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     let jobStatus: any = null;
     let degraded = false;
+    let apiMode = 'unknown';
 
-    // Check Firecrawl job status with retries
+    // Try v2 batch scrape status first (priority)
     try {
-      const statusResponse = await fetchWithRetries(`https://api.firecrawl.dev/v1/crawl/${jobId}`, {
+      console.log('🔍 Trying v2 batch scrape status...');
+      const statusResponse = await fetchWithRetries(`https://api.firecrawl.dev/v2/batch/scrape/${jobId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
         },
       });
 
-      if (!statusResponse.ok) {
-        const errorText = await statusResponse.text();
-        console.error('❌ Firecrawl API error after retries:', errorText);
-        throw new Error(`Firecrawl error: ${statusResponse.status} - ${errorText}`);
-      }
-
-      jobStatus = await statusResponse.json();
-      console.log(`📊 Job status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}, Credits: ${jobStatus.creditsUsed || 0}`);
-      
-      // Handle queued status gracefully
-      if (jobStatus.status === 'queued') {
-        console.log('⏳ Crawl is queued; Firecrawl will start shortly.');
-        return new Response(JSON.stringify({
-          success: true,
-          status: 'queued',
-          completed: jobStatus.completed || 0,
-          total: jobStatus.total || 0,
-          data: null,
-          creditsUsed: 0,
-          degraded: true,
-          note: 'Crawl is queued; Firecrawl will start shortly.'
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      if (statusResponse.ok) {
+        jobStatus = await statusResponse.json();
+        apiMode = 'v2-batch';
+        console.log(`📊 v2 Batch status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}`);
+        
+        // Handle pagination for completed jobs
+        if (jobStatus.status === 'completed' && jobStatus.data) {
+          let allData = [...jobStatus.data];
+          let nextUrl = jobStatus.next;
+          let pageCount = 1;
+          const MAX_PAGES = 50; // Safety limit
+          
+          while (nextUrl && pageCount < MAX_PAGES) {
+            console.log(`📄 Fetching page ${pageCount + 1} of results...`);
+            const nextResponse = await fetchWithRetries(nextUrl, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+              },
+            });
+            
+            if (nextResponse.ok) {
+              const nextData = await nextResponse.json();
+              if (nextData.data && nextData.data.length > 0) {
+                allData = [...allData, ...nextData.data];
+              }
+              nextUrl = nextData.next;
+              pageCount++;
+            } else {
+              console.warn('⚠️ Failed to fetch next page, using partial data');
+              break;
+            }
+          }
+          
+          jobStatus.data = allData;
+          console.log(`✅ Retrieved ${allData.length} total results across ${pageCount} page(s)`);
+        }
+      } else if (statusResponse.status === 404 || statusResponse.status === 400) {
+        // Not a batch job, try v2 crawl
+        console.log('🔍 Not a batch job, trying v2 crawl status...');
+        const v2CrawlResponse = await fetchWithRetries(`https://api.firecrawl.dev/v2/crawl/${jobId}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+          },
         });
+
+        if (v2CrawlResponse.ok) {
+          jobStatus = await v2CrawlResponse.json();
+          apiMode = 'v2-crawl';
+          console.log(`📊 v2 Crawl status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}`);
+        } else {
+          // Fall back to v1
+          console.log('🔍 Trying v1 crawl status...');
+          const v1Response = await fetchWithRetries(`https://api.firecrawl.dev/v1/crawl/${jobId}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+            },
+          });
+
+          if (!v1Response.ok) {
+            const errorText = await v1Response.text();
+            throw new Error(`All API versions failed: ${errorText}`);
+          }
+
+          jobStatus = await v1Response.json();
+          apiMode = 'v1-crawl';
+          console.log(`📊 v1 Crawl status: ${jobStatus.status}, Completed: ${jobStatus.completed || 0}/${jobStatus.total || 0}`);
+        }
+      } else {
+        const errorText = await statusResponse.text();
+        throw new Error(`v2 batch status failed: ${errorText}`);
       }
     } catch (error) {
-      // Firecrawl is temporarily unavailable - fall back to last-known DB state
-      console.warn('⚠️ Firecrawl status fetch failed after retries. Using degraded mode with last-known DB state.');
+      console.warn('⚠️ All Firecrawl status checks failed. Using degraded mode.');
       degraded = true;
 
-      // Query last-known state from database
       if (recordId) {
         const { data: dbRecord } = await supabase
           .from('scraped_websites')
@@ -124,7 +167,6 @@ serve(async (req) => {
           .single();
 
         if (dbRecord) {
-          // Return degraded response with last-known state
           return new Response(JSON.stringify({
             success: true,
             status: dbRecord.status || 'scraping',
@@ -133,6 +175,7 @@ serve(async (req) => {
             data: null,
             creditsUsed: 0,
             degraded: true,
+            apiMode: 'degraded-db-fallback',
             note: 'Temporary Firecrawl status issue. Continue polling.'
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -140,7 +183,6 @@ serve(async (req) => {
         }
       }
 
-      // No DB record available - return minimal degraded response
       return new Response(JSON.stringify({
         success: true,
         status: 'scraping',
@@ -149,7 +191,26 @@ serve(async (req) => {
         data: null,
         creditsUsed: 0,
         degraded: true,
+        apiMode: 'degraded-no-data',
         note: 'Temporary Firecrawl status issue. Continue polling.'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Handle queued status gracefully
+    if (jobStatus.status === 'queued') {
+      console.log('⏳ Job is queued; Firecrawl will start shortly.');
+      return new Response(JSON.stringify({
+        success: true,
+        status: 'queued',
+        completed: jobStatus.completed || 0,
+        total: jobStatus.total || 0,
+        data: null,
+        creditsUsed: 0,
+        degraded: false,
+        apiMode: apiMode,
+        note: 'Job queued. Starting soon.'
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -170,7 +231,7 @@ serve(async (req) => {
         raw_data: jobStatus.data || [],
         completed_at: new Date().toISOString(),
       };
-      console.log(`✅ Scrape completed: ${jobStatus.data?.length || 0} pages`);
+      console.log(`✅ Scrape completed: ${jobStatus.data?.length || 0} pages retrieved`);
     } 
     // Handle failed status
     else if (jobStatus.status === 'failed') {
@@ -178,10 +239,10 @@ serve(async (req) => {
       updateData = {
         ...updateData,
         status: 'failed',
-        error_message: 'Firecrawl job failed',
+        error_message: jobStatus.error || 'Firecrawl job failed',
         completed_at: new Date().toISOString(),
       };
-      console.log('❌ Scrape failed');
+      console.log('❌ Scrape failed:', jobStatus.error);
     }
 
     // Update the database record
@@ -207,6 +268,7 @@ serve(async (req) => {
       creditsUsed: jobStatus.creditsUsed || 0,
       expiresAt: jobStatus.expiresAt,
       degraded: degraded,
+      apiMode: apiMode,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

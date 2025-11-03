@@ -12,7 +12,6 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Store request body to avoid "Body already consumed" error
   let requestBody: { url: string; userId: string } | null = null;
 
   try {
@@ -27,7 +26,6 @@ serve(async (req) => {
     // Validate URL
     try {
       const parsedUrl = new URL(url);
-      // Prevent dangerous protocols
       if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
         throw new Error('Invalid URL protocol. Only HTTP and HTTPS are allowed.');
       }
@@ -40,66 +38,19 @@ serve(async (req) => {
       throw new Error('FIRECRAWL_API_KEY not configured');
     }
 
-    console.log(`🕷️ Starting crawl for: ${url}`);
-
-    // High-speed crawl configuration optimized for fast scraping
-    const crawlConfig = {
-      url: url,
-      limit: 200,
-      maxDepth: 7,
-      maxDiscoveryDepth: 10,
-      allowBackwardLinks: false,
-      allowExternalLinks: false,
-      allowSubdomains: false,
-      crawlEntireDomain: false,
-      ignoreSitemap: false,
-      ignoreQueryParameters: true,
-      delay: 50,                     // 50ms delay for faster processing
-      maxConcurrency: 8,             // 8 parallel pages for maximum speed
-      excludePaths: [
-        "/cart", "/checkout", "/account", "/login", "/signup", "/auth",
-        "/wp-json", "/feed", "/sitemap", "/tag/", "/author/", "/search"
-      ],
-      scrapeOptions: {
-        formats: ['markdown'],
-        onlyMainContent: true,       // Extract only main content for 3-5x speed boost
-        waitFor: 1000,               // 1s wait - much faster while still rendering JS
-        timeout: 10000,              // 10s timeout for faster failure handling
-        blockAds: true,
-        removeBase64Images: true,
-        parsePDF: false,
-        storeInCache: true
-      }
-    };
-
-    console.log(`🚀 High-speed crawl configuration:`, {
-      limit: crawlConfig.limit,
-      maxDepth: crawlConfig.maxDepth,
-      maxDiscoveryDepth: crawlConfig.maxDiscoveryDepth,
-      maxConcurrency: crawlConfig.maxConcurrency,
-      delay: crawlConfig.delay,
-      onlyMainContent: crawlConfig.scrapeOptions.onlyMainContent,
-      waitFor: crawlConfig.scrapeOptions.waitFor,
-      timeout: crawlConfig.scrapeOptions.timeout,
-      excludePaths: crawlConfig.excludePaths?.length || 0,
-      strategy: 'ultra-fast-parallel'
-    });
-
-    // Step 1: Initiate the crawl job (with retries for transient Firecrawl 5xx)
+    // Retry helper for transient Firecrawl errors
     const fetchWithRetries = async (input: string, init: RequestInit, retries = 4, baseDelayMs = 1000): Promise<Response> => {
       let attempt = 0;
       let lastError: any = null;
       while (attempt <= retries) {
         try {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout per attempt
+          const timeout = setTimeout(() => controller.abort(), 30000);
           const resp = await fetch(input, { ...init, signal: controller.signal });
           clearTimeout(timeout);
 
-          // If OK, return immediately
           if (resp.ok) return resp;
 
-          // For 5xx and 429, retry with backoff. For others, break early
           if ((resp.status >= 500 && resp.status < 600) || resp.status === 429) {
             const errorText = await resp.text().catch(() => '');
             console.warn(`⚠️ Firecrawl transient error (status ${resp.status}) on attempt #${attempt + 1}:`, errorText);
@@ -109,12 +60,10 @@ serve(async (req) => {
             throw new Error(`Firecrawl non-retriable error: ${resp.status} - ${errorText}`);
           }
         } catch (err) {
-          // Network/timeout/abort errors are retriable
           lastError = err;
           console.warn(`⚠️ Firecrawl request failed on attempt #${attempt + 1}:`, err instanceof Error ? err.message : err);
         }
 
-        // Backoff with jitter before next attempt
         attempt++;
         if (attempt <= retries) {
           const delay = baseDelayMs * Math.pow(2, attempt - 1);
@@ -125,24 +74,84 @@ serve(async (req) => {
       throw lastError instanceof Error ? lastError : new Error('Unknown Firecrawl error after retries');
     };
 
-    const crawlResponse = await fetchWithRetries('https://api.firecrawl.dev/v1/crawl', {
+    console.log(`🗺️ Step 1: Discovering URLs via Firecrawl v2 Map`);
+
+    // Step 1: Map the website to discover all URLs
+    const mapResponse = await fetchWithRetries('https://api.firecrawl.dev/v2/map', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(crawlConfig),
+      body: JSON.stringify({
+        url: url,
+        sitemap: 'include',
+        includeSubdomains: false,
+        ignoreQueryParameters: true,
+        limit: 200,
+        timeout: 10000,
+        location: { country: 'US', languages: ['en-US'] }
+      }),
     });
 
-    const crawlData = await crawlResponse.json();
-    console.log('📋 Crawl job initiated:', crawlData);
+    const mapData = await mapResponse.json();
+    console.log('🗺️ Map response:', mapData);
 
-    if (!crawlData.id) {
-      throw new Error('No job ID returned from Firecrawl');
+    if (!mapData.success || !mapData.links || mapData.links.length === 0) {
+      throw new Error('No URLs discovered during mapping. Site may be unreachable or empty.');
     }
 
-    const jobId = crawlData.id;
-    console.log(`✅ Crawl job initiated: ${jobId}`);
+    const discoveredUrls = mapData.links.map((link: any) => link.url).slice(0, 200);
+    console.log(`✅ Discovered ${discoveredUrls.length} URLs (sitemap included, query params ignored)`);
+
+    console.log(`🚀 Step 2: Starting high-speed batch scrape with v2`);
+
+    // Step 2: Batch scrape all discovered URLs
+    const scrapeConfig = {
+      urls: discoveredUrls,
+      maxConcurrency: 10,
+      scrapeOptions: {
+        formats: ['markdown'],
+        onlyMainContent: true,
+        waitFor: 800,
+        timeout: 8000,
+        blockAds: true,
+        removeBase64Images: true,
+        parsePDF: false,
+        storeInCache: true,
+        proxy: 'auto',
+        location: { country: 'US', languages: ['en-US'] }
+      }
+    };
+
+    console.log(`🚀 Batch scrape config:`, {
+      urlCount: discoveredUrls.length,
+      maxConcurrency: scrapeConfig.maxConcurrency,
+      waitFor: scrapeConfig.scrapeOptions.waitFor,
+      timeout: scrapeConfig.scrapeOptions.timeout,
+      onlyMainContent: scrapeConfig.scrapeOptions.onlyMainContent,
+      proxy: scrapeConfig.scrapeOptions.proxy,
+      strategy: 'v2-map-batch-ultra-fast'
+    });
+
+    const batchResponse = await fetchWithRetries('https://api.firecrawl.dev/v2/batch/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(scrapeConfig),
+    });
+
+    const batchData = await batchResponse.json();
+    console.log('📋 Batch scrape job initiated:', batchData);
+
+    if (!batchData.success || !batchData.id) {
+      throw new Error('Failed to initiate batch scrape: ' + (batchData.error || 'No job ID returned'));
+    }
+
+    const batchId = batchData.id;
+    console.log(`✅ Batch scrape job initiated: ${batchId}`);
 
     // Save initial scraping record to database
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -153,7 +162,7 @@ serve(async (req) => {
       user_id: userId,
       url: url,
       status: 'scraping',
-      firecrawl_job_id: jobId,
+      firecrawl_job_id: batchId,
       pages_scraped: 0,
       total_size_kb: 0,
       last_checked_at: new Date().toISOString()
@@ -163,14 +172,15 @@ serve(async (req) => {
       console.error('⚠️ Failed to save scraping record:', dbError);
     }
 
-    // Return job ID and status immediately (no waiting!)
+    // Return job ID and status immediately
     return new Response(JSON.stringify({
       success: true,
-      jobId: jobId,
+      jobId: batchId,
       recordId: dbRecord?.id,
       status: 'scraping',
       websiteUrl: url,
-      message: 'Scraping started successfully. Use check-scrape-status to poll for results.'
+      totalUrls: discoveredUrls.length,
+      message: 'High-speed v2 batch scraping started. Use check-scrape-status to poll for results.'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -178,7 +188,6 @@ serve(async (req) => {
   } catch (error) {
     console.error('💥 Scraping error:', error);
     
-    // Try to save error to database (using stored requestBody to avoid "Body already consumed" error)
     if (requestBody) {
       try {
         const { url, userId } = requestBody;
