@@ -74,83 +74,58 @@ serve(async (req) => {
       throw lastError instanceof Error ? lastError : new Error('Unknown Firecrawl error after retries');
     };
 
-    console.log(`🗺️ Step 1: Discovering URLs via Firecrawl v2 Map`);
+    console.log(`🕷️ Starting comprehensive crawl with Firecrawl v2 Crawl endpoint`);
 
-    // Step 1: Map the website to discover all URLs
-    const mapResponse = await fetchWithRetries('https://api.firecrawl.dev/v2/map', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: url,
-        sitemap: 'include',
-        includeSubdomains: false,
-        ignoreQueryParameters: true,
-        limit: 200,
-        timeout: 10000,
-        location: { country: 'US', languages: ['en-US'] }
-      }),
-    });
-
-    const mapData = await mapResponse.json();
-    console.log('🗺️ Map response:', mapData);
-
-    if (!mapData.success || !mapData.links || mapData.links.length === 0) {
-      throw new Error('No URLs discovered during mapping. Site may be unreachable or empty.');
-    }
-
-    const discoveredUrls = mapData.links.map((link: any) => link.url).slice(0, 200);
-    console.log(`✅ Discovered ${discoveredUrls.length} URLs (sitemap included, query params ignored)`);
-
-    console.log(`🚀 Step 2: Starting high-speed batch scrape with v2`);
-
-    // Step 2: Batch scrape all discovered URLs
-    const scrapeConfig = {
-      urls: discoveredUrls,
-      maxConcurrency: 10,
-      formats: ['markdown'],
-      onlyMainContent: true,
-      waitFor: 800,
-      timeout: 8000,
-      blockAds: true,
-      location: { country: 'US', languages: ['en-US'] }
+    // Use /crawl endpoint for comprehensive website scraping with depth control
+    const crawlConfig = {
+      url: url,
+      maxDiscoveryDepth: 4,           // Crawl up to 4 levels deep
+      sitemap: 'include',             // Use sitemap + discover more links
+      crawlEntireDomain: true,        // Crawl siblings/parents, not just children
+      ignoreQueryParameters: true,    // Ignore query params for cleaner URLs
+      limit: 500,                     // Max pages to crawl
+      allowExternalLinks: false,      // Stay within the domain
+      allowSubdomains: false,         // Don't crawl subdomains
+      maxConcurrency: 10,             // Parallel scraping
+      scrapeOptions: {
+        formats: ['markdown'],        // Get markdown content
+        onlyMainContent: true,        // Extract main content only
+        waitFor: 1000,                // Wait 1s for JavaScript
+        timeout: 10000,               // 10s timeout per page
+        blockAds: true,               // Block ads for cleaner content
+        location: { 
+          country: 'US', 
+          languages: ['en-US'] 
+        }
+      }
     };
 
-    // Sanitize payload to only include v2-supported keys
-    const allowedKeys = ['urls', 'maxConcurrency', 'formats', 'onlyMainContent', 'waitFor', 'timeout', 'blockAds', 'location'];
-    const sanitizedPayload = Object.fromEntries(
-      Object.entries(scrapeConfig).filter(([key]) => allowedKeys.includes(key))
-    );
-
-    console.log(`🚀 Batch scrape config:`, {
-      urlCount: discoveredUrls.length,
-      maxConcurrency: sanitizedPayload.maxConcurrency,
-      waitFor: sanitizedPayload.waitFor,
-      timeout: sanitizedPayload.timeout,
-      onlyMainContent: sanitizedPayload.onlyMainContent,
-      strategy: 'v2-map-batch-ultra-fast'
+    console.log(`🕷️ Crawl configuration:`, {
+      url: url,
+      maxDiscoveryDepth: crawlConfig.maxDiscoveryDepth,
+      crawlEntireDomain: crawlConfig.crawlEntireDomain,
+      limit: crawlConfig.limit,
+      strategy: 'v2-crawl-comprehensive'
     });
 
-    const batchResponse = await fetchWithRetries('https://api.firecrawl.dev/v2/batch/scrape', {
+    const crawlResponse = await fetchWithRetries('https://api.firecrawl.dev/v2/crawl', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(sanitizedPayload),
+      body: JSON.stringify(crawlConfig),
     });
 
-    const batchData = await batchResponse.json();
-    console.log('📋 Batch scrape job initiated:', batchData);
+    const crawlData = await crawlResponse.json();
+    console.log('🕷️ Crawl job initiated:', crawlData);
 
-    if (!batchData.success || !batchData.id) {
-      throw new Error('Failed to initiate batch scrape: ' + (batchData.error || 'No job ID returned'));
+    if (!crawlData.success || !crawlData.id) {
+      throw new Error('Failed to initiate crawl: ' + (crawlData.error || 'No job ID returned'));
     }
 
-    const batchId = batchData.id;
-    console.log(`✅ Batch scrape job initiated: ${batchId}`);
+    const crawlId = crawlData.id;
+    console.log(`✅ Crawl job initiated: ${crawlId}`);
 
     // Save initial scraping record to database
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -161,7 +136,7 @@ serve(async (req) => {
       user_id: userId,
       url: url,
       status: 'scraping',
-      firecrawl_job_id: batchId,
+      firecrawl_job_id: crawlId,
       pages_scraped: 0,
       total_size_kb: 0,
       last_checked_at: new Date().toISOString()
@@ -174,12 +149,13 @@ serve(async (req) => {
     // Return job ID and status immediately
     return new Response(JSON.stringify({
       success: true,
-      jobId: batchId,
+      jobId: crawlId,
       recordId: dbRecord?.id,
       status: 'scraping',
       websiteUrl: url,
-      totalUrls: discoveredUrls.length,
-      message: 'High-speed v2 batch scraping started. Use check-scrape-status to poll for results.'
+      crawlDepth: crawlConfig.maxDiscoveryDepth,
+      crawlLimit: crawlConfig.limit,
+      message: 'Comprehensive v2 crawl started with depth control. Use check-scrape-status to poll for results.'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
