@@ -79,7 +79,7 @@ serve(async (req) => {
     // Use /crawl endpoint for comprehensive website scraping with depth control
     const crawlConfig = {
       url: url,
-      maxDiscoveryDepth: 4,           // Crawl up to 4 levels deep
+      maxDiscoveryDepth: 5,           // Crawl up to 4 levels deep
       sitemap: 'include',             // Use sitemap + discover more links
       crawlEntireDomain: true,        // Crawl siblings/parents, not just children
       ignoreQueryParameters: true,    // Ignore query params for cleaner URLs
