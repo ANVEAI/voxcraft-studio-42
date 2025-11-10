@@ -82,7 +82,7 @@ serve(async (req) => {
       .from('assistants')
       .select(`
         *,
-        embed_mappings!inner(embed_id)
+        embed_mappings!vapi_assistant_id(embed_id)
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
