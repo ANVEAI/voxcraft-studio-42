@@ -26,25 +26,18 @@ const Dashboard = () => {
   }, [isLoaded, isSignedIn, navigate, user])
 
   const fetchAssistants = async () => {
-    if (!user?.id || !getToken) return;
+    if (!user?.id) return;
     
     try {
       setLoading(true)
-      
-      // Get Clerk JWT token for authentication
-      const token = await getToken()
-      if (!token) {
-        throw new Error('No authentication token available')
-      }
 
-      console.log('🔑 Using token for get-assistants:', token.substring(0, 50) + '...')
-
-      // Use the get-assistants edge function with proper authentication
-      const { data, error } = await supabase.functions.invoke('get-assistants', {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      })
+      // Fetch directly from embed_mappings table
+      const { data, error } = await supabase
+        .from('embed_mappings')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
 
       if (error) {
         console.error('Error fetching assistants:', error)
@@ -53,12 +46,10 @@ const Dashboard = () => {
           description: "Failed to load your assistants.",
           variant: "destructive",
         })
-      } else if (data?.success) {
-        setAssistants(data.assistants || [])
-        console.log('Fetched assistants:', data.assistants)
-      } else {
-        console.error('Unexpected response:', data)
         setAssistants([])
+      } else {
+        setAssistants(data || [])
+        console.log('Fetched assistants from embed_mappings:', data)
       }
     } catch (error) {
       console.error('Error:', error)
@@ -115,8 +106,8 @@ const Dashboard = () => {
     return `<!-- Load Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 
-<!-- Load Voice Assistant -->
-<script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?assistant=${assistant.vapi_assistant_id}&apiKey=${import.meta.env.VITE_VAPI_PUBLIC_KEY}&position=${assistant.position === 'left' ? 'bottom-left' : 'bottom-right'}&theme=${assistant.theme}"></script>`;
+<!-- Load Voice Assistant (Persistent Embed - Never needs updating) -->
+<script src="https://mdkcdjltvfpthqudhhmx.supabase.co/functions/v1/voice-assistant-embed-js?embedId=${assistant.embed_id}&position=bottom-right&theme=light"></script>`;
   }
 
   const copyEmbedCode = (assistant: any) => {
@@ -244,8 +235,8 @@ const Dashboard = () => {
                         <tr key={assistant.id} className="border-b hover:bg-gray-50">
                           <td className="py-4 px-4">
                             <div>
-                              <div className="font-medium">{assistant.name}</div>
-                              <div className="text-sm text-gray-500">{assistant.welcome_message.substring(0, 50)}...</div>
+                              <div className="font-medium">{assistant.name || 'Unnamed Assistant'}</div>
+                              <div className="text-sm text-gray-500">Embed ID: {assistant.embed_id}</div>
                             </div>
                           </td>
                           <td className="py-4 px-4">
@@ -260,11 +251,9 @@ const Dashboard = () => {
                           </td>
                           <td className="py-4 px-4">
                             <div className={`inline-flex px-2 py-1 rounded text-xs ${
-                              assistant.status === 'active' ? 'bg-green-100 text-green-800' :
-                              assistant.status === 'creating' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-red-100 text-red-800'
+                              assistant.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                             }`}>
-                              {assistant.status}
+                              {assistant.is_active ? 'active' : 'inactive'}
                             </div>
                           </td>
                           <td className="py-4 px-4">
@@ -292,7 +281,7 @@ const Dashboard = () => {
                                 size="sm" 
                                 className="bg-blue-600 hover:bg-blue-700"
                                 onClick={() => {
-                                  const demoUrl = `/voice-demo?assistant=${assistant.vapi_assistant_id}&name=${encodeURIComponent(assistant.name)}`
+                                  const demoUrl = `/voice-demo?assistant=${assistant.vapi_assistant_id}&name=${encodeURIComponent(assistant.name || 'Assistant')}`
                                   window.open(demoUrl, '_blank')
                                 }}
                               >
@@ -314,24 +303,18 @@ const Dashboard = () => {
                     <Card key={assistant.id} className="relative">
                       <CardHeader className="pb-3">
                         <div className="flex items-center justify-between">
-                          <CardTitle className="text-base">{assistant.name}</CardTitle>
+                          <CardTitle className="text-base">{assistant.name || 'Unnamed Assistant'}</CardTitle>
                           <div className={`px-2 py-1 rounded text-xs ${
-                            assistant.status === 'active' ? 'bg-green-100 text-green-800' :
-                            assistant.status === 'creating' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-red-100 text-red-800'
+                            assistant.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                           }`}>
-                            {assistant.status}
+                            {assistant.is_active ? 'active' : 'inactive'}
                           </div>
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <p className="text-sm text-gray-600 mb-3">{assistant.welcome_message}</p>
-                        <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                          <span>Voice: {assistant.voice_id}</span>
-                          <span>Language: {assistant.language}</span>
-                        </div>
                         <div className="text-xs text-gray-500 mb-3">
-                          <span>VAPI ID: {assistant.vapi_assistant_id}</span>
+                          <div>Embed ID: {assistant.embed_id}</div>
+                          <div>VAPI ID: {assistant.vapi_assistant_id}</div>
                         </div>
                         <div className="flex flex-col space-y-2">
                           <div className="flex space-x-2">
@@ -360,7 +343,7 @@ const Dashboard = () => {
                             size="sm" 
                             className="bg-blue-600 hover:bg-blue-700 w-full"
                             onClick={() => {
-                              const demoUrl = `/voice-demo?assistant=${assistant.vapi_assistant_id}&name=${encodeURIComponent(assistant.name)}`
+                              const demoUrl = `/voice-demo?assistant=${assistant.vapi_assistant_id}&name=${encodeURIComponent(assistant.name || 'Assistant')}`
                               window.open(demoUrl, '_blank')
                             }}
                           >
