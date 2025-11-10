@@ -31,33 +31,45 @@ const Dashboard = () => {
     try {
       setLoading(true)
 
-      // Fetch directly from embed_mappings table
-      const { data, error } = await supabase
-        .from('embed_mappings')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
+      // Get Clerk token
+      const token = await getToken();
+      if (!token) {
+        console.error("No auth token available");
+        toast({
+          title: "Authentication Error",
+          description: "Please sign in to view your assistants.",
+          variant: "destructive",
+        });
+        setAssistants([])
+        return;
+      }
+
+      // Call edge function to fetch embed mappings
+      const { data, error } = await supabase.functions.invoke('get-embed-mappings', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       if (error) {
-        console.error('Error fetching assistants:', error)
+        console.error("Error fetching assistants:", error);
         toast({
           title: "Error",
-          description: "Failed to load your assistants.",
+          description: "Failed to load assistants. Please try again.",
           variant: "destructive",
-        })
+        });
         setAssistants([])
       } else {
-        setAssistants(data || [])
-        console.log('Fetched assistants from embed_mappings:', data)
+        setAssistants(data?.embeds || []);
+        console.log('Fetched assistants from embed_mappings:', data);
       }
     } catch (error) {
-      console.error('Error:', error)
+      console.error("Error in fetchAssistants:", error);
       toast({
         title: "Error",
         description: "An unexpected error occurred.",
         variant: "destructive",
-      })
+      });
     } finally {
       setLoading(false)
     }
