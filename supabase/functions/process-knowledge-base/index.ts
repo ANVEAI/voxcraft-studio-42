@@ -69,6 +69,12 @@ serve(async (req) => {
 
     console.log(`📋 Pre-structured ${preStructuredPages.length} pages from scraped URLs`);
 
+    // Determine if batch processing is needed
+    const BATCH_SIZE = 50;
+    const needsBatching = preStructuredPages.length > BATCH_SIZE;
+    
+    console.log(`🔄 Processing mode: ${needsBatching ? `BATCH (${Math.ceil(preStructuredPages.length / BATCH_SIZE)} batches of ${BATCH_SIZE})` : 'SINGLE'}`);
+
     const systemPrompt = `You are a knowledge base enhancer for voice navigation systems.
 
 You will receive a PRE-STRUCTURED list of pages with URLs already assigned. Your job is to ENHANCE each page entry, NOT create or remove pages.
@@ -121,53 +127,124 @@ INSTRUCTIONS:
 
 Output valid JSON only.`;
 
-    console.log('🧠 Calling Lovable AI for knowledge base structuring...');
-
-    // Call Lovable AI
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-pro',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('❌ AI API error:', errorText);
-      throw new Error(`AI processing failed: ${aiResponse.status}`);
-    }
-
-    const aiData = await aiResponse.json();
-    const aiContent = aiData.choices[0]?.message?.content;
-    
-    if (!aiContent) {
-      throw new Error('No content from AI');
-    }
-
-    console.log('✅ AI response received, parsing JSON...');
-
-    // Parse the JSON response (remove markdown code blocks if present)
     let structuredData;
-    try {
-      const cleanedContent = aiContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      structuredData = JSON.parse(cleanedContent);
-    } catch (parseError) {
-      console.error('❌ JSON parse error:', parseError);
-      console.log('Raw AI content:', aiContent);
-      throw new Error('Failed to parse AI response as JSON');
-    }
 
-    // Validate structure
-    if (!structuredData.site_info || !structuredData.pages || !Array.isArray(structuredData.pages)) {
-      throw new Error('Invalid structured data format from AI');
+    if (needsBatching) {
+      // BATCH PROCESSING for large page counts
+      console.log('🧠 Starting BATCH processing with Lovable AI...');
+      
+      const batches = splitIntoBatches(preStructuredPages, BATCH_SIZE);
+      const batchResults: any[] = [];
+      
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        const batchNum = i + 1;
+        const totalBatches = batches.length;
+        
+        console.log(`📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} pages)...`);
+        
+        try {
+          const batchResult = await processBatchWithAI(
+            batch,
+            batchNum,
+            totalBatches,
+            websiteUrl,
+            systemPrompt,
+            LOVABLE_API_KEY
+          );
+          
+          batchResults.push(batchResult);
+          console.log(`✅ Batch ${batchNum}/${totalBatches} complete: ${batchResult.pages.length} pages enhanced`);
+          
+          // Small delay between batches to avoid rate limits
+          if (i < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (error) {
+          console.error(`❌ Batch ${batchNum} failed:`, error);
+          // Use basic pre-structured data as fallback for this batch
+          console.warn(`⚠️ Using fallback data for batch ${batchNum}`);
+          batchResults.push({
+            site_info: {
+              name: new URL(websiteUrl).hostname,
+              base_url: websiteUrl,
+              description: 'E-commerce website'
+            },
+            pages: batch,
+            navigation_structure: { main_pages: [], subpages: {} }
+          });
+        }
+      }
+      
+      console.log('🔗 Merging batch results...');
+      structuredData = mergeBatchResults(batchResults, websiteUrl);
+      console.log(`✅ Merged ${structuredData.pages.length} pages from ${batches.length} batches`);
+      
+    } else {
+      // SINGLE PROCESSING for small page counts
+      console.log('🧠 Calling Lovable AI for knowledge base structuring (single request)...');
+      
+      const userPrompt = `Enhance this pre-structured knowledge base with better descriptions, categories, and hierarchy.
+
+WEBSITE: ${websiteUrl}
+PAGES TO ENHANCE: ${preStructuredPages.length}
+
+PRE-STRUCTURED PAGES (you must return ALL of these with enhancements):
+${JSON.stringify(preStructuredPages, null, 2)}
+
+INSTRUCTIONS:
+- Return ALL ${preStructuredPages.length} pages
+- Improve page names, descriptions, keywords (as arrays), categories
+- Identify parent-child relationships from URL structure
+- Do NOT add or remove pages
+- Do NOT change URLs
+
+Output valid JSON only.`;
+
+      const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-pro',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error('❌ AI API error:', errorText);
+        throw new Error(`AI processing failed: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      const aiContent = aiData.choices[0]?.message?.content;
+      
+      if (!aiContent) {
+        throw new Error('No content from AI');
+      }
+
+      console.log('✅ AI response received, parsing JSON...');
+
+      // Parse the JSON response (remove markdown code blocks if present)
+      try {
+        const cleanedContent = aiContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        structuredData = JSON.parse(cleanedContent);
+      } catch (parseError) {
+        console.error('❌ JSON parse error:', parseError);
+        console.log('Raw AI content:', aiContent);
+        throw new Error('Failed to parse AI response as JSON');
+      }
+
+      // Validate structure
+      if (!structuredData.site_info || !structuredData.pages || !Array.isArray(structuredData.pages)) {
+        throw new Error('Invalid structured data format from AI');
+      }
     }
 
     // Ensure AI didn't drop any pages (100% coverage validation)
@@ -248,6 +325,131 @@ Output valid JSON only.`;
     });
   }
 });
+
+// Helper: Split pages into batches
+function splitIntoBatches(pages: any[], batchSize: number): any[][] {
+  const batches: any[][] = [];
+  for (let i = 0; i < pages.length; i += batchSize) {
+    batches.push(pages.slice(i, i + batchSize));
+  }
+  return batches;
+}
+
+// Helper: Process a single batch with AI
+async function processBatchWithAI(
+  batch: any[],
+  batchNum: number,
+  totalBatches: number,
+  websiteUrl: string,
+  systemPrompt: string,
+  apiKey: string
+): Promise<any> {
+  const userPrompt = `Enhance this batch of pages (batch ${batchNum}/${totalBatches}) with better descriptions, categories, and hierarchy.
+
+WEBSITE: ${websiteUrl}
+BATCH: ${batchNum}/${totalBatches}
+PAGES IN THIS BATCH: ${batch.length}
+
+PRE-STRUCTURED PAGES (you must return ALL of these with enhancements):
+${JSON.stringify(batch, null, 2)}
+
+INSTRUCTIONS:
+- Return ALL ${batch.length} pages from this batch
+- Improve page names, descriptions, keywords (as arrays), categories
+- Identify parent-child relationships from URL structure
+- Do NOT add or remove pages
+- Do NOT change URLs
+- For site_info and navigation_structure, provide basic info (will be merged later)
+
+Output valid JSON only.`;
+
+  const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-pro',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+    }),
+  });
+
+  if (!aiResponse.ok) {
+    const errorText = await aiResponse.text();
+    throw new Error(`AI processing failed for batch ${batchNum}: ${aiResponse.status} - ${errorText}`);
+  }
+
+  const aiData = await aiResponse.json();
+  const aiContent = aiData.choices[0]?.message?.content;
+  
+  if (!aiContent) {
+    throw new Error(`No content from AI for batch ${batchNum}`);
+  }
+
+  // Parse the JSON response
+  const cleanedContent = aiContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const batchData = JSON.parse(cleanedContent);
+
+  // Validate
+  if (!batchData.pages || !Array.isArray(batchData.pages)) {
+    throw new Error(`Invalid batch data format for batch ${batchNum}`);
+  }
+
+  return batchData;
+}
+
+// Helper: Merge batch results into single structured data
+function mergeBatchResults(batchResults: any[], websiteUrl: string): any {
+  // Merge all pages
+  const allPages: any[] = [];
+  for (const batchResult of batchResults) {
+    allPages.push(...batchResult.pages);
+  }
+
+  // Use site_info from first batch (or create default)
+  const siteInfo = batchResults[0]?.site_info || {
+    name: new URL(websiteUrl).hostname,
+    base_url: websiteUrl,
+    description: 'Website knowledge base'
+  };
+
+  // Build navigation structure from ALL pages
+  const mainPages = new Set<string>();
+  const subpages: { [key: string]: Set<string> } = {};
+
+  for (const page of allPages) {
+    // Identify main pages (high importance or no parent)
+    if (page.importance === 'high' || !page.parent) {
+      mainPages.add(page.page_name);
+    }
+
+    // Build parent-child relationships
+    if (page.parent) {
+      if (!subpages[page.parent]) {
+        subpages[page.parent] = new Set();
+      }
+      subpages[page.parent].add(page.page_name);
+    }
+  }
+
+  // Convert sets to arrays
+  const navigationStructure = {
+    main_pages: Array.from(mainPages),
+    subpages: Object.fromEntries(
+      Object.entries(subpages).map(([parent, children]) => [parent, Array.from(children)])
+    )
+  };
+
+  return {
+    site_info: siteInfo,
+    pages: allPages,
+    navigation_structure: navigationStructure
+  };
+}
 
 function generateKnowledgeBaseTXT(data: any): string {
   let txt = `# Knowledge Base: ${data.site_info.name}\n`;
