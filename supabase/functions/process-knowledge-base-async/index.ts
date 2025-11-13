@@ -280,9 +280,9 @@ Return ONLY valid JSON, no markdown formatting.`;
         batchResults.push(batchResult);
         console.log(`✅ Batch ${batchNum}/${totalBatches} complete: ${batchResult.pages.length} pages enhanced`);
         
-        // Small delay between batches to avoid rate limits
+        // Longer delay between batches to avoid rate limits
         if (i < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
       } catch (error) {
         console.error(`❌ Batch ${batchNum} failed:`, error);
