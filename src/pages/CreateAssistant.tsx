@@ -70,6 +70,14 @@ const CreateAssistant = () => {
 
     const channel = supabase
       .channel('processing_updates')
+      .on('broadcast', { event: 'processing_progress' }, (payload) => {
+        console.log('📊 Received progress update:', payload);
+        
+        if (payload.payload.recordId === scrapeRecordId) {
+          const { currentBatch, totalBatches, progress } = payload.payload;
+          setScrapeProgress(`📦 Processing batch ${currentBatch}/${totalBatches} (${progress}%)...`);
+        }
+      })
       .on('broadcast', { event: 'processing_complete' }, (payload) => {
         console.log('📨 Received processing update:', payload);
         
