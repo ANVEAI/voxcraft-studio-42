@@ -7,6 +7,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const BATCH_SIZE = 50;
+const BATCH_TIMEOUT_MS = 60000; // 60 seconds
+const MAX_RETRIES = 2;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -26,10 +30,10 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get raw data from database
+    // Get raw data from database with batch tracking
     const { data: record, error: fetchError } = await supabase
       .from('scraped_websites')
-      .select('raw_pages, url, user_id, processing_status')
+      .select('raw_pages, url, user_id, processing_status, current_batch, total_batches, structured_data, batch_errors')
       .eq('id', recordId)
       .single();
 
@@ -40,26 +44,6 @@ serve(async (req) => {
     if (!record.raw_pages) {
       throw new Error('No raw pages data found for processing');
     }
-
-    if (record.processing_status === 'processing') {
-      console.log('⚠️ Record already being processed, skipping...');
-      return new Response(JSON.stringify({
-        success: true,
-        message: 'Record already being processed'
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 202
-      });
-    }
-
-    // Update status to 'processing' immediately
-    await supabase
-      .from('scraped_websites')
-      .update({ 
-        processing_status: 'processing',
-        last_checked_at: new Date().toISOString()
-      })
-      .eq('id', recordId);
 
     // Return immediately with 202 Accepted
     const response = new Response(JSON.stringify({
@@ -83,79 +67,192 @@ serve(async (req) => {
           throw new Error('LOVABLE_API_KEY not configured');
         }
 
-        // Process pages with AI (reuse existing logic)
-        const structuredData = await processPagesWithAI(record.raw_pages, record.url, LOVABLE_API_KEY);
-        
-        // Generate knowledge base TXT
-        const txtContent = generateKnowledgeBaseTXT(structuredData);
-        
-        // Convert to base64 for storage
-        const encoder = new TextEncoder();
-        const txtBytes = encoder.encode(txtContent);
-        const base64Content = btoa(String.fromCharCode(...txtBytes));
-        const sizeKB = Math.round(txtBytes.length / 1024);
-        
-        // Save results and update status
-        const { error: updateError } = await supabase
-          .from('scraped_websites')
-          .update({
-            processing_status: 'completed',
-            structured_data: structuredData,
-            knowledge_base_content: txtContent,
-            pages_scraped: structuredData.pages.length,
-            total_size_kb: sizeKB,
-            processed_at: new Date().toISOString(),
-            last_checked_at: new Date().toISOString()
-          })
-          .eq('id', recordId);
+        // Filter valid pages
+        const validPages = record.raw_pages.filter((p: any) => 
+          p && p.markdown && p.markdown.trim().length > 0
+        );
+        console.log(`📋 Filtered ${validPages.length} valid pages from ${record.raw_pages.length} total`);
 
-        if (updateError) {
-          throw new Error(`Failed to save results: ${updateError.message}`);
+        // Pre-structure pages
+        const preStructuredPages = validPages.map((page: any) => ({
+          url: page.url || page.metadata?.sourceURL || '',
+          title: page.metadata?.title || page.metadata?.ogTitle || '',
+          description: page.metadata?.description || page.metadata?.ogDescription || '',
+          content: page.markdown?.substring(0, 3000) || '',
+          keywords: []
+        }));
+        console.log(`📋 Pre-structured ${preStructuredPages.length} pages from scraped URLs`);
+
+        // Initialize batch processing on first run
+        if (record.current_batch === 0) {
+          const batches = splitIntoBatches(preStructuredPages, BATCH_SIZE);
+          const totalBatches = batches.length;
+
+          console.log(`🔄 Initializing BATCH processing: ${totalBatches} batches of ${BATCH_SIZE} pages`);
+
+          await supabase
+            .from('scraped_websites')
+            .update({
+              current_batch: 1,
+              total_batches: totalBatches,
+              processing_status: 'processing',
+              structured_data: { pages: [], site_info: {}, navigation: {} },
+              last_checked_at: new Date().toISOString()
+            })
+            .eq('id', recordId);
+
+          // Fetch updated record
+          const { data: updatedRecord } = await supabase
+            .from('scraped_websites')
+            .select('current_batch, total_batches, structured_data, batch_errors')
+            .eq('id', recordId)
+            .single();
+
+          if (updatedRecord) {
+            record.current_batch = updatedRecord.current_batch;
+            record.total_batches = updatedRecord.total_batches;
+            record.structured_data = updatedRecord.structured_data;
+            record.batch_errors = updatedRecord.batch_errors;
+          }
         }
 
-        // Notify user via WebSocket
-        await notifyUser(supabase, record.user_id, recordId, 'completed', {
-          pagesProcessed: structuredData.pages.length,
-          sizeKB: sizeKB,
-          websiteUrl: record.url
-        });
+        // Process current batch
+        const batches = splitIntoBatches(preStructuredPages, BATCH_SIZE);
+        const currentBatchIndex = record.current_batch - 1;
+        const currentBatch = batches[currentBatchIndex];
 
-        console.log(`✅ Async processing complete: ${structuredData.pages.length} pages, ${sizeKB}KB`);
+        if (!currentBatch || currentBatch.length === 0) {
+          throw new Error(`No batch found for index ${currentBatchIndex}`);
+        }
+
+        console.log(`📦 Processing batch ${record.current_batch}/${record.total_batches} (${currentBatch.length} pages)...`);
+
+        // Send progress notification
+        await notifyProgress(supabase, record.user_id, recordId, record.current_batch, record.total_batches);
+
+        // Process batch with retry logic
+        let batchResult = null;
+        let retries = 0;
+        let lastError = null;
+
+        while (retries <= MAX_RETRIES && !batchResult) {
+          try {
+            batchResult = await processBatchWithAI(
+              currentBatch,
+              record.url,
+              LOVABLE_API_KEY,
+              record.current_batch,
+              record.total_batches
+            );
+            console.log(`✅ Batch ${record.current_batch}/${record.total_batches} complete: ${batchResult.pages.length} pages enhanced`);
+          } catch (error) {
+            lastError = error;
+            retries++;
+            console.error(`❌ Batch ${record.current_batch} failed (attempt ${retries}/${MAX_RETRIES + 1}):`, error);
+            
+            if (retries <= MAX_RETRIES) {
+              console.log(`🔄 Retrying batch ${record.current_batch}...`);
+              await new Promise(resolve => setTimeout(resolve, 2000 * retries)); // Exponential backoff
+            }
+          }
+        }
+
+        // If all retries failed, use fallback data
+        if (!batchResult) {
+          console.error(`❌ Batch ${record.current_batch} failed after ${MAX_RETRIES + 1} attempts, using fallback`);
+          batchResult = {
+            pages: currentBatch.map((p: any) => ({
+              ...p,
+              keywords: [],
+              fallback: true
+            }))
+          };
+
+          // Log error
+          const errors = Array.isArray(record.batch_errors) ? record.batch_errors : [];
+          errors.push({
+            batch: record.current_batch,
+            error: lastError instanceof Error ? lastError.message : 'Unknown error',
+            timestamp: new Date().toISOString()
+          });
+
+          await supabase
+            .from('scraped_websites')
+            .update({ batch_errors: errors })
+            .eq('id', recordId);
+        }
+
+        // Append batch results to structured_data
+        const existingPages = record.structured_data?.pages || [];
+        const updatedPages = [...existingPages, ...batchResult.pages];
+
+        // Check if this is the last batch
+        const isLastBatch = record.current_batch >= record.total_batches;
+
+        if (isLastBatch) {
+          // Final processing: merge all batches
+          console.log(`🎯 Final batch complete. Merging ${updatedPages.length} total pages...`);
+
+          const finalData = {
+            site_info: {
+              url: record.url,
+              title: updatedPages[0]?.title || '',
+              description: updatedPages[0]?.description || '',
+              total_pages: updatedPages.length
+            },
+            navigation: buildNavigationStructure(updatedPages),
+            pages: updatedPages
+          };
+
+          const txtContent = generateKnowledgeBaseTXT(finalData);
+          const encoder = new TextEncoder();
+          const txtBytes = encoder.encode(txtContent);
+          const sizeKB = Math.round(txtBytes.length / 1024);
+
+          // Save final results
+          await supabase
+            .from('scraped_websites')
+            .update({
+              processing_status: 'completed',
+              structured_data: finalData,
+              knowledge_base_content: txtContent,
+              pages_scraped: finalData.pages.length,
+              total_size_kb: sizeKB,
+              processed_at: new Date().toISOString(),
+              last_checked_at: new Date().toISOString()
+            })
+            .eq('id', recordId);
+
+          console.log(`✅ All batches complete! Processed ${finalData.pages.length} pages (${sizeKB}KB)`);
+
+          // Notify completion
+          await notifyUser(supabase, record.user_id, recordId, 'completed', {
+            pagesProcessed: finalData.pages.length,
+            sizeKB
+          });
+
+        } else {
+          // Not the last batch - save progress and trigger next batch
+          await supabase
+            .from('scraped_websites')
+            .update({
+              current_batch: record.current_batch + 1,
+              structured_data: { ...record.structured_data, pages: updatedPages },
+              last_checked_at: new Date().toISOString()
+            })
+            .eq('id', recordId);
+
+          console.log(`⏭️ Batch ${record.current_batch} saved. Triggering next batch...`);
+
+          // Trigger next batch processing
+          await supabase.functions.invoke('process-knowledge-base-async', {
+            body: { recordId }
+          });
+        }
+
       } catch (error) {
-        console.error('❌ Background processing failed:', error);
+        console.error('❌ AI processing failed:', error);
         
-        // Update status to failed
-        await supabase
-          .from('scraped_websites')
-          .update({
-            processing_status: 'failed',
-            error_message: error instanceof Error ? error.message : 'Unknown error during AI processing',
-            last_checked_at: new Date().toISOString()
-          })
-          .eq('id', recordId);
-
-        // Notify user of failure
-        await notifyUser(supabase, record.user_id, recordId, 'failed', {
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    })());
-
-    return response;
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
-  } catch (error) {
-    console.error('💥 Async processing error:', error);
-    
-    // Try to update record with error status
-    try {
-      const { recordId } = await req.json();
-      if (recordId) {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-        const supabase = createClient(supabaseUrl, supabaseKey);
-
         await supabase
           .from('scraped_websites')
           .update({
@@ -165,282 +262,27 @@ serve(async (req) => {
           })
           .eq('id', recordId);
 
-        // Get user_id for notification
-        const { data: record } = await supabase
-          .from('scraped_websites')
-          .select('user_id, url')
-          .eq('id', recordId)
-          .single();
-
-        if (record) {
-          await notifyUser(supabase, record.user_id, recordId, 'failed', {
-            error: error instanceof Error ? error.message : 'Unknown error',
-            websiteUrl: record.url
-          });
-        }
+        await notifyUser(supabase, record.user_id, recordId, 'failed', {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
       }
-    } catch (dbError) {
-      console.error('⚠️ Failed to save error status:', dbError);
-    }
-    
+    })());
+
+    return response;
+
+  } catch (error) {
+    console.error('❌ Request handling error:', error);
     return new Response(JSON.stringify({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     }), {
-      status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500
     });
   }
 });
 
-// Process pages with AI using existing batch logic
-async function processPagesWithAI(rawPages: any[], websiteUrl: string, apiKey: string): Promise<any> {
-  // Filter out pages with invalid URLs
-  const validPages = rawPages.filter((page: any) => {
-    const url = page.metadata?.url || page.url;
-    return url && url !== 'undefined' && url.trim() !== '';
-  });
-
-  console.log(`📋 Filtered ${validPages.length} valid pages from ${rawPages.length} total`);
-
-  // Pre-create structure from ALL scraped URLs
-  const preStructuredPages = validPages.map((page: any, index: number) => {
-    const url = page.metadata?.url || page.url;
-    let pageName: string;
-    
-    try {
-      const urlObj = new URL(url);
-      const pathParts = urlObj.pathname.split('/').filter(Boolean);
-      const lastPart = pathParts[pathParts.length - 1] || 'home';
-      
-      pageName = page.metadata?.title || 
-                 lastPart.replace(/-/g, ' ').replace(/_/g, ' ')
-                   .split(' ')
-                   .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
-                   .join(' ');
-    } catch (e) {
-      pageName = 'Unknown Page';
-    }
-    
-    return {
-      id: `page_${index}`,
-      url: url,
-      page_name: pageName,
-      title: page.metadata?.title || '',
-      description: page.metadata?.description || '',
-      keywords: page.metadata?.keywords || '',
-      markdown_preview: page.markdown ? page.markdown.substring(0, 2000) : '',
-      category: 'To be determined',
-      importance: 'medium',
-      parent: null
-    };
-  });
-
-  console.log(`📋 Pre-structured ${preStructuredPages.length} pages from scraped URLs`);
-
-  // Determine if batch processing is needed
-  const BATCH_SIZE = 50;
-  const needsBatching = preStructuredPages.length > BATCH_SIZE;
-  
-  console.log(`🔄 Processing mode: ${needsBatching ? `BATCH (${Math.ceil(preStructuredPages.length / BATCH_SIZE)} batches of ${BATCH_SIZE})` : 'SINGLE'}`);
-
-  const systemPrompt = `You are a knowledge base enhancer for voice navigation systems.
-
-You will receive a PRE-STRUCTURED list of pages with URLs already assigned. Your job is to ENHANCE each page entry, NOT create or remove pages.
-
-For each page, improve:
-1. **page_name**: Make it clear and voice-friendly
-2. **category**: Assign appropriate category (Main/Product/Service/Resource/About/Support/Information/etc)
-3. **description**: Write 2-3 sentences explaining page content and purpose
-4. **keywords**: Extract 5-10 relevant keywords for voice matching (as array)
-5. **parent**: If it's a subpage, identify the parent page name
-6. **importance**: Assess as high/medium/low based on content depth and relevance
-
-CRITICAL RULES:
-- DO NOT add new pages
-- DO NOT remove any pages
-- DO NOT change URLs
-- ONLY enhance the existing page entries
-- Return ALL pages you received, just with better data
-
-OUTPUT FORMAT (strict JSON):
-{
-  "site_info": {
-    "name": "Website Name",
-    "base_url": "https://example.com",
-    "description": "Brief site description"
-  },
-  "pages": [ /* ALL pages with enhancements */ ],
-  "navigation_structure": {
-    "main_pages": ["Home", "Products"],
-    "subpages": { "Products": ["Product A"] }
-  }
-}
-
-Return ONLY valid JSON, no markdown formatting.`;
-
-  let structuredData;
-
-  if (needsBatching) {
-    // BATCH PROCESSING for large page counts
-    console.log('🧠 Starting BATCH processing with Lovable AI...');
-    
-    const batches = splitIntoBatches(preStructuredPages, BATCH_SIZE);
-    const batchResults: any[] = [];
-    
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      const batchNum = i + 1;
-      const totalBatches = batches.length;
-      
-      console.log(`📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} pages)...`);
-      
-      try {
-        const batchResult = await processBatchWithAI(
-          batch,
-          batchNum,
-          totalBatches,
-          websiteUrl,
-          systemPrompt,
-          apiKey
-        );
-        
-        batchResults.push(batchResult);
-        console.log(`✅ Batch ${batchNum}/${totalBatches} complete: ${batchResult.pages.length} pages enhanced`);
-        
-        // Longer delay between batches to avoid rate limits
-        if (i < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      } catch (error) {
-        console.error(`❌ Batch ${batchNum} failed:`, error);
-        // Use basic pre-structured data as fallback for this batch
-        console.warn(`⚠️ Using fallback data for batch ${batchNum}`);
-        batchResults.push({
-          site_info: {
-            name: new URL(websiteUrl).hostname,
-            base_url: websiteUrl,
-            description: 'Website knowledge base'
-          },
-          pages: batch,
-          navigation_structure: { main_pages: [], subpages: {} }
-        });
-      }
-    }
-    
-    console.log('🔗 Merging batch results...');
-    structuredData = mergeBatchResults(batchResults, websiteUrl);
-    console.log(`✅ Merged ${structuredData.pages.length} pages from ${batches.length} batches`);
-    
-  } else {
-    // SINGLE PROCESSING for small page counts
-    console.log('🧠 Calling Lovable AI for knowledge base structuring (single request)...');
-    
-    const userPrompt = `Enhance this pre-structured knowledge base with better descriptions, categories, and hierarchy.
-
-WEBSITE: ${websiteUrl}
-PAGES TO ENHANCE: ${preStructuredPages.length}
-
-PRE-STRUCTURED PAGES (you must return ALL of these with enhancements):
-${JSON.stringify(preStructuredPages, null, 2)}
-
-INSTRUCTIONS:
-- Return ALL ${preStructuredPages.length} pages
-- Improve page names, descriptions, keywords (as arrays), categories
-- Identify parent-child relationships from URL structure
-- Do NOT add or remove pages
-- Do NOT change URLs
-
-Output valid JSON only.`;
-
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-pro',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('❌ AI API error:', errorText);
-      throw new Error(`AI processing failed: ${aiResponse.status}`);
-    }
-
-    const aiData = await aiResponse.json();
-    const aiContent = aiData.choices[0]?.message?.content;
-    
-    if (!aiContent) {
-      throw new Error('No content from AI');
-    }
-
-    console.log('✅ AI response received, parsing JSON...');
-
-    // Parse the JSON response (remove markdown code blocks if present)
-    try {
-      const cleanedContent = aiContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      structuredData = JSON.parse(cleanedContent);
-    } catch (parseError) {
-      console.error('❌ JSON parse error:', parseError);
-      console.log('Raw AI content:', aiContent);
-      throw new Error('Failed to parse AI response as JSON');
-    }
-
-    // Validate structure
-    if (!structuredData.site_info || !structuredData.pages || !Array.isArray(structuredData.pages)) {
-      throw new Error('Invalid structured data format from AI');
-    }
-  }
-
-  // Ensure AI didn't drop any pages (100% coverage validation)
-  if (structuredData.pages.length !== preStructuredPages.length) {
-    console.error(`⚠️ AI returned ${structuredData.pages.length} pages but expected ${preStructuredPages.length}`);
-    
-    // Find missing page URLs
-    const returnedUrls = new Set(structuredData.pages.map((p: any) => p.url));
-    const missingPages = preStructuredPages.filter((p: any) => 
-      !returnedUrls.has(p.url)
-    );
-    
-    // Re-add missing pages with basic data
-    missingPages.forEach((missingPage: any) => {
-      console.warn(`⚠️ Re-adding missing page: ${missingPage.page_name} (${missingPage.url})`);
-      structuredData.pages.push(missingPage);
-    });
-    
-    console.log(`✅ Re-added ${missingPages.length} missing pages`);
-  }
-
-  // Ensure no page has undefined URL
-  structuredData.pages = structuredData.pages.filter((p: any) => {
-    if (!p.url || p.url === 'undefined') {
-      console.warn(`⚠️ Removing invalid page: ${p.page_name} (no URL)`);
-      return false;
-    }
-    return true;
-  });
-
-  // Ensure keywords are arrays
-  structuredData.pages = structuredData.pages.map((p: any) => ({
-    ...p,
-    keywords: Array.isArray(p.keywords) ? p.keywords : 
-              typeof p.keywords === 'string' ? p.keywords.split(',').map((k: string) => k.trim()) :
-              []
-  }));
-
-  console.log(`✅ Final knowledge base contains ${structuredData.pages.length} pages (100% URL coverage)`);
-
-  return structuredData;
-}
-
-// Helper functions (reused from existing process-knowledge-base)
+// Helper: Split pages into batches
 function splitIntoBatches(pages: any[], batchSize: number): any[][] {
   const batches: any[][] = [];
   for (let i = 0; i < pages.length; i += batchSize) {
@@ -449,201 +291,223 @@ function splitIntoBatches(pages: any[], batchSize: number): any[][] {
   return batches;
 }
 
+// Helper: Process a single batch with timeout
 async function processBatchWithAI(
   batch: any[],
-  batchNum: number,
-  totalBatches: number,
   websiteUrl: string,
-  systemPrompt: string,
-  apiKey: string
+  apiKey: string,
+  batchNum: number,
+  totalBatches: number
 ): Promise<any> {
-  const userPrompt = `Enhance this batch of pages (batch ${batchNum}/${totalBatches}) with better descriptions, categories, and hierarchy.
+  const timeout = (ms: number) => new Promise((_, reject) => 
+    setTimeout(() => reject(new Error(`Batch ${batchNum} timeout after ${ms}ms`)), ms)
+  );
 
-WEBSITE: ${websiteUrl}
-BATCH: ${batchNum}/${totalBatches}
-PAGES IN THIS BATCH: ${batch.length}
+  const systemPrompt = `You are a website content analyzer. Enhance the provided pages with relevant keywords and maintain their structure.
 
-PRE-STRUCTURED PAGES (you must return ALL of these with enhancements):
-${JSON.stringify(batch, null, 2)}
+Return ONLY valid JSON in this exact format:
+{
+  "pages": [
+    {
+      "url": "page url",
+      "title": "page title",
+      "description": "brief description",
+      "content": "page content (max 3000 chars)",
+      "keywords": ["keyword1", "keyword2"]
+    }
+  ]
+}`;
 
-INSTRUCTIONS:
-- Return ALL ${batch.length} pages from this batch
-- Improve page names, descriptions, keywords (as arrays), categories
-- Identify parent-child relationships from URL structure
-- Do NOT add or remove pages
-- Do NOT change URLs
-- For site_info and navigation_structure, provide basic info (will be merged later)
+  const userPrompt = `Analyze these ${batch.length} pages from ${websiteUrl} (batch ${batchNum}/${totalBatches}).
+For each page, add 3-5 relevant keywords based on the content.
 
-Output valid JSON only.`;
+Pages:
+${JSON.stringify(batch, null, 2)}`;
 
-  const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-pro',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-    }),
-  });
+  try {
+    const aiResponse = await Promise.race([
+      fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 16000,
+        }),
+      }),
+      timeout(BATCH_TIMEOUT_MS)
+    ]);
 
-  if (!aiResponse.ok) {
-    const errorText = await aiResponse.text();
-    throw new Error(`AI processing failed for batch ${batchNum}: ${aiResponse.status} - ${errorText}`);
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      throw new Error(`AI API error (${aiResponse.status}): ${errorText}`);
+    }
+
+    const aiData = await aiResponse.json();
+    const content = aiData.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new Error('No content in AI response');
+    }
+
+    // Parse JSON
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON found in AI response');
+    }
+
+    const result = JSON.parse(jsonMatch[0]);
+
+    if (!result.pages || !Array.isArray(result.pages)) {
+      throw new Error('Invalid response structure');
+    }
+
+    return result;
+
+  } catch (error) {
+    console.error(`❌ Batch ${batchNum} processing error:`, error);
+    throw error;
   }
+}
 
-  const aiData = await aiResponse.json();
-  const aiContent = aiData.choices[0]?.message?.content;
+// Helper: Build navigation structure from pages
+function buildNavigationStructure(pages: any[]): any {
+  const nav: any = {};
   
-  if (!aiContent) {
-    throw new Error(`No content from AI for batch ${batchNum}`);
-  }
-
-  // Parse the JSON response
-  const cleanedContent = aiContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const batchData = JSON.parse(cleanedContent);
-
-  // Validate
-  if (!batchData.pages || !Array.isArray(batchData.pages)) {
-    throw new Error(`Invalid batch data format for batch ${batchNum}`);
-  }
-
-  return batchData;
+  pages.forEach(page => {
+    try {
+      const url = new URL(page.url);
+      const pathParts = url.pathname.split('/').filter(p => p);
+      
+      let current = nav;
+      pathParts.forEach((part, index) => {
+        if (!current[part]) {
+          current[part] = index === pathParts.length - 1 ? page.url : {};
+        }
+        if (typeof current[part] === 'object') {
+          current = current[part];
+        }
+      });
+    } catch (e) {
+      // Skip invalid URLs
+    }
+  });
+  
+  return nav;
 }
 
-function mergeBatchResults(batchResults: any[], websiteUrl: string): any {
-  // Merge all pages
-  const allPages: any[] = [];
-  for (const batchResult of batchResults) {
-    allPages.push(...batchResult.pages);
-  }
-
-  // Use site_info from first batch (or create default)
-  const siteInfo = batchResults[0]?.site_info || {
-    name: new URL(websiteUrl).hostname,
-    base_url: websiteUrl,
-    description: 'Website knowledge base'
-  };
-
-  // Build navigation structure from ALL pages
-  const mainPages = new Set<string>();
-  const subpages: { [key: string]: Set<string> } = {};
-
-  for (const page of allPages) {
-    // Identify main pages (high importance or no parent)
-    if (page.importance === 'high' || !page.parent) {
-      mainPages.add(page.page_name);
-    }
-
-    // Build parent-child relationships
-    if (page.parent) {
-      if (!subpages[page.parent]) {
-        subpages[page.parent] = new Set();
-      }
-      subpages[page.parent].add(page.page_name);
-    }
-  }
-
-  // Convert sets to arrays
-  const navigationStructure = {
-    main_pages: Array.from(mainPages),
-    subpages: Object.fromEntries(
-      Object.entries(subpages).map(([parent, children]) => [parent, Array.from(children)])
-    )
-  };
-
-  return {
-    site_info: siteInfo,
-    pages: allPages,
-    navigation_structure: navigationStructure
-  };
-}
-
+// Helper: Generate knowledge base text file
 function generateKnowledgeBaseTXT(data: any): string {
-  let txt = `# Knowledge Base: ${data.site_info.name}\n`;
-  txt += `Generated: ${new Date().toISOString()}\n`;
-  txt += `Base URL: ${data.site_info.base_url}\n`;
-  txt += `Description: ${data.site_info.description}\n`;
-  txt += `Total Pages: ${data.pages.length}\n\n`;
-  txt += `---\n\n`;
-
-  // Navigation Structure
-  txt += `## Navigation Structure\n\n`;
-  txt += `Main Pages: ${data.navigation_structure.main_pages.join(', ')}\n\n`;
+  let txt = '';
   
-  if (data.navigation_structure.subpages) {
-    for (const [parent, children] of Object.entries(data.navigation_structure.subpages)) {
-      txt += `${parent} → ${(children as string[]).join(', ')}\n`;
-    }
-  }
-  txt += `\n---\n\n`;
-
+  // Site Info
+  txt += '='.repeat(80) + '\n';
+  txt += 'WEBSITE KNOWLEDGE BASE\n';
+  txt += '='.repeat(80) + '\n\n';
+  txt += `Website: ${data.site_info?.url || 'Unknown'}\n`;
+  txt += `Title: ${data.site_info?.title || 'Unknown'}\n`;
+  txt += `Description: ${data.site_info?.description || 'No description'}\n`;
+  txt += `Total Pages: ${data.pages?.length || 0}\n`;
+  txt += `Generated: ${new Date().toISOString()}\n\n`;
+  
+  // Navigation
+  txt += '-'.repeat(80) + '\n';
+  txt += 'SITE NAVIGATION STRUCTURE\n';
+  txt += '-'.repeat(80) + '\n';
+  txt += JSON.stringify(data.navigation || {}, null, 2) + '\n\n';
+  
   // Page Index
-  txt += `## Page Index\n\n`;
-
-  // Sort by importance
-  const sortedPages = [...data.pages].sort((a, b) => {
-    const importanceOrder = { high: 0, medium: 1, low: 2 };
-    return importanceOrder[a.importance as keyof typeof importanceOrder] - 
-           importanceOrder[b.importance as keyof typeof importanceOrder];
+  txt += '-'.repeat(80) + '\n';
+  txt += 'PAGE INDEX\n';
+  txt += '-'.repeat(80) + '\n';
+  (data.pages || []).forEach((page: any, index: number) => {
+    txt += `${index + 1}. ${page.title || 'Untitled'}\n`;
+    txt += `   URL: ${page.url}\n`;
+    txt += `   Keywords: ${(page.keywords || []).join(', ')}\n\n`;
   });
-
-  for (const page of sortedPages) {
-    const pageId = page.page_name.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '');
-    txt += `### ${pageId}\n`;
-    txt += `URL: ${page.url}\n`;
-    txt += `Category: ${page.category}\n`;
-    txt += `Description: ${page.description}\n`;
-    txt += `Keywords: ${page.keywords.join(', ')}\n`;
-    txt += `Importance: ${page.importance}\n`;
-    if (page.parent) {
-      txt += `Parent: ${page.parent}\n`;
-    }
-    txt += `\n`;
-  }
-
-  txt += `---\n\n`;
-
-  // Quick Reference
-  txt += `## Quick Reference\n\n`;
-  txt += `Most Important Pages:\n`;
   
-  const highPriorityPages = data.pages.filter((p: any) => p.importance === 'high');
-  highPriorityPages.forEach((page: any, idx: number) => {
-    txt += `${idx + 1}. ${page.page_name} → ${page.url}\n`;
+  // Full Page Content
+  txt += '='.repeat(80) + '\n';
+  txt += 'FULL PAGE CONTENT\n';
+  txt += '='.repeat(80) + '\n\n';
+  
+  (data.pages || []).forEach((page: any, index: number) => {
+    txt += `\n${'#'.repeat(80)}\n`;
+    txt += `PAGE ${index + 1}: ${page.title || 'Untitled'}\n`;
+    txt += `${'#'.repeat(80)}\n\n`;
+    txt += `URL: ${page.url}\n`;
+    txt += `Description: ${page.description || 'No description'}\n`;
+    txt += `Keywords: ${(page.keywords || []).join(', ')}\n\n`;
+    txt += '-'.repeat(80) + '\n';
+    txt += 'CONTENT:\n';
+    txt += '-'.repeat(80) + '\n';
+    txt += page.content || 'No content available';
+    txt += '\n\n';
   });
-
-  txt += `\n## Voice Command Examples\n\n`;
-  data.pages.slice(0, 5).forEach((page: any) => {
-    txt += `"Go to ${page.page_name.toLowerCase()}" → ${page.url}\n`;
-  });
-
+  
   return txt;
 }
 
-// Notify user via WebSocket
-async function notifyUser(supabase: any, userId: string, recordId: string, status: string, data?: any) {
+// Helper: Send progress notification
+async function notifyProgress(
+  supabase: any,
+  userId: string,
+  recordId: string,
+  currentBatch: number,
+  totalBatches: number
+) {
+  const progress = Math.round((currentBatch / totalBatches) * 100);
+  
+  try {
+    await supabase
+      .channel('processing_updates')
+      .send({
+        type: 'broadcast',
+        event: 'processing_progress',
+        payload: {
+          userId,
+          recordId,
+          status: 'processing',
+          currentBatch,
+          totalBatches,
+          progress,
+          message: `Processing batch ${currentBatch}/${totalBatches} (${progress}%)`
+        }
+      });
+  } catch (error) {
+    console.error('Failed to send progress notification:', error);
+  }
+}
+
+// Helper: Send completion/failure notification
+async function notifyUser(
+  supabase: any,
+  userId: string,
+  recordId: string,
+  status: string,
+  data?: any
+) {
   try {
     await supabase
       .channel('processing_updates')
       .send({
         type: 'broadcast',
         event: 'processing_complete',
-        payload: { 
-          userId, 
-          recordId, 
+        payload: {
+          userId,
+          recordId,
           status,
-          ...data,
-          timestamp: new Date().toISOString()
+          ...data
         }
       });
-    
-    console.log(`📡 Notification sent to user ${userId}: ${status}`);
   } catch (error) {
-    console.error('⚠️ Failed to send notification:', error);
+    console.error('Failed to send notification:', error);
   }
 }
