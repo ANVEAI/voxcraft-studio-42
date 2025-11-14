@@ -13,7 +13,6 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { createAsyncProcessingManager } from '@/utils/asyncProcessingNotifications'
 
 
 interface AssistantData {
@@ -52,134 +51,9 @@ const CreateAssistant = () => {
   })
   const [isCreating, setIsCreating] = useState(false)
   const [embedCode, setEmbedCode] = useState('')
-  const [files, setFiles] = useState<File[]>([])
-  const [websiteUrl, setWebsiteUrl] = useState('')
-  const [isScraping, setIsScraping] = useState(false)
-  const [scrapeProgress, setScrapeProgress] = useState('')
-  const [scrapeJobId, setScrapeJobId] = useState<string | null>(null)
-  const [scrapeRecordId, setScrapeRecordId] = useState<string | null>(null)
-  const [isPolling, setIsPolling] = useState(false)
+  const [files, setFiles] = useState<File[]>([]) // Add this for file management
 
   const form = useForm()
-
-  // WebSocket subscription for processing updates
-  useEffect(() => {
-    if (!scrapeRecordId || !user?.id) return;
-
-    console.log('📡 Setting up WebSocket subscription for record:', scrapeRecordId);
-
-    const channel = supabase
-      .channel('processing_updates')
-      .on('broadcast', { event: 'processing_progress' }, (payload) => {
-        console.log('📊 Received progress update:', payload);
-        
-        if (payload.payload.recordId === scrapeRecordId) {
-          const { currentBatch, totalBatches, progress } = payload.payload;
-          setScrapeProgress(`📦 Processing batch ${currentBatch}/${totalBatches} (${progress}%)...`);
-        }
-      })
-      .on('broadcast', { event: 'processing_complete' }, (payload) => {
-        console.log('📨 Received processing update:', payload);
-        
-        if (payload.payload.recordId === scrapeRecordId) {
-          if (payload.payload.status === 'completed') {
-            setScrapeProgress(`✅ AI processing complete! ${payload.payload.pagesProcessed} pages processed (${payload.payload.sizeKB}KB)`);
-            
-            // Download and add knowledge base to files
-            handleDownloadKnowledgeBase(scrapeRecordId);
-            
-            toast({
-              title: "Processing Complete!",
-              description: `AI processed ${payload.payload.pagesProcessed} pages into structured knowledge base`,
-            });
-          } else if (payload.payload.status === 'failed') {
-            setScrapeProgress('❌ AI processing failed');
-            toast({
-              title: "Processing Failed",
-              description: payload.payload.error || 'Unknown error',
-              variant: "destructive"
-            });
-          }
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [scrapeRecordId, user?.id]);
-
-  // Download knowledge base when processing completes
-  const handleDownloadKnowledgeBase = async (recordId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('scraped_websites')
-        .select('*')
-        .eq('id', recordId)
-        .single();
-
-      if (error) {
-        console.error('Error fetching knowledge base:', error);
-        return;
-      }
-
-      // Cast to any to work around type sync issues
-      const record = data as any;
-
-      // Extract structured data or knowledge base content
-      const structuredData = record?.structured_data;
-      const knowledgeBaseContent = record?.knowledge_base_content;
-
-      let txtContent: string;
-      if (knowledgeBaseContent) {
-        txtContent = knowledgeBaseContent;
-      } else if (structuredData) {
-        // Generate TXT content from structured data if knowledge base not yet generated
-        txtContent = generateKnowledgeBaseTXT(structuredData);
-      } else {
-        console.error('No knowledge base data available');
-        return;
-      }
-
-      // Convert to File object
-      const blob = new Blob([txtContent], { type: 'text/plain' });
-      const hostname = record?.url ? new URL(record.url).hostname : 'website';
-      const file = new File([blob], `knowledge-base-${hostname}.txt`, { type: 'text/plain' });
-
-      // Add to uploaded files
-      setAssistantData(prev => ({
-        ...prev,
-        uploadedFiles: [...prev.uploadedFiles, file]
-      }));
-
-      // Clear scraping state
-      setScrapeRecordId(null);
-      setScrapeProgress('');
-      setIsScraping(false);
-    } catch (error) {
-      console.error('Error downloading knowledge base:', error);
-    }
-  };
-
-  // Helper to generate knowledge base TXT (simplified version)
-  const generateKnowledgeBaseTXT = (structuredData: any): string => {
-    let content = `# ${structuredData.siteName || 'Website'} Knowledge Base\n\n`;
-    content += `URL: ${structuredData.baseUrl}\n`;
-    content += `Last Updated: ${new Date().toISOString()}\n`;
-    content += `Total Pages: ${structuredData.pages?.length || 0}\n\n`;
-    content += `---\n\n`;
-
-    if (structuredData.pages) {
-      structuredData.pages.forEach((page: any, index: number) => {
-        content += `## Page ${index + 1}: ${page.title}\n`;
-        content += `URL: ${page.url}\n\n`;
-        content += `${page.content}\n\n`;
-        content += `---\n\n`;
-      });
-    }
-
-    return content;
-  };
 
   if (!isLoaded || !isSignedIn) {
     return (
@@ -535,15 +409,21 @@ const CreateAssistant = () => {
     </div>
   )
 
-  // Cleanup polling on unmount
+  const [websiteUrl, setWebsiteUrl] = useState('')
+  const [isScraping, setIsScraping] = useState(false)
+  const [scrapeProgress, setScrapeProgress] = useState('')
+  const [scrapeJobId, setScrapeJobId] = useState<string | null>(null)
+  const [scrapeRecordId, setScrapeRecordId] = useState<string | null>(null)
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
 
+  // Cleanup polling on unmount
   useEffect(() => {
     return () => {
-      if (isPolling) {
-        setIsPolling(false);
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
       }
     }
-  }, [isPolling])
+  }, [pollingInterval])
 
   const handleScrapeWebsite = async () => {
     setIsScraping(true)
@@ -611,32 +491,66 @@ const CreateAssistant = () => {
           // Check if completed
           if (status === 'completed') {
             clearInterval(interval)
-            setIsPolling(false)
+            setPollingInterval(null)
             
-            setScrapeProgress('✅ Scrape complete! AI processing in background...')
+            setScrapeProgress('✅ Scrape complete! Processing knowledge base with AI...')
+
+            // Stage 3: AI-powered knowledge base structuring
+            const { data: processData, error: processError } = await supabase.functions.invoke('process-knowledge-base', {
+              body: { 
+                rawPages: scrapedData,
+                websiteUrl: websiteUrl
+              },
+              headers: { Authorization: `Bearer ${token}` }
+            })
+
+            if (processError) throw processError
+
+            if (!processData.success) {
+              throw new Error(processData.error || 'Failed to process knowledge base')
+            }
+
+            setScrapeProgress(`✅ Processed ${processData.pagesProcessed} pages with AI (${processData.sizeKB}KB)`)
             
-            // Clear scraping state but keep the record ID for later
+            // Convert base64 file back to File object
+            const response = await fetch(processData.file.data)
+            const blob = await response.blob()
+            const file = new File([blob], processData.file.name, { type: 'text/plain' })
+
+            // Add to uploaded files
+            setAssistantData({
+              ...assistantData,
+              uploadedFiles: [...assistantData.uploadedFiles, file]
+            })
+
+            toast({
+              title: "Success!",
+              description: `AI processed ${processData.pagesProcessed} pages into structured knowledge base`,
+            })
+
+            // Clear state
             setWebsiteUrl('')
             setIsScraping(false)
+            setScrapeProgress('')
             setScrapeJobId(null)
-
+            setScrapeRecordId(null)
           } 
           // Check if failed
           else if (status === 'failed') {
             clearInterval(interval)
-            setIsPolling(false)
+            setPollingInterval(null)
             throw new Error('Scraping job failed')
           }
           // Check timeout
           else if (attempts >= maxAttempts) {
             clearInterval(interval)
-            setIsPolling(false)
+            setPollingInterval(null)
             throw new Error('Scraping timed out after 10 minutes. Please try a smaller website.')
           }
 
         } catch (pollingError: any) {
           clearInterval(interval)
-          setIsPolling(false)
+          setPollingInterval(null)
           setIsScraping(false)
           setScrapeProgress('')
           
@@ -648,12 +562,16 @@ const CreateAssistant = () => {
         }
       }, 5000) // Poll every 5 seconds
 
-      setIsPolling(true)
+      setPollingInterval(interval)
 
     } catch (error: any) {
       console.error('Scraping error:', error)
       
-      setIsPolling(false)
+      // Clear any polling
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+        setPollingInterval(null)
+      }
       
       toast({
         title: "Error",

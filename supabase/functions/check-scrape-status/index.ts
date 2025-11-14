@@ -224,48 +224,14 @@ serve(async (req) => {
 
     // Handle completed status
     if (jobStatus.status === 'completed') {
-      dbStatus = 'scraped'; // Changed from 'completed' to 'scraped'
+      dbStatus = 'completed';
       updateData = {
         ...updateData,
-        status: 'scraped',
-        raw_pages: jobStatus.data || [], // Save raw pages for async processing
-        processing_status: 'pending', // Set processing status to pending
-        scraped_at: new Date().toISOString(),
+        status: 'completed',
+        raw_data: jobStatus.data || [],
+        completed_at: new Date().toISOString(),
       };
       console.log(`✅ Scrape completed: ${jobStatus.data?.length || 0} pages retrieved`);
-      
-      // Trigger async AI processing ONLY ONCE when transitioning to 'scraped'
-      if (recordId && jobStatus.data && jobStatus.data.length > 0) {
-        // Check if we should trigger async processing (only if status is 'pending')
-        const { data: dbRecord } = await supabase
-          .from('scraped_websites')
-          .select('processing_status')
-          .eq('id', recordId)
-          .single();
-        
-        if (dbRecord?.processing_status === 'pending') {
-          console.log('🚀 Triggering async AI processing (first time)...');
-          try {
-            // Trigger async processing (fire and forget)
-            fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/process-knowledge-base-async`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ recordId })
-            }).catch(error => {
-              console.error('⚠️ Failed to trigger async processing:', error);
-            });
-            
-            console.log('✅ Async processing triggered successfully');
-          } catch (error) {
-            console.error('⚠️ Error triggering async processing:', error);
-          }
-        } else {
-          console.log(`⏭️ Skipping async trigger - processing_status is '${dbRecord?.processing_status}'`);
-        }
-      }
     } 
     // Handle failed status
     else if (jobStatus.status === 'failed') {
@@ -292,26 +258,6 @@ serve(async (req) => {
       }
     }
 
-    // Get processing status for completed scrapes
-    let processingStatus = 'pending';
-    let knowledgeBaseReady = false;
-    let structuredData = null;
-    
-    if (jobStatus.status === 'completed' && recordId) {
-      // Get processing status from database
-      const { data: dbRecord } = await supabase
-        .from('scraped_websites')
-        .select('processing_status, structured_data, knowledge_base_content')
-        .eq('id', recordId)
-        .single();
-      
-      if (dbRecord) {
-        processingStatus = dbRecord.processing_status || 'pending';
-        knowledgeBaseReady = processingStatus === 'completed';
-        structuredData = dbRecord.structured_data;
-      }
-    }
-
     // Return current status to frontend
     return new Response(JSON.stringify({
       success: true,
@@ -323,13 +269,6 @@ serve(async (req) => {
       expiresAt: jobStatus.expiresAt,
       degraded: degraded,
       apiMode: apiMode,
-      // New async processing fields
-      processingStatus: processingStatus,
-      knowledgeBaseReady: knowledgeBaseReady,
-      structuredData: knowledgeBaseReady ? structuredData : null,
-      message: jobStatus.status === 'completed' ? 
-        (knowledgeBaseReady ? 'Knowledge base ready!' : 'Scraping complete! AI processing in background...') :
-        undefined
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
