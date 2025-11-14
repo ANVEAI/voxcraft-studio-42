@@ -7,9 +7,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 25;
 const BATCH_TIMEOUT_MS = 60000; // 60 seconds
 const MAX_RETRIES = 2;
+const MAX_CONTENT_LENGTH = 1500;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -73,12 +74,12 @@ serve(async (req) => {
         );
         console.log(`📋 Filtered ${validPages.length} valid pages from ${record.raw_pages.length} total`);
 
-        // Pre-structure pages
+        // Pre-structure pages with reduced content
         const preStructuredPages = validPages.map((page: any) => ({
           url: page.url || page.metadata?.sourceURL || '',
           title: page.metadata?.title || page.metadata?.ogTitle || '',
           description: page.metadata?.description || page.metadata?.ogDescription || '',
-          content: page.markdown?.substring(0, 3000) || '',
+          content: page.markdown?.substring(0, MAX_CONTENT_LENGTH) || '',
           keywords: []
         }));
         console.log(`📋 Pre-structured ${preStructuredPages.length} pages from scraped URLs`);
@@ -303,26 +304,24 @@ async function processBatchWithAI(
     setTimeout(() => reject(new Error(`Batch ${batchNum} timeout after ${ms}ms`)), ms)
   );
 
-  const systemPrompt = `You are a website content analyzer. Enhance the provided pages with relevant keywords and maintain their structure.
+  const systemPrompt = `You are a website content analyzer. Add 3-5 relevant keywords for each page based on its content.`;
 
-Return ONLY valid JSON in this exact format:
-{
-  "pages": [
-    {
-      "url": "page url",
-      "title": "page title",
-      "description": "brief description",
-      "content": "page content (max 3000 chars)",
-      "keywords": ["keyword1", "keyword2"]
-    }
-  ]
-}`;
+  // Create minimal summaries for the prompt (don't send full content back)
+  const pageSummaries = batch.map((page, idx) => ({
+    index: idx,
+    url: page.url,
+    title: page.title,
+    description: page.description,
+    contentPreview: page.content?.substring(0, 500) || ''
+  }));
 
   const userPrompt = `Analyze these ${batch.length} pages from ${websiteUrl} (batch ${batchNum}/${totalBatches}).
-For each page, add 3-5 relevant keywords based on the content.
+For each page, provide 3-5 relevant keywords.
 
 Pages:
-${JSON.stringify(batch, null, 2)}`;
+${JSON.stringify(pageSummaries, null, 2)}`;
+
+  console.log(`📦 Batch ${batchNum} payload: ${batch.length} pages, avg content: ${Math.round(batch.reduce((sum, p) => sum + (p.content?.length || 0), 0) / batch.length)} chars`);
 
   try {
     const aiResponse = await Promise.race([
@@ -338,8 +337,39 @@ ${JSON.stringify(batch, null, 2)}`;
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          temperature: 0.3,
-          max_tokens: 16000,
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "enhance_pages",
+                description: "Add 3-5 relevant keywords for each page in the batch",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          index: { type: "integer", description: "Page index in the batch" },
+                          keywords: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: "3-5 relevant keywords"
+                          }
+                        },
+                        required: ["index", "keywords"],
+                        additionalProperties: false
+                      }
+                    }
+                  },
+                  required: ["items"],
+                  additionalProperties: false
+                }
+              }
+            }
+          ],
+          tool_choice: { type: "function", function: { name: "enhance_pages" } }
         }),
       }),
       timeout(BATCH_TIMEOUT_MS)
@@ -347,29 +377,90 @@ ${JSON.stringify(batch, null, 2)}`;
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
+      if (aiResponse.status === 429) {
+        throw new Error(`Rate limit exceeded`);
+      }
+      if (aiResponse.status === 402) {
+        throw new Error(`Payment required - out of credits`);
+      }
       throw new Error(`AI API error (${aiResponse.status}): ${errorText}`);
     }
 
     const aiData = await aiResponse.json();
+    
+    // Try tool calling first (preferred)
+    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+    if (toolCall?.function?.name === "enhance_pages") {
+      try {
+        const toolResult = JSON.parse(toolCall.function.arguments);
+        
+        // Merge keywords back into batch pages
+        const enhancedPages = batch.map((page, idx) => {
+          const enhancement = toolResult.items?.find((item: any) => item.index === idx);
+          return {
+            ...page,
+            keywords: Array.isArray(enhancement?.keywords) ? enhancement.keywords : []
+          };
+        });
+
+        console.log(`✅ Batch ${batchNum} processed via tool calling: ${enhancedPages.length} pages`);
+        return { pages: enhancedPages };
+      } catch (parseError) {
+        console.error(`⚠️ Tool call parse error for batch ${batchNum}:`, parseError);
+        throw new Error(`Failed to parse tool call response: ${parseError.message}`);
+      }
+    }
+
+    // Fallback: try content-based parsing (with hardened extraction)
     const content = aiData.choices?.[0]?.message?.content;
-
     if (!content) {
-      throw new Error('No content in AI response');
+      throw new Error('No content or tool_calls in AI response');
     }
 
-    // Parse JSON
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    console.log(`⚠️ Batch ${batchNum} falling back to content parsing (tool call not used)`);
+
+    // Sanitize content
+    let sanitized = content
+      .replace(/```[\s\S]*?```/g, '') // Remove code fences
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ') // Remove control chars
+      .replace(/\\(?!["\\/bfnrtu])/g, '\\\\'); // Escape invalid backslashes
+
+    // Non-greedy JSON extraction
+    const jsonMatch = sanitized.match(/\{[\s\S]*?\}/);
     if (!jsonMatch) {
-      throw new Error('No JSON found in AI response');
+      const snippet = sanitized.substring(0, 300);
+      throw new Error(`No JSON found in response. Snippet: ${snippet}...`);
     }
 
-    const result = JSON.parse(jsonMatch[0]);
+    try {
+      const result = JSON.parse(jsonMatch[0]);
+      
+      if (!result.items || !Array.isArray(result.items)) {
+        throw new Error('Invalid fallback response structure (expected items array)');
+      }
 
-    if (!result.pages || !Array.isArray(result.pages)) {
-      throw new Error('Invalid response structure');
+      // Merge keywords back into batch pages
+      const enhancedPages = batch.map((page, idx) => {
+        const enhancement = result.items?.find((item: any) => item.index === idx);
+        return {
+          ...page,
+          keywords: Array.isArray(enhancement?.keywords) ? enhancement.keywords : []
+        };
+      });
+
+      console.log(`✅ Batch ${batchNum} processed via fallback: ${enhancedPages.length} pages`);
+      return { pages: enhancedPages };
+      
+    } catch (parseError) {
+      // Log snippet around error for debugging
+      const errorPos = parseError.message?.match(/position (\d+)/)?.[1];
+      if (errorPos) {
+        const pos = parseInt(errorPos);
+        const snippet = jsonMatch[0].substring(Math.max(0, pos - 150), Math.min(jsonMatch[0].length, pos + 150));
+        console.error(`❌ JSON parse error at position ${errorPos}. Snippet: ...${snippet}...`);
+      }
+      throw new Error(`JSON parse failed: ${parseError.message}`);
     }
-
-    return result;
 
   } catch (error) {
     console.error(`❌ Batch ${batchNum} processing error:`, error);
