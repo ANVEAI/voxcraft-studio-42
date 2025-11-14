@@ -234,25 +234,36 @@ serve(async (req) => {
       };
       console.log(`✅ Scrape completed: ${jobStatus.data?.length || 0} pages retrieved`);
       
-      // Trigger async AI processing
+      // Trigger async AI processing ONLY ONCE when transitioning to 'scraped'
       if (recordId && jobStatus.data && jobStatus.data.length > 0) {
-        console.log('🚀 Triggering async AI processing...');
-        try {
-          // Trigger async processing (fire and forget)
-          fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/process-knowledge-base-async`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ recordId })
-          }).catch(error => {
-            console.error('⚠️ Failed to trigger async processing:', error);
-          });
-          
-          console.log('✅ Async processing triggered successfully');
-        } catch (error) {
-          console.error('⚠️ Error triggering async processing:', error);
+        // Check if we should trigger async processing (only if status is 'pending')
+        const { data: dbRecord } = await supabase
+          .from('scraped_websites')
+          .select('processing_status')
+          .eq('id', recordId)
+          .single();
+        
+        if (dbRecord?.processing_status === 'pending') {
+          console.log('🚀 Triggering async AI processing (first time)...');
+          try {
+            // Trigger async processing (fire and forget)
+            fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/process-knowledge-base-async`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ recordId })
+            }).catch(error => {
+              console.error('⚠️ Failed to trigger async processing:', error);
+            });
+            
+            console.log('✅ Async processing triggered successfully');
+          } catch (error) {
+            console.error('⚠️ Error triggering async processing:', error);
+          }
+        } else {
+          console.log(`⏭️ Skipping async trigger - processing_status is '${dbRecord?.processing_status}'`);
         }
       }
     } 
