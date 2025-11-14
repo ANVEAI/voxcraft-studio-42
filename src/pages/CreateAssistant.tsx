@@ -13,6 +13,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { supabase } from '@/integrations/supabase/client'
 import { useToast } from '@/hooks/use-toast'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { createAsyncProcessingManager } from '@/utils/asyncProcessingNotifications'
 
 
 interface AssistantData {
@@ -495,45 +496,16 @@ const CreateAssistant = () => {
             
             setScrapeProgress('✅ Scrape complete! Processing knowledge base with AI...')
 
-            // Stage 3: AI-powered knowledge base structuring
-            const { data: processData, error: processError } = await supabase.functions.invoke('process-knowledge-base', {
-              body: { 
-                rawPages: scrapedData,
-                websiteUrl: websiteUrl
-              },
-              headers: { Authorization: `Bearer ${token}` }
-            })
-
-            if (processError) throw processError
-
-            if (!processData.success) {
-              throw new Error(processData.error || 'Failed to process knowledge base')
-            }
-
-            setScrapeProgress(`✅ Processed ${processData.pagesProcessed} pages with AI (${processData.sizeKB}KB)`)
+            // TEMPORARY: Just show that scraping is complete and async processing will happen
+            setScrapeProgress('✅ Scrape complete! AI processing in background...')
             
-            // Convert base64 file back to File object
-            const response = await fetch(processData.file.data)
-            const blob = await response.blob()
-            const file = new File([blob], processData.file.name, { type: 'text/plain' })
-
-            // Add to uploaded files
-            setAssistantData({
-              ...assistantData,
-              uploadedFiles: [...assistantData.uploadedFiles, file]
-            })
-
-            toast({
-              title: "Success!",
-              description: `AI processed ${processData.pagesProcessed} pages into structured knowledge base`,
-            })
-
-            // Clear state
+            // Clear scraping state but keep the record ID for later
             setWebsiteUrl('')
             setIsScraping(false)
-            setScrapeProgress('')
+            // Don't clear setScrapeProgress('') yet - keep showing the message
             setScrapeJobId(null)
-            setScrapeRecordId(null)
+            // Don't clear setScrapeRecordId(null) yet - we need it for async processing
+
           } 
           // Check if failed
           else if (status === 'failed') {
