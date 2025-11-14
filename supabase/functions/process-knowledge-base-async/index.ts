@@ -48,10 +48,11 @@ serve(async (req) => {
         message: 'Record already being processed'
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 202
       });
     }
 
-    // Update status to 'processing'
+    // Update status to 'processing' immediately
     await supabase
       .from('scraped_websites')
       .update({ 
@@ -60,60 +61,87 @@ serve(async (req) => {
       })
       .eq('id', recordId);
 
-    console.log(`📋 Processing ${record.raw_pages.length} pages for ${record.url}`);
-
-    // Get Lovable API key
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
-    }
-
-    // Process pages with AI (reuse existing logic)
-    const structuredData = await processPagesWithAI(record.raw_pages, record.url, LOVABLE_API_KEY);
-    
-    // Generate knowledge base TXT
-    const txtContent = generateKnowledgeBaseTXT(structuredData);
-    
-    // Convert to base64 for storage
-    const encoder = new TextEncoder();
-    const txtBytes = encoder.encode(txtContent);
-    const base64Content = btoa(String.fromCharCode(...txtBytes));
-    const sizeKB = Math.round(txtBytes.length / 1024);
-    
-    // Save results and update status
-    const { error: updateError } = await supabase
-      .from('scraped_websites')
-      .update({
-        processing_status: 'completed',
-        structured_data: structuredData,
-        knowledge_base_content: txtContent,
-        pages_scraped: structuredData.pages.length,
-        total_size_kb: sizeKB,
-        processed_at: new Date().toISOString(),
-        last_checked_at: new Date().toISOString()
-      })
-      .eq('id', recordId);
-
-    if (updateError) {
-      throw new Error(`Failed to save results: ${updateError.message}`);
-    }
-
-    // Notify user via WebSocket
-    await notifyUser(supabase, record.user_id, recordId, 'completed', {
-      pagesProcessed: structuredData.pages.length,
-      sizeKB: sizeKB,
-      websiteUrl: record.url
+    // Return immediately with 202 Accepted
+    const response = new Response(JSON.stringify({
+      success: true,
+      message: 'AI processing started in background',
+      recordId: recordId
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 202
     });
 
-    console.log(`✅ Async processing complete: ${structuredData.pages.length} pages, ${sizeKB}KB`);
+    // Use waitUntil to continue processing in background
+    // @ts-ignore - EdgeRuntime is available in Supabase Edge Functions
+    EdgeRuntime.waitUntil((async () => {
+      try {
+        console.log(`📋 Processing ${record.raw_pages.length} pages for ${record.url}`);
 
-    return new Response(JSON.stringify({
-      success: true,
-      recordId: recordId,
-      pagesProcessed: structuredData.pages.length,
-      sizeKB: sizeKB,
-      message: 'AI processing completed successfully'
-    }), {
+        // Get Lovable API key
+        const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+        if (!LOVABLE_API_KEY) {
+          throw new Error('LOVABLE_API_KEY not configured');
+        }
+
+        // Process pages with AI (reuse existing logic)
+        const structuredData = await processPagesWithAI(record.raw_pages, record.url, LOVABLE_API_KEY);
+        
+        // Generate knowledge base TXT
+        const txtContent = generateKnowledgeBaseTXT(structuredData);
+        
+        // Convert to base64 for storage
+        const encoder = new TextEncoder();
+        const txtBytes = encoder.encode(txtContent);
+        const base64Content = btoa(String.fromCharCode(...txtBytes));
+        const sizeKB = Math.round(txtBytes.length / 1024);
+        
+        // Save results and update status
+        const { error: updateError } = await supabase
+          .from('scraped_websites')
+          .update({
+            processing_status: 'completed',
+            structured_data: structuredData,
+            knowledge_base_content: txtContent,
+            pages_scraped: structuredData.pages.length,
+            total_size_kb: sizeKB,
+            processed_at: new Date().toISOString(),
+            last_checked_at: new Date().toISOString()
+          })
+          .eq('id', recordId);
+
+        if (updateError) {
+          throw new Error(`Failed to save results: ${updateError.message}`);
+        }
+
+        // Notify user via WebSocket
+        await notifyUser(supabase, record.user_id, recordId, 'completed', {
+          pagesProcessed: structuredData.pages.length,
+          sizeKB: sizeKB,
+          websiteUrl: record.url
+        });
+
+        console.log(`✅ Async processing complete: ${structuredData.pages.length} pages, ${sizeKB}KB`);
+      } catch (error) {
+        console.error('❌ Background processing failed:', error);
+        
+        // Update status to failed
+        await supabase
+          .from('scraped_websites')
+          .update({
+            processing_status: 'failed',
+            error_message: error instanceof Error ? error.message : 'Unknown error during AI processing',
+            last_checked_at: new Date().toISOString()
+          })
+          .eq('id', recordId);
+
+        // Notify user of failure
+        await notifyUser(supabase, record.user_id, recordId, 'failed', {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    })());
+
+    return response;
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
