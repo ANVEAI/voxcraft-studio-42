@@ -387,7 +387,7 @@ ${JSON.stringify(pageSummaries, null, 2)}`;
   console.log(`📦 Batch ${batchNum} payload: ${batch.length} pages, avg content: ${Math.round(batch.reduce((sum, p) => sum + (p.content?.length || 0), 0) / batch.length)} chars`);
 
   try {
-    const aiResponse = await Promise.race([
+    const aiResponse: Response = await Promise.race([
       fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -469,8 +469,9 @@ ${JSON.stringify(pageSummaries, null, 2)}`;
         console.log(`✅ Batch ${batchNum} processed via tool calling: ${enhancedPages.length} pages`);
         return { pages: enhancedPages };
       } catch (parseError) {
-        console.error(`⚠️ Tool call parse error for batch ${batchNum}:`, parseError);
-        throw new Error(`Failed to parse tool call response: ${parseError.message}`);
+        const error = parseError as Error;
+        console.error(`⚠️ Tool call parse error for batch ${batchNum}:`, error);
+        throw new Error(`Failed to parse tool call response: ${error.message}`);
       }
     }
 
@@ -515,14 +516,15 @@ ${JSON.stringify(pageSummaries, null, 2)}`;
       return { pages: enhancedPages };
       
     } catch (parseError) {
+      const error = parseError as Error;
       // Log snippet around error for debugging
-      const errorPos = parseError.message?.match(/position (\d+)/)?.[1];
+      const errorPos = error.message?.match(/position (\d+)/)?.[1];
       if (errorPos) {
         const pos = parseInt(errorPos);
         const snippet = jsonMatch[0].substring(Math.max(0, pos - 150), Math.min(jsonMatch[0].length, pos + 150));
         console.error(`❌ JSON parse error at position ${errorPos}. Snippet: ...${snippet}...`);
       }
-      throw new Error(`JSON parse failed: ${parseError.message}`);
+      throw new Error(`JSON parse failed: ${error.message}`);
     }
 
   } catch (error) {
