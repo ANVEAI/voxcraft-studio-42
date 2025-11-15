@@ -573,7 +573,7 @@ const CreateAssistant = () => {
       // Stage 2: Poll for status every 5 seconds
       let attempts = 0
       let consecutiveErrors = 0
-      const maxAttempts = 360 // 30 minutes max (360 * 5 seconds) - increased for deep crawls with 500 pages
+      const maxAttempts = 1440 // 120 minutes max (1440 * 5 seconds)
       const maxConsecutiveErrors = 3
       
       const interval = setInterval(async () => {
@@ -631,7 +631,7 @@ const CreateAssistant = () => {
           else if (attempts >= maxAttempts) {
             clearInterval(interval)
             setIsPolling(false)
-            throw new Error('Scraping timed out after 10 minutes. Please try a smaller website.')
+            throw new Error('Scraping timed out after 120 minutes. Please try a smaller website.')
           }
 
         } catch (pollingError: any) {
