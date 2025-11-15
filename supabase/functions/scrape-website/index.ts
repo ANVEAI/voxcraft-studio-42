@@ -83,7 +83,7 @@ serve(async (req) => {
       sitemap: 'include',             // Use sitemap + discover more links
       crawlEntireDomain: true,        // Crawl siblings/parents, not just children
       ignoreQueryParameters: true,    // Ignore query params for cleaner URLs
-      limit: 200,                     // Max pages to crawl
+      limit: 500,                     // Max pages to crawl
       allowExternalLinks: false,      // Stay within the domain
       allowSubdomains: false,         // Don't crawl subdomains
       maxConcurrency: 10,             // Parallel scraping
