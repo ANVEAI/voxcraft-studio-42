@@ -328,15 +328,24 @@ export type Database = {
       scraped_websites: {
         Row: {
           assistant_id: string | null
+          batch_errors: Json | null
           completed_at: string | null
           created_at: string | null
+          current_batch: number | null
           error_message: string | null
           firecrawl_job_id: string | null
           id: string
+          knowledge_base_content: string | null
           last_checked_at: string | null
           pages_scraped: number | null
+          processed_at: string | null
+          processing_status: string | null
           raw_data: Json | null
+          raw_pages: Json | null
+          scraped_at: string | null
           status: string
+          structured_data: Json | null
+          total_batches: number | null
           total_size_kb: number | null
           url: string
           user_id: string
@@ -344,15 +353,24 @@ export type Database = {
         }
         Insert: {
           assistant_id?: string | null
+          batch_errors?: Json | null
           completed_at?: string | null
           created_at?: string | null
+          current_batch?: number | null
           error_message?: string | null
           firecrawl_job_id?: string | null
           id?: string
+          knowledge_base_content?: string | null
           last_checked_at?: string | null
           pages_scraped?: number | null
+          processed_at?: string | null
+          processing_status?: string | null
           raw_data?: Json | null
+          raw_pages?: Json | null
+          scraped_at?: string | null
           status?: string
+          structured_data?: Json | null
+          total_batches?: number | null
           total_size_kb?: number | null
           url: string
           user_id: string
@@ -360,15 +378,24 @@ export type Database = {
         }
         Update: {
           assistant_id?: string | null
+          batch_errors?: Json | null
           completed_at?: string | null
           created_at?: string | null
+          current_batch?: number | null
           error_message?: string | null
           firecrawl_job_id?: string | null
           id?: string
+          knowledge_base_content?: string | null
           last_checked_at?: string | null
           pages_scraped?: number | null
+          processed_at?: string | null
+          processing_status?: string | null
           raw_data?: Json | null
+          raw_pages?: Json | null
+          scraped_at?: string | null
           status?: string
+          structured_data?: Json | null
+          total_batches?: number | null
           total_size_kb?: number | null
           url?: string
           user_id?: string
