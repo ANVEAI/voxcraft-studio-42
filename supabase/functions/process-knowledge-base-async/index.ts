@@ -74,69 +74,14 @@ serve(async (req) => {
         );
         console.log(`📋 Filtered ${validPages.length} valid pages from ${record.raw_pages.length} total`);
 
-        // Pre-structure pages with reduced content and navigation metadata
-        const preStructuredPages = validPages.map((page: any, index: number) => {
-          const url = page.url || page.metadata?.sourceURL || '';
-
-          // Derive a human-friendly page name
-          let pageName: string;
-          try {
-            const urlObj = new URL(url);
-            const pathParts = urlObj.pathname.split('/').filter((p) => p);
-            const lastPart = pathParts[pathParts.length - 1] || 'home';
-            pageName =
-              page.metadata?.title ||
-              lastPart
-                .replace(/[-_]/g, ' ')
-                .split(' ')
-                .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' ');
-          } catch {
-            pageName = page.metadata?.title || 'Unknown Page';
-          }
-
-          // Derive a simple parent name from URL path (for navigation)
-          let parent: string | null = null;
-          try {
-            const urlObj = new URL(url);
-            const pathParts = urlObj.pathname.split('/').filter((p) => p);
-            if (pathParts.length > 1) {
-              const parentPart = pathParts[pathParts.length - 2];
-              parent = parentPart
-                .replace(/[-_]/g, ' ')
-                .split(' ')
-                .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' ');
-            }
-          } catch {
-            parent = null;
-          }
-
-          // Simple importance heuristic: homepage / top-level paths are high importance
-          let importance: 'high' | 'medium' | 'low' = 'medium';
-          try {
-            const urlObj = new URL(url);
-            const pathParts = urlObj.pathname.split('/').filter((p) => p);
-            if (url === record.url || pathParts.length <= 1) {
-              importance = 'high';
-            }
-          } catch {
-            // leave as medium
-          }
-
-          return {
-            id: `page_${index}`,
-            url,
-            page_name: pageName,
-            title: page.metadata?.title || page.metadata?.ogTitle || '',
-            description: page.metadata?.description || page.metadata?.ogDescription || '',
-            content: page.markdown?.substring(0, MAX_CONTENT_LENGTH) || '',
-            keywords: [],
-            category: 'Information',
-            importance,
-            parent
-          };
-        });
+        // Pre-structure pages with reduced content
+        const preStructuredPages = validPages.map((page: any) => ({
+          url: page.url || page.metadata?.sourceURL || '',
+          title: page.metadata?.title || page.metadata?.ogTitle || '',
+          description: page.metadata?.description || page.metadata?.ogDescription || '',
+          content: page.markdown?.substring(0, MAX_CONTENT_LENGTH) || '',
+          keywords: []
+        }));
         console.log(`📋 Pre-structured ${preStructuredPages.length} pages from scraped URLs`);
 
         // Initialize batch processing on first run
@@ -249,22 +194,14 @@ serve(async (req) => {
           // Final processing: merge all batches
           console.log(`🎯 Final batch complete. Merging ${updatedPages.length} total pages...`);
 
-          const siteInfo = {
-            name: (() => {
-              try {
-                return new URL(record.url).hostname;
-              } catch {
-                return record.url;
-              }
-            })(),
-            base_url: record.url,
-            description: updatedPages[0]?.description || '',
-            total_pages: updatedPages.length
-          };
-
           const finalData = {
-            site_info: siteInfo,
-            navigation_structure: buildNavigationStructure(updatedPages),
+            site_info: {
+              url: record.url,
+              title: updatedPages[0]?.title || '',
+              description: updatedPages[0]?.description || '',
+              total_pages: updatedPages.length
+            },
+            navigation: buildNavigationStructure(updatedPages),
             pages: updatedPages
           };
 
@@ -387,7 +324,7 @@ ${JSON.stringify(pageSummaries, null, 2)}`;
   console.log(`📦 Batch ${batchNum} payload: ${batch.length} pages, avg content: ${Math.round(batch.reduce((sum, p) => sum + (p.content?.length || 0), 0) / batch.length)} chars`);
 
   try {
-    const aiResponse: Response = await Promise.race([
+    const aiResponse = await Promise.race([
       fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -469,9 +406,8 @@ ${JSON.stringify(pageSummaries, null, 2)}`;
         console.log(`✅ Batch ${batchNum} processed via tool calling: ${enhancedPages.length} pages`);
         return { pages: enhancedPages };
       } catch (parseError) {
-        const error = parseError as Error;
-        console.error(`⚠️ Tool call parse error for batch ${batchNum}:`, error);
-        throw new Error(`Failed to parse tool call response: ${error.message}`);
+        console.error(`⚠️ Tool call parse error for batch ${batchNum}:`, parseError);
+        throw new Error(`Failed to parse tool call response: ${parseError.message}`);
       }
     }
 
@@ -516,15 +452,14 @@ ${JSON.stringify(pageSummaries, null, 2)}`;
       return { pages: enhancedPages };
       
     } catch (parseError) {
-      const error = parseError as Error;
       // Log snippet around error for debugging
-      const errorPos = error.message?.match(/position (\d+)/)?.[1];
+      const errorPos = parseError.message?.match(/position (\d+)/)?.[1];
       if (errorPos) {
         const pos = parseInt(errorPos);
         const snippet = jsonMatch[0].substring(Math.max(0, pos - 150), Math.min(jsonMatch[0].length, pos + 150));
         console.error(`❌ JSON parse error at position ${errorPos}. Snippet: ...${snippet}...`);
       }
-      throw new Error(`JSON parse failed: ${error.message}`);
+      throw new Error(`JSON parse failed: ${parseError.message}`);
     }
 
   } catch (error) {
@@ -535,97 +470,79 @@ ${JSON.stringify(pageSummaries, null, 2)}`;
 
 // Helper: Build navigation structure from pages
 function buildNavigationStructure(pages: any[]): any {
-  const mainPages = new Set<string>();
-  const subpages: { [key: string]: Set<string> } = {};
-
-  for (const page of pages) {
-    const pageName: string = page.page_name || page.title || page.url;
-
-    // Identify main pages (high importance or no parent)
-    if (page.importance === 'high' || !page.parent) {
-      mainPages.add(pageName);
+  const nav: any = {};
+  
+  pages.forEach(page => {
+    try {
+      const url = new URL(page.url);
+      const pathParts = url.pathname.split('/').filter(p => p);
+      
+      let current = nav;
+      pathParts.forEach((part, index) => {
+        if (!current[part]) {
+          current[part] = index === pathParts.length - 1 ? page.url : {};
+        }
+        if (typeof current[part] === 'object') {
+          current = current[part];
+        }
+      });
+    } catch (e) {
+      // Skip invalid URLs
     }
-
-    // Build parent-child relationships
-    if (page.parent) {
-      if (!subpages[page.parent]) {
-        subpages[page.parent] = new Set<string>();
-      }
-      subpages[page.parent].add(pageName);
-    }
-  }
-
-  return {
-    main_pages: Array.from(mainPages),
-    subpages: Object.fromEntries(
-      Object.entries(subpages).map(([parent, children]) => [parent, Array.from(children)])
-    )
-  };
+  });
+  
+  return nav;
 }
 
-// Helper: Generate knowledge base text file (compact, navigation-focused)
+// Helper: Generate knowledge base text file
 function generateKnowledgeBaseTXT(data: any): string {
-  let txt = `# Knowledge Base: ${data.site_info.name}\n`;
-  txt += `Generated: ${new Date().toISOString()}\n`;
-  txt += `Base URL: ${data.site_info.base_url}\n`;
-  txt += `Description: ${data.site_info.description}\n`;
-  txt += `Total Pages: ${data.pages.length}\n\n`;
-  txt += `---\n\n`;
-
-  // Navigation Structure
-  txt += `## Navigation Structure\n\n`;
-  txt += `Main Pages: ${data.navigation_structure.main_pages.join(', ')}\n\n`;
-
-  if (data.navigation_structure.subpages) {
-    for (const [parent, children] of Object.entries(data.navigation_structure.subpages)) {
-      txt += `${parent} → ${(children as string[]).join(', ')}\n`;
-    }
-  }
-  txt += `\n---\n\n`;
-
+  let txt = '';
+  
+  // Site Info
+  txt += '='.repeat(80) + '\n';
+  txt += 'WEBSITE KNOWLEDGE BASE\n';
+  txt += '='.repeat(80) + '\n\n';
+  txt += `Website: ${data.site_info?.url || 'Unknown'}\n`;
+  txt += `Title: ${data.site_info?.title || 'Unknown'}\n`;
+  txt += `Description: ${data.site_info?.description || 'No description'}\n`;
+  txt += `Total Pages: ${data.pages?.length || 0}\n`;
+  txt += `Generated: ${new Date().toISOString()}\n\n`;
+  
+  // Navigation
+  txt += '-'.repeat(80) + '\n';
+  txt += 'SITE NAVIGATION STRUCTURE\n';
+  txt += '-'.repeat(80) + '\n';
+  txt += JSON.stringify(data.navigation || {}, null, 2) + '\n\n';
+  
   // Page Index
-  txt += `## Page Index\n\n`;
-
-  const sortedPages = [...data.pages].sort((a: any, b: any) => {
-    const importanceOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
-    const aVal = importanceOrder[a.importance] ?? 1;
-    const bVal = importanceOrder[b.importance] ?? 1;
-    return aVal - bVal;
+  txt += '-'.repeat(80) + '\n';
+  txt += 'PAGE INDEX\n';
+  txt += '-'.repeat(80) + '\n';
+  (data.pages || []).forEach((page: any, index: number) => {
+    txt += `${index + 1}. ${page.title || 'Untitled'}\n`;
+    txt += `   URL: ${page.url}\n`;
+    txt += `   Keywords: ${(page.keywords || []).join(', ')}\n\n`;
   });
-
-  for (const page of sortedPages) {
-    const pageName: string = page.page_name || page.title || page.url;
-    const pageId = pageName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '');
-    txt += `### ${pageId}\n`;
+  
+  // Full Page Content
+  txt += '='.repeat(80) + '\n';
+  txt += 'FULL PAGE CONTENT\n';
+  txt += '='.repeat(80) + '\n\n';
+  
+  (data.pages || []).forEach((page: any, index: number) => {
+    txt += `\n${'#'.repeat(80)}\n`;
+    txt += `PAGE ${index + 1}: ${page.title || 'Untitled'}\n`;
+    txt += `${'#'.repeat(80)}\n\n`;
     txt += `URL: ${page.url}\n`;
-    txt += `Category: ${page.category || 'Information'}\n`;
-    txt += `Description: ${page.description}\n`;
-    txt += `Keywords: ${(page.keywords || []).join(', ')}\n`;
-    txt += `Importance: ${page.importance || 'medium'}\n`;
-    if (page.parent) {
-      txt += `Parent: ${page.parent}\n`;
-    }
-    txt += `\n`;
-  }
-
-  txt += `---\n\n`;
-
-  // Quick Reference
-  txt += `## Quick Reference\n\n`;
-  txt += `Most Important Pages:\n`;
-
-  const highPriorityPages = data.pages.filter((p: any) => p.importance === 'high');
-  highPriorityPages.forEach((page: any, idx: number) => {
-    const pageName: string = page.page_name || page.title || page.url;
-    txt += `${idx + 1}. ${pageName} → ${page.url}\n`;
+    txt += `Description: ${page.description || 'No description'}\n`;
+    txt += `Keywords: ${(page.keywords || []).join(', ')}\n\n`;
+    txt += '-'.repeat(80) + '\n';
+    txt += 'CONTENT:\n';
+    txt += '-'.repeat(80) + '\n';
+    txt += page.content || 'No content available';
+    txt += '\n\n';
   });
-
-  txt += `\n## Voice Command Examples\n\n`;
-  data.pages.slice(0, 5).forEach((page: any) => {
-    const pageName: string = page.page_name || page.title || page.url;
-    txt += `"Go to ${pageName.toLowerCase()}" → ${page.url}\n`;
-  });
-
+  
   return txt;
 }
 
