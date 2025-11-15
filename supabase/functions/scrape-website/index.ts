@@ -91,7 +91,7 @@ serve(async (req) => {
         formats: ['markdown'],        // Get markdown content
         onlyMainContent: true,        // Extract main content only
         waitFor: 1000,                // Wait 1s for JavaScript
-        timeout: 10000,               // 10s timeout per page
+        timeout: 20000,               // 20s timeout per page
         blockAds: true,               // Block ads for cleaner content
         location: { 
           country: 'US', 

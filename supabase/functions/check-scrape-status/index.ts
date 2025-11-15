@@ -15,7 +15,7 @@ const fetchWithRetries = async (input: string, init: RequestInit, retries = 3, b
   while (attempt <= retries) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+      const timeout = setTimeout(() => controller.abort(), 90000);
       const resp = await fetch(input, { ...init, signal: controller.signal });
       clearTimeout(timeout);
 
